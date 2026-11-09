@@ -1,0 +1,44 @@
+name: Build TAJIR Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Extract TAJIR project
+        run: unzip -q TAJIR_cloud_android_build_pack.zip
+
+      - name: Prepare Android project
+        working-directory: TAJIR_flutter_app
+        run: flutter create . --platforms=android --org com.tajir --project-name tajir_app --overwrite
+
+      - name: Get packages
+        working-directory: TAJIR_flutter_app
+        run: flutter pub get
+
+      - name: Build APK
+        working-directory: TAJIR_flutter_app
+        run: flutter build apk --debug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TAJIR-android-test-apk
+          path: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-debug.apk
