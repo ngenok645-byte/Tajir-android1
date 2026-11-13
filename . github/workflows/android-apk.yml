@@ -24,7 +24,7 @@ jobs:
           channel: stable
 
       - name: Extract TAJIR project
-        run: unzip -q TAJIR_cloud_android_build_pack.zip
+        run: unzip -q TAJIR_cloud_android_build_pack(1).zip
 
       - name: Prepare Android project
         working-directory: TAJIR_flutter_app
