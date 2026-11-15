@@ -1,7 +1,5 @@
 name: Build TAJIR Android APK
 
-name: Build TAJIR Android APK
-
 'on':
   workflow_dispatch:
   push:
