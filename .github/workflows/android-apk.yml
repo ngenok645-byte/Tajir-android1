@@ -55,11 +55,14 @@ jobs:
           print("Flutter source extracted successfully.")
           PY
 
+      - 
       - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
         run: |
+          rm -rf android
           flutter create . --platforms=android --org com.tajir --project-name tajir_app
           flutter pub get
+
 
       - name: Build Android APK
         working-directory: TAJIR_flutter_app
