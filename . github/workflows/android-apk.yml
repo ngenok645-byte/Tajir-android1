@@ -1,7 +1,7 @@
 
 name: Build TAJIR Android APK
 
-on:
+'on':
   workflow_dispatch:
   push:
     branches:
@@ -31,6 +31,11 @@ jobs:
         run: |
           unzip -q "TAJIR_cloud_android_build_pack (1).zip"
 
+      - name: Use updated TAJIR main.dart
+        run: |
+          test -f main.dart
+          cp main.dart TAJIR_flutter_app/lib/main.dart
+
       - name: Install Flutter dependencies
         working-directory: TAJIR_flutter_app
         run: |
@@ -39,11 +44,18 @@ jobs:
 
       - name: Build Android APK
         working-directory: TAJIR_flutter_app
-        run: flutter build apk --debug
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          flutter build apk --debug \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            --dart-define=TAJIR_PREVIEW=true \
+            --android-skip-build-dependency-validation
 
       - name: Upload TAJIR APK
         uses: actions/upload-artifact@v4
         with:
           name: TAJIR-Android-APK
           path: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-debug.apk
-# TAJIR Android APK build workflow
