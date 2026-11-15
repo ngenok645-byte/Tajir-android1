@@ -371,7 +371,7 @@ class _PreviewHomeState extends State<PreviewHome> {
       return;
     }
     final item = <String, String>{
-      'date': '\${selectedDate.year}-\${selectedDate.month.toString().padLeft(2, '0')}-\${selectedDate.day.toString().padLeft(2, '0')}',
+      'date': '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
       'product': product,
       'variety': product == 'Beans' ? beanVariety : product == 'Fertilizer' ? fertilizerType : '—',
       'quantity': q.toString(),
@@ -399,7 +399,7 @@ class _PreviewHomeState extends State<PreviewHome> {
         Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
           SizedBox(width: double.infinity, child: OutlinedButton.icon(
             onPressed: chooseDate, icon: const Icon(Icons.calendar_month),
-            label: Text('Date: \${selectedDate.year}-\${selectedDate.month.toString().padLeft(2, '0')}-\${selectedDate.day.toString().padLeft(2, '0')}'),
+            label: Text('Date: ${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}'),
           )),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
@@ -445,19 +445,19 @@ class _PreviewHomeState extends State<PreviewHome> {
               child: Text(message, style: const TextStyle(color: Colors.green))),
         ]))),
         const SizedBox(height: 16),
-        Text(isSale ? 'Preview sales (\${records.length})' : 'Preview purchases (\${records.length})',
+        Text(isSale ? 'Preview sales (${records.length})' : 'Preview purchases (${records.length})',
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         if (records.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('No entries added yet.')),
         ...records.map((r) => Card(child: ListTile(
-          title: Text('\${r['product']} • \${r['variety']}'),
-          subtitle: Text('\${r['date']}  |  \${r['quantity']} bags'),
-          trailing: Text('KES \${r['price']}'),
+          title: Text('${r['product']} • ${r['variety']}'),
+          subtitle: Text('${r['date']}  |  ${r['quantity']} bags'),
+          trailing: Text('KES ${r['price']}'),
         ))),
       ],
     );
   }
 
-  Widget homePage() => const ListView(padding: EdgeInsets.all(20), children: [
+  Widget homePage() => ListView(padding: EdgeInsets.all(20), children: [
     BrandMark(), SizedBox(height: 24),
     Text('Welcome to TAJIR', textAlign: TextAlign.center,
         style: TextStyle(fontSize: 23, fontWeight: FontWeight.bold)),
