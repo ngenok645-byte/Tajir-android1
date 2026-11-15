@@ -74,4 +74,3 @@ jobs:
         with:
           name: TAJIR-Android-Preview-APK
           path: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-debug.apk
-
