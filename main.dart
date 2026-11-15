@@ -307,56 +307,184 @@ Widget actionButton(String label,bool busy,VoidCallback fn)=>SizedBox(width:doub
 
 class PreviewHome extends StatefulWidget {
   const PreviewHome({super.key});
-
   @override
   State<PreviewHome> createState() => _PreviewHomeState();
 }
 
 class _PreviewHomeState extends State<PreviewHome> {
   int index = 0;
+  DateTime selectedDate = DateTime.now();
+  String product = 'Maize';
+  String beanVariety = 'Rosecoco';
+  String fertilizerType = 'DAP';
+  final beanVarieties = <String>['Rosecoco', 'Wairimu', 'Canadian Wonder', 'Mwitemania', 'Mwezi Moja', 'Nyayo'];
+  final fertilizerTypes = <String>['DAP', 'CAN', 'NPK', 'Urea', 'Planting fertilizer', 'Top-dressing fertilizer'];
+  final quantity = TextEditingController();
+  final price = TextEditingController();
+  final purchases = <Map<String, String>>[];
+  final sales = <Map<String, String>>[];
+  String message = '';
 
-  final labels = const [
-    'Dashboard', 'Purchases', 'Sales', 'Stock', 'Customers'
-  ];
+  @override
+  void dispose() {
+    quantity.dispose();
+    price.dispose();
+    super.dispose();
+  }
+
+  Future<void> addChoice(List<String> choices, bool isBean) async {
+    final controller = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isBean ? 'Add bean variety' : 'Add fertilizer type'),
+        content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'Name')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () {
+            final text = controller.text.trim();
+            if (text.isNotEmpty) Navigator.pop(context, text);
+          }, child: const Text('Add')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value != null && value.trim().isNotEmpty && !choices.contains(value.trim())) {
+      setState(() {
+        choices.add(value.trim());
+        if (isBean) { beanVariety = value.trim(); } else { fertilizerType = value.trim(); }
+      });
+    }
+  }
+
+  Future<void> chooseDate() async {
+    final picked = await showDatePicker(context: context, initialDate: selectedDate,
+        firstDate: DateTime(2020), lastDate: DateTime(2100));
+    if (picked != null) setState(() => selectedDate = picked);
+  }
+
+  void saveEntry(bool isSale) {
+    final q = double.tryParse(quantity.text.trim());
+    final p = double.tryParse(price.text.trim());
+    if (q == null || q <= 0 || p == null || p < 0) {
+      setState(() => message = 'Enter a valid quantity and price.');
+      return;
+    }
+    final item = <String, String>{
+      'date': '\${selectedDate.year}-\${selectedDate.month.toString().padLeft(2, '0')}-\${selectedDate.day.toString().padLeft(2, '0')}',
+      'product': product,
+      'variety': product == 'Beans' ? beanVariety : product == 'Fertilizer' ? fertilizerType : '—',
+      'quantity': q.toString(),
+      'price': p.toStringAsFixed(2),
+    };
+    setState(() {
+      (isSale ? sales : purchases).insert(0, item);
+      message = isSale ? 'Sale added to this preview.' : 'Purchase added to this preview.';
+      quantity.clear();
+      price.clear();
+    });
+  }
+
+  Widget entryPage(bool isSale) {
+    final records = isSale ? sales : purchases;
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(isSale ? 'Record a sale' : 'Record a purchase',
+            style: const TextStyle(fontSize: 23, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('Preview mode: entries stay on this screen and are not saved to the live database.',
+            style: TextStyle(color: Colors.deepOrange, fontSize: 12)),
+        const SizedBox(height: 16),
+        Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+          SizedBox(width: double.infinity, child: OutlinedButton.icon(
+            onPressed: chooseDate, icon: const Icon(Icons.calendar_month),
+            label: Text('Date: \${selectedDate.year}-\${selectedDate.month.toString().padLeft(2, '0')}-\${selectedDate.day.toString().padLeft(2, '0')}'),
+          )),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: product,
+            decoration: const InputDecoration(labelText: 'Product', border: OutlineInputBorder()),
+            items: const ['Maize', 'Beans', 'Fertilizer'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+            onChanged: (v) => setState(() { product = v ?? 'Maize'; message = ''; }),
+          ),
+          if (product == 'Beans') ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: beanVariety,
+              decoration: const InputDecoration(labelText: 'Bean variety', border: OutlineInputBorder()),
+              items: beanVarieties.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+              onChanged: (v) => setState(() => beanVariety = v ?? beanVarieties.first),
+            ),
+            TextButton.icon(onPressed: () => addChoice(beanVarieties, true),
+                icon: const Icon(Icons.add), label: const Text('Add another bean variety')),
+          ],
+          if (product == 'Fertilizer') ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: fertilizerType,
+              decoration: const InputDecoration(labelText: 'Fertilizer type', border: OutlineInputBorder()),
+              items: fertilizerTypes.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+              onChanged: (v) => setState(() => fertilizerType = v ?? fertilizerTypes.first),
+            ),
+            TextButton.icon(onPressed: () => addChoice(fertilizerTypes, false),
+                icon: const Icon(Icons.add), label: const Text('Add another fertilizer type')),
+          ],
+          const SizedBox(height: 12),
+          TextField(controller: quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Quantity (bags)', border: OutlineInputBorder())),
+          const SizedBox(height: 12),
+          TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(labelText: isSale ? 'Selling price per bag (KES)' : 'Buying price per bag (KES)',
+                  border: const OutlineInputBorder())),
+          const SizedBox(height: 16),
+          SizedBox(width: double.infinity, child: FilledButton.icon(
+              onPressed: () => saveEntry(isSale), icon: const Icon(Icons.save),
+              label: Text(isSale ? 'Add sale' : 'Add purchase'))),
+          if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 10),
+              child: Text(message, style: const TextStyle(color: Colors.green))),
+        ]))),
+        const SizedBox(height: 16),
+        Text(isSale ? 'Preview sales (\${records.length})' : 'Preview purchases (\${records.length})',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        if (records.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('No entries added yet.')),
+        ...records.map((r) => Card(child: ListTile(
+          title: Text('\${r['product']} • \${r['variety']}'),
+          subtitle: Text('\${r['date']}  |  \${r['quantity']} bags'),
+          trailing: Text('KES \${r['price']}'),
+        ))),
+      ],
+    );
+  }
+
+  Widget homePage() => const ListView(padding: EdgeInsets.all(20), children: [
+    BrandMark(), SizedBox(height: 24),
+    Text('Welcome to TAJIR', textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 23, fontWeight: FontWeight.bold)),
+    SizedBox(height: 12),
+    Text('Use Purchases and Sales to try the entry forms. This is a demonstration preview; records are temporary and are not sent to the live database.',
+        textAlign: TextAlign.center),
+  ]);
 
   @override
   Widget build(BuildContext context) {
-    final contents = [
-      'Welcome to TAJIR\n\nBusiness overview\n\nLocation: Ntulele\nProducts: Maize & Fertilizer\n\nThis is temporary preview data.',
-      'PURCHASES\n\nRecord and review maize and fertilizer purchases.\n\nPreview only — saving is disabled.',
-      'SALES\n\nRecord customer orders and payments.\n\nPreview only — saving is disabled.',
-      'STOCK\n\nMaize: Sample stock\nFertilizer: Sample stock\n\nPreview only.',
-      'CUSTOMERS\n\nCustomer records will appear here.\n\nPreview only.'
+    final pages = [
+      homePage(), entryPage(false), entryPage(true),
+      const Center(child: Text('Stock preview — live stock is not connected in preview mode.')),
+      const Center(child: Text('Customer preview — live customer records are not connected in preview mode.')),
     ];
-
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR - PREVIEW')),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Center(
-          child: Text(
-            contents[index],
-            style: const TextStyle(fontSize: 18),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ),
+      appBar: AppBar(title: const Text('TAJIR - INTERACTIVE PREVIEW')),
+      body: IndexedStack(index: index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
-        onDestinationSelected: (value) {
-          setState(() => index = value);
-        },
+        onDestinationSelected: (value) => setState(() { index = value; message = ''; }),
         destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.dashboard), label: 'Home'),
-          NavigationDestination(
-            icon: Icon(Icons.shopping_cart), label: 'Buy'),
-          NavigationDestination(
-            icon: Icon(Icons.point_of_sale), label: 'Sell'),
-          NavigationDestination(
-            icon: Icon(Icons.inventory), label: 'Stock'),
-          NavigationDestination(
-            icon: Icon(Icons.people), label: 'Customers'),
+          NavigationDestination(icon: Icon(Icons.dashboard), label: 'Home'),
+          NavigationDestination(icon: Icon(Icons.shopping_cart), label: 'Buy'),
+          NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'Sell'),
+          NavigationDestination(icon: Icon(Icons.inventory), label: 'Stock'),
+          NavigationDestination(icon: Icon(Icons.people), label: 'Customers'),
         ],
       ),
     );
