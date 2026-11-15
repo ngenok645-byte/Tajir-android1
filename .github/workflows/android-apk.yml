@@ -33,7 +33,11 @@ jobs:
       - name: Install Flutter dependencies
         working-directory: TAJIR_flutter_app
         run: |
+                - name: Install Flutter dependencies
+        working-directory: TAJIR_flutter_app
+        run: |
           flutter create . --platforms=android --org com.tajir --project-name tajir_app --overwrite
+          rm -f android/build.gradle android/app/build.gradle android/settings.gradle
           flutter pub get
 
       - name: Build Android APK
