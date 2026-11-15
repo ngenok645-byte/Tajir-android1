@@ -517,7 +517,8 @@ class _DemoLoginPageState extends State<DemoLoginPage> {
   );
 }
 
-class PreviewHome({super.key});
+class PreviewHome extends StatefulWidget {
+  const PreviewHome({super.key});
   @override
   State<PreviewHome> createState() => _PreviewHomeState();
 }
