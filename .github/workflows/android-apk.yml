@@ -1,5 +1,6 @@
 
 
+
 name: Build TAJIR Android APK
 
 'on':
@@ -28,28 +29,24 @@ jobs:
         with:
           channel: stable
 
-      - name: Extract TAJIR project
-        run: unzip -q "TAJIR_cloud_android_build_pack (1).zip"
+      - name: Extract TAJIR Flutter app
+        run: |
+          mkdir -p /tmp/tajir_source
+          unzip -q -o TAJIR_flutter_app.zip -d /tmp/tajir_source
+          PUBSPEC="$(find /tmp/tajir_source -name pubspec.yaml -print -quit)"
+          if [ -z "$PUBSPEC" ]; then
+            echo "ERROR: pubspec.yaml not found"
+            exit 1
+          fi
+          mkdir -p TAJIR_flutter_app
+          cp -a "$(dirname "$PUBSPEC")"/. TAJIR_flutter_app/
 
-      - name: Install Flutter dependencies
+      - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
         run: |
           flutter create . --platforms=android --org com.tajir --project-name tajir_app
-          rm -f android/build.gradle
-          rm -f android/app/build.gradle
-          rm -f android/settings.gradle
-          sed -i 's/gradle-[0-9.]*-\(all\|bin\)\.zip/gradle-9.5.0-bin.zip/' android/gradle/wrapper/gradle-wrapper.properties
           flutter pub get
-      - name: Extract TAJIR Flutter app
-        run: |
-          mkdir -p TAJIR_flutter_app
-          unzip -q -o Tajir_flutter_app.zip -d /tmp/tajir_source
-          PUBSPEC="$(find /tmp/tajir_source -name pubspec.yaml -print -quit)"
-          if [ -z "$PUBSPEC" ]; then
-            echo "pubspec.yaml not found in ZIP"
-            exit 1
-          fi
-          cp -a "$(dirname "$PUBSPEC")"/. TAJIR_flutter_app/
+
       - name: Build Android APK
         working-directory: TAJIR_flutter_app
         env:
