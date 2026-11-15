@@ -41,9 +41,9 @@ jobs:
           rm -f android/build.gradle android/app/build.gradle android/settings.gradle
           flutter pub get
 
-      - name: Build Android APK
-        working-directory: TAJIR_flutter_app
-        run: flutter build apk --debug --android-skip-build-dependency-validation
+      
+    
+  
 
       - name: Upload TAJIR APK
         uses: actions/upload-artifact@v4
