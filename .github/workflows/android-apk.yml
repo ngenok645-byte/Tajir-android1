@@ -8,6 +8,7 @@ name: Build TAJIR Android Preview APK
   push:
     branches:
       - main
+      - demo-phone-pin-login
 
 jobs:
   build:
