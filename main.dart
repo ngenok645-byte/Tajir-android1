@@ -457,6 +457,61 @@ class _PreviewHomeState extends State<PreviewHome> {
     );
   }
 
+  Widget stockPage() {
+    final balances = <String, Map<String, dynamic>>{};
+    for (final entry in purchases) {
+      final key = '${entry['product']} • ${entry['variety']}';
+      final row = balances.putIfAbsent(key, () => {'product': entry['product'], 'variety': entry['variety'], 'quantity': 0.0});
+      row['quantity'] = (row['quantity'] as double) + (double.tryParse(entry['quantity'] ?? '0') ?? 0);
+    }
+    for (final entry in sales) {
+      final key = '${entry['product']} • ${entry['variety']}';
+      final row = balances.putIfAbsent(key, () => {'product': entry['product'], 'variety': entry['variety'], 'quantity': 0.0});
+      row['quantity'] = (row['quantity'] as double) - (double.tryParse(entry['quantity'] ?? '0') ?? 0);
+    }
+    final rows = balances.values.toList()
+      ..sort((a, b) => (a['product'] as String).compareTo(b['product'] as String));
+    final total = rows.fold<double>(0, (sum, row) => sum + (row['quantity'] as double));
+    return ListView(padding: const EdgeInsets.all(16), children: [
+      const Text('Stock overview', style: TextStyle(fontSize: 23, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 6),
+      const Text('Preview stock is calculated from the purchases and sales entered in this demo. It is not yet saved to the live database.',
+          style: TextStyle(color: Colors.deepOrange, fontSize: 12)),
+      const SizedBox(height: 14),
+      Row(children: [
+        Expanded(child: Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Items tracked'), Text('${rows.length}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        ])))),
+        Expanded(child: Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Net bags in stock'), Text(total.toStringAsFixed(2), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        ])))),
+      ]),
+      const SizedBox(height: 8),
+      const Text('Available stock by product', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      if (rows.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(18), child: Text('No stock yet. Add a purchase from the Buy screen to see stock here.'))),
+      ...rows.map((row) {
+        final quantity = row['quantity'] as double;
+        final isLow = quantity <= 5;
+        return Card(child: ListTile(
+          leading: Icon(Icons.inventory_2, color: quantity <= 0 ? Colors.red : isLow ? Colors.orange : brandGreen),
+          title: Text('${row['product']} • ${row['variety']}'),
+          subtitle: Text(quantity <= 0 ? 'Out of stock' : isLow ? 'Low stock' : 'Available'),
+          trailing: Text('${quantity.toStringAsFixed(2)} bags', style: const TextStyle(fontWeight: FontWeight.bold)),
+        ));
+      }),
+      const SizedBox(height: 14),
+      const Text('Recent stock movements', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      ...[...purchases.map((e) => {...e, 'movement': 'Stock in'}), ...sales.map((e) => {...e, 'movement': 'Stock out'})]
+        .take(12).map((e) => Card(child: ListTile(
+          leading: Icon(e['movement'] == 'Stock in' ? Icons.arrow_downward : Icons.arrow_upward,
+              color: e['movement'] == 'Stock in' ? brandGreen : Colors.deepOrange),
+          title: Text('${e['movement']} • ${e['product']} • ${e['variety']}'),
+          subtitle: Text('${e['date']}'),
+          trailing: Text('${e['quantity']} bags'),
+        ))),
+    ]);
+  }
+
   Widget homePage() => ListView(padding: EdgeInsets.all(20), children: [
     BrandMark(), SizedBox(height: 24),
     Text('Welcome to TAJIR', textAlign: TextAlign.center,
@@ -470,7 +525,7 @@ class _PreviewHomeState extends State<PreviewHome> {
   Widget build(BuildContext context) {
     final pages = [
       homePage(), entryPage(false), entryPage(true),
-      const Center(child: Text('Stock preview — live stock is not connected in preview mode.')),
+      stockPage(),
       const Center(child: Text('Customer preview — live customer records are not connected in preview mode.')),
     ];
     return Scaffold(
