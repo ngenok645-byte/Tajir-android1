@@ -1,8 +1,4 @@
 
-
-
-
-
 name: Build TAJIR Android APK
 
 'on':
@@ -51,18 +47,15 @@ jobs:
           app_folder = matches[0].parent
           destination = Path("TAJIR_flutter_app")
           shutil.copytree(app_folder, destination, dirs_exist_ok=True)
-
           print("Flutter source extracted successfully.")
           PY
 
-      - 
       - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
         run: |
           rm -rf android
           flutter create . --platforms=android --org com.tajir --project-name tajir_app
           flutter pub get
-
 
       - name: Build Android APK
         working-directory: TAJIR_flutter_app
