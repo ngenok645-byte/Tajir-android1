@@ -30,18 +30,32 @@ jobs:
         with:
           channel: stable
 
+      - 
       - name: Extract TAJIR Flutter app
         run: |
-          mkdir -p /tmp/tajir_source
-          PUBSPEC_PATH="$(unzip -Z1 TAJIR_flutter_app.zip | grep -E '(^|/)pubspec.yaml$' | head -n 1)"
-          if [ -z "$PUBSPEC_PATH" ]; then
-            echo "ERROR: pubspec.yaml not found in ZIP"
-            exit 1
-          fi
-          unzip -q -o TAJIR_flutter_app.zip -d /tmp/tajir_source
-          PUBSPEC="/tmp/tajir_source/$PUBSPEC_PATH"
-          mkdir -p TAJIR_flutter_app
-          cp -R "$(dirname "$PUBSPEC")/." TAJIR_flutter_app/
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          import shutil
+
+          source = Path("/tmp/tajir_source")
+          source.mkdir(parents=True, exist_ok=True)
+
+          with zipfile.ZipFile("TAJIR_flutter_app.zip") as z:
+              z.extractall(source)
+
+          matches = list(source.rglob("pubspec.yaml"))
+          if not matches:
+              raise SystemExit("ERROR: pubspec.yaml not found")
+
+          app_folder = matches[0].parent
+          destination = Path("TAJIR_flutter_app")
+          shutil.copytree(app_folder, destination, dirs_exist_ok=True)
+
+          print("Flutter source extracted successfully.")
+          print("Source folder:", app_folder)
+          PY
+
 
       - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
