@@ -42,10 +42,13 @@ jobs:
           sed -i 's/gradle-[0-9.]*-\(all\|bin\)\.zip/gradle-9.5.0-bin.zip/' android/gradle/wrapper/gradle-wrapper.properties
           flutter pub get
 
-      - name: Build Android APK
+      -       - name: Build Android APK
         working-directory: TAJIR_flutter_app
-        run: flutter build apk --debug --android-skip-build-dependency-validation
-
+        run: |
+          flutter build apk --debug \
+            --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+            --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}" \
+            --android-skip-build-dependency-validation
       - name: Upload TAJIR APK
         uses: actions/upload-artifact@v4
         with:
