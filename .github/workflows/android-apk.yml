@@ -1,5 +1,6 @@
 
-name: Build TAJIR Android APK
+
+name: Build TAJIR Android Preview APK
 
 'on':
   workflow_dispatch:
@@ -9,8 +10,8 @@ name: Build TAJIR Android APK
 
 jobs:
   build:
-    name: Build TAJIR APK
-    runs-on: ubuntu-latest
+    name: Build TAJIR Preview APK
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -47,6 +48,7 @@ jobs:
           app_folder = matches[0].parent
           destination = Path("TAJIR_flutter_app")
           shutil.copytree(app_folder, destination, dirs_exist_ok=True)
+
           print("Flutter source extracted successfully.")
           PY
 
@@ -57,7 +59,7 @@ jobs:
           flutter create . --platforms=android --org com.tajir --project-name tajir_app
           flutter pub get
 
-      - name: Build Android APK
+      - name: Build Android Preview APK
         working-directory: TAJIR_flutter_app
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -66,10 +68,11 @@ jobs:
           flutter build apk --debug \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            --dart-define=TAJIR_PREVIEW=true \
             --android-skip-build-dependency-validation
 
-      - name: Upload TAJIR APK
+      - name: Upload TAJIR Preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: TAJIR-Android-APK
+          name: TAJIR-Android-Preview-APK
           path: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-debug.apk
