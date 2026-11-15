@@ -6,6 +6,11 @@ const brandGold = Color(0xFFD6A52D);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  const previewMode = bool.fromEnvironment('TAJIR_PREVIEW');
+  if (previewMode) {
+    runApp(const TajirApp());
+    return;
+  }
   const url = String.fromEnvironment('SUPABASE_URL');
   const anon = String.fromEnvironment('SUPABASE_ANON_KEY');
   if (url.isEmpty || anon.isEmpty) {
@@ -55,7 +60,7 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (previewMode) {
-      return const PreviewHome();
+      return const DemoLoginPage();
     }
 
     return StreamBuilder<AuthState>(
@@ -432,6 +437,85 @@ class FormPage extends StatelessWidget {
 }
 Widget field(TextEditingController c,String label,{bool number=false})=>TextField(controller:c,keyboardType:number?const TextInputType.numberWithOptions(decimal:true):TextInputType.text,decoration:InputDecoration(labelText:label,border:const OutlineInputBorder()));
 Widget actionButton(String label,bool busy,VoidCallback fn)=>SizedBox(width:double.infinity,child:FilledButton(onPressed:busy?null:fn,child:Text(busy?'Saving…':label)));
+
+class DemoLoginPage extends StatefulWidget {
+  const DemoLoginPage({super.key});
+  @override
+  State<DemoLoginPage> createState() => _DemoLoginPageState();
+}
+
+class _DemoLoginPageState extends State<DemoLoginPage> {
+  final phone = TextEditingController();
+  final pin = TextEditingController();
+  String? error;
+
+  @override
+  void dispose() {
+    phone.dispose();
+    pin.dispose();
+    super.dispose();
+  }
+
+  void signIn() {
+    final digits = phone.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final validPhone = (digits.length == 10 && digits.startsWith('0')) ||
+        (digits.length == 12 && digits.startsWith('254'));
+    if (!validPhone) {
+      setState(() => error = 'Enter a valid Kenyan phone number, e.g. 07XXXXXXXX.');
+      return;
+    }
+    if (pin.text.trim().length != 6 || int.tryParse(pin.text.trim()) == null) {
+      setState(() => error = 'Enter a six-digit demo PIN.');
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const PreviewHome()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const BrandMark(),
+                  const SizedBox(height: 22),
+                  Text('TAJIR demo sign in', style: Theme.of(context).textTheme.headlineSmall),
+                  const SizedBox(height: 8),
+                  const Text('Use a phone number and any six-digit PIN to explore the demo.', textAlign: TextAlign.center),
+                  const SizedBox(height: 18),
+                  TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
+                  const SizedBox(height: 12),
+                  TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 6, decoration: const InputDecoration(labelText: 'Six-digit demo PIN', border: OutlineInputBorder(), counterText: '')),
+                  if (error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(error!, style: const TextStyle(color: Colors.red)),
+                  ],
+                  const SizedBox(height: 16),
+                  SizedBox(width: double.infinity, child: FilledButton(onPressed: signIn, child: const Text('Enter demo'))),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
+                    child: const Text('DEMO ONLY: This screen does not send an SMS, verify ownership of the phone number, create an account, or save a PIN. Demo entries stay on this device screen and are not sent to the live database.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
 
 class PreviewHome extends StatefulWidget {
   const PreviewHome({super.key});
