@@ -1,4 +1,5 @@
 
+
 name: Build TAJIR Android APK
 
 'on':
@@ -33,14 +34,14 @@ jobs:
       - name: Install Flutter dependencies
         working-directory: TAJIR_flutter_app
         run: |
-                - name: Install Flutter dependencies
-        working-directory: TAJIR_flutter_app
-        run: |
           flutter create . --platforms=android --org com.tajir --project-name tajir_app
           sed -i 's/gradle-[0-9.]*-\(all\|bin\)\.zip/gradle-9.5.0-bin.zip/' android/gradle/wrapper/gradle-wrapper.properties
-          rm -f android/build.gradle android/app/build.gradle android/settings.gradle
           flutter pub get
-          
+
+      - name: Build Android APK
+        working-directory: TAJIR_flutter_app
+        run: flutter build apk --debug --android-skip-build-dependency-validation
+
       - name: Upload TAJIR APK
         uses: actions/upload-artifact@v4
         with:
