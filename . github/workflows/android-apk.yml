@@ -42,7 +42,7 @@ jobs:
           flutter create . --platforms=android --org com.tajir --project-name tajir_app --overwrite
           flutter pub get
 
-      - name: Build Android APK
+      - name: Build Android Preview APK
         working-directory: TAJIR_flutter_app
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -54,8 +54,9 @@ jobs:
             --dart-define=TAJIR_PREVIEW=true \
             --android-skip-build-dependency-validation
 
-      - name: Upload TAJIR APK
+      - name: Upload TAJIR Preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: TAJIR-Android-APK
+          name: TAJIR-Android-Preview-APK
           path: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-debug.apk
+
