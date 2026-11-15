@@ -460,6 +460,7 @@ class _PreviewHomeState extends State<PreviewHome> {
 
   Future<void> addOpeningStock() async {
     final qtyController = TextEditingController();
+    final costController = TextEditingController();
     String selectedProduct = 'Maize';
     String selectedBean = beanVarieties.first;
     String selectedFertilizer = fertilizerTypes.first;
@@ -486,26 +487,31 @@ class _PreviewHomeState extends State<PreviewHome> {
           ),
           TextField(controller: qtyController, keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(labelText: 'Quantity already in store (bags)')),
+          TextField(controller: costController, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Original buying cost per bag (KES)')),
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
           FilledButton(onPressed: () {
             final q = double.tryParse(qtyController.text.trim());
-            if (q == null || q <= 0) return;
+            final cost = double.tryParse(costController.text.trim());
+            if (q == null || q <= 0 || cost == null || cost < 0) return;
             Navigator.pop(dialogContext, true);
           }, child: const Text('Save opening stock')),
         ],
       )),
     );
     final q = double.tryParse(qtyController.text.trim());
+    final cost = double.tryParse(costController.text.trim());
     qtyController.dispose();
-    if (saved == true && q != null && q > 0) {
+    costController.dispose();
+    if (saved == true && q != null && q > 0 && cost != null && cost >= 0) {
       final variety = selectedProduct == 'Beans' ? selectedBean : selectedProduct == 'Fertilizer' ? selectedFertilizer : '—';
       final now = DateTime.now();
       setState(() {
         openingStocks.insert(0, {
           'date': '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
-          'product': selectedProduct, 'variety': variety, 'quantity': q.toString(), 'price': '0.00'
+          'product': selectedProduct, 'variety': variety, 'quantity': q.toString(), 'price': cost.toStringAsFixed(2)
         });
         message = 'Opening stock added to this preview.';
       });
@@ -532,11 +538,66 @@ class _PreviewHomeState extends State<PreviewHome> {
     final rows = balances.values.toList()
       ..sort((a, b) => (a['product'] as String).compareTo(b['product'] as String));
     final total = rows.fold<double>(0, (sum, row) => sum + (row['quantity'] as double));
+
+    // Preview valuation uses weighted-average purchase cost for each product/variety.
+    final boughtQty = <String, double>{};
+    final boughtCost = <String, double>{};
+    final soldQty = <String, double>{};
+    final salesRevenue = <String, double>{};
+    for (final e in [...openingStocks, ...purchases]) {
+      final key = '${e['product']} • ${e['variety']}';
+      final q = double.tryParse(e['quantity'] ?? '0') ?? 0;
+      final p = double.tryParse(e['price'] ?? '0') ?? 0;
+      boughtQty[key] = (boughtQty[key] ?? 0) + q;
+      boughtCost[key] = (boughtCost[key] ?? 0) + q * p;
+    }
+    for (final e in sales) {
+      final key = '${e['product']} • ${e['variety']}';
+      final q = double.tryParse(e['quantity'] ?? '0') ?? 0;
+      final p = double.tryParse(e['price'] ?? '0') ?? 0;
+      soldQty[key] = (soldQty[key] ?? 0) + q;
+      salesRevenue[key] = (salesRevenue[key] ?? 0) + q * p;
+    }
+    final totalPurchaseValue = boughtCost.values.fold<double>(0, (a, b) => a + b);
+    final totalSalesRevenue = salesRevenue.values.fold<double>(0, (a, b) => a + b);
+    double costOfGoodsSold = 0;
+    double grossProfit = 0;
+    final financialRows = <Map<String, dynamic>>[];
+    for (final key in {...boughtQty.keys, ...soldQty.keys}) {
+      final qtyBought = boughtQty[key] ?? 0;
+      final costBought = boughtCost[key] ?? 0;
+      final averageCost = qtyBought > 0 ? costBought / qtyBought : 0.0;
+      final qtySold = soldQty[key] ?? 0;
+      final revenue = salesRevenue[key] ?? 0;
+      final costSold = qtySold * averageCost;
+      final profit = revenue - costSold;
+      costOfGoodsSold += costSold;
+      grossProfit += profit;
+      financialRows.add({'key': key, 'revenue': revenue, 'cost': costSold, 'profit': profit});
+    }
     return ListView(padding: const EdgeInsets.all(16), children: [
       const Text('Stock overview', style: TextStyle(fontSize: 23, fontWeight: FontWeight.bold)),
       const SizedBox(height: 6),
       const Text('Preview stock is calculated from the purchases and sales entered in this demo. It is not yet saved to the live database.',
           style: TextStyle(color: Colors.deepOrange, fontSize: 12)),
+      const SizedBox(height: 14),
+      const Text('Business financial summary', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
+        _moneyLine('Total stock bought (including opening stock)', totalPurchaseValue),
+        _moneyLine('Total sales revenue', totalSalesRevenue),
+        _moneyLine('Cost of stock sold', costOfGoodsSold),
+        const Divider(),
+        _moneyLine(grossProfit >= 0 ? 'Gross profit' : 'Gross loss', grossProfit, emphasize: true),
+      ]))),
+      const SizedBox(height: 8),
+      const Text('Profit / loss by product', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+      if (financialRows.isEmpty) const Text('Add purchases and sales to see profit or loss.'),
+      ...financialRows.map((r) => Card(child: ListTile(
+        title: Text(r['key'] as String),
+        subtitle: Text('Sales: KES ${(r['revenue'] as double).toStringAsFixed(2)} • Cost sold: KES ${(r['cost'] as double).toStringAsFixed(2)}'),
+        trailing: Text('KES ${(r['profit'] as double).toStringAsFixed(2)}',
+          style: TextStyle(fontWeight: FontWeight.bold, color: (r['profit'] as double) >= 0 ? brandGreen : Colors.red)),
+      ))),
       const SizedBox(height: 14),
       Row(children: [
         Expanded(child: Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -573,6 +634,17 @@ class _PreviewHomeState extends State<PreviewHome> {
         ))),
     ]);
   }
+
+  Widget _moneyLine(String label, double value, {bool emphasize = false}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(children: [
+      Expanded(child: Text(label, style: TextStyle(fontWeight: emphasize ? FontWeight.bold : FontWeight.normal))),
+      Text('KES ${value.toStringAsFixed(2)}', style: TextStyle(
+        fontWeight: emphasize ? FontWeight.bold : FontWeight.w600,
+        color: emphasize ? (value >= 0 ? brandGreen : Colors.red) : null,
+      )),
+    ]),
+  );
 
   Widget homePage() => ListView(padding: EdgeInsets.all(20), children: [
     BrandMark(), SizedBox(height: 24),
