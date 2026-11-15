@@ -2,6 +2,7 @@
 
 
 
+
 name: Build TAJIR Android APK
 
 'on':
@@ -30,7 +31,6 @@ jobs:
         with:
           channel: stable
 
-      - 
       - name: Extract TAJIR Flutter app
         run: |
           python - <<'PY'
@@ -53,9 +53,7 @@ jobs:
           shutil.copytree(app_folder, destination, dirs_exist_ok=True)
 
           print("Flutter source extracted successfully.")
-          print("Source folder:", app_folder)
           PY
-
 
       - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
