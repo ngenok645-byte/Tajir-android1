@@ -1,12 +1,4 @@
 
-      - name: Extract TAJIR Flutter app
-        run: |
-          unzip -o Tajir_flutter_app.zip -d .
-          if [ -d "Tajir flutter app" ]; then
-            mv "Tajir flutter app" TAJIR_flutter_app
-          fi
-        
-
 
 name: Build TAJIR Android APK
 
@@ -48,7 +40,16 @@ jobs:
           rm -f android/settings.gradle
           sed -i 's/gradle-[0-9.]*-\(all\|bin\)\.zip/gradle-9.5.0-bin.zip/' android/gradle/wrapper/gradle-wrapper.properties
           flutter pub get
-
+      - name: Extract TAJIR Flutter app
+        run: |
+          mkdir -p TAJIR_flutter_app
+          unzip -q -o Tajir_flutter_app.zip -d /tmp/tajir_source
+          PUBSPEC="$(find /tmp/tajir_source -name pubspec.yaml -print -quit)"
+          if [ -z "$PUBSPEC" ]; then
+            echo "pubspec.yaml not found in ZIP"
+            exit 1
+          fi
+          cp -a "$(dirname "$PUBSPEC")"/. TAJIR_flutter_app/
       - name: Build Android APK
         working-directory: TAJIR_flutter_app
         env:
