@@ -207,7 +207,7 @@ class _PurchasePageState extends State<PurchasePage> {
     setState(()=>busy=true);
     try {
       final db=Supabase.instance.client;
-      final branch=await db.from('branches').select('id').eq('name','TAJIR Ntulele').single();
+      final branch=await db.from('branches').select('id').eq('code','NTULELE').single();
       final prod=await db.from('products').select('id,unit').eq('category',product.toLowerCase()).single();
       await db.rpc('record_purchase', params: {'p_payload': {
         'branch_id':branch['id'], 'purchase_date':DateTime.now().toIso8601String().substring(0,10),
@@ -236,11 +236,11 @@ class _SalePageState extends State<SalePage> {
     setState(()=>busy=true);
     try {
       final db=Supabase.instance.client;
-      final branch=await db.from('branches').select('id').eq('name','TAJIR Ntulele').single();
+      final branch=await db.from('branches').select('id').eq('code','NTULELE').single();
       final prod=await db.from('products').select('id').eq('category',product.toLowerCase()).single();
       String? customerId;
       if(customer.text.trim().isNotEmpty){
-        final matches=await db.from('customers').select('id').ilike('name',customer.text.trim()).limit(1);
+        final matches=await db.from('customers').select('id').ilike('full_name',customer.text.trim()).limit(1);
         if(matches.isNotEmpty) customerId=matches.first['id'] as String;
       }
       final payload=<String,dynamic>{
