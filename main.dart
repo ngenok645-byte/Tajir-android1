@@ -323,6 +323,7 @@ class _PreviewHomeState extends State<PreviewHome> {
   final price = TextEditingController();
   final purchases = <Map<String, String>>[];
   final sales = <Map<String, String>>[];
+  final openingStocks = <Map<String, String>>[];
   String message = '';
 
   @override
@@ -457,9 +458,63 @@ class _PreviewHomeState extends State<PreviewHome> {
     );
   }
 
+  Future<void> addOpeningStock() async {
+    final qtyController = TextEditingController();
+    String selectedProduct = 'Maize';
+    String selectedBean = beanVarieties.first;
+    String selectedFertilizer = fertilizerTypes.first;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(builder: (context, refreshDialog) => AlertDialog(
+        title: const Text('Enter opening stock'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          DropdownButtonFormField<String>(
+            value: selectedProduct,
+            decoration: const InputDecoration(labelText: 'Product'),
+            items: const ['Maize', 'Beans', 'Fertilizer'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+            onChanged: (v) => refreshDialog(() => selectedProduct = v ?? 'Maize'),
+          ),
+          if (selectedProduct == 'Beans') DropdownButtonFormField<String>(
+            value: selectedBean, decoration: const InputDecoration(labelText: 'Bean variety'),
+            items: beanVarieties.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+            onChanged: (v) => refreshDialog(() => selectedBean = v ?? beanVarieties.first),
+          ),
+          if (selectedProduct == 'Fertilizer') DropdownButtonFormField<String>(
+            value: selectedFertilizer, decoration: const InputDecoration(labelText: 'Fertilizer type'),
+            items: fertilizerTypes.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+            onChanged: (v) => refreshDialog(() => selectedFertilizer = v ?? fertilizerTypes.first),
+          ),
+          TextField(controller: qtyController, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Quantity already in store (bags)')),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () {
+            final q = double.tryParse(qtyController.text.trim());
+            if (q == null || q <= 0) return;
+            Navigator.pop(dialogContext, true);
+          }, child: const Text('Save opening stock')),
+        ],
+      )),
+    );
+    final q = double.tryParse(qtyController.text.trim());
+    qtyController.dispose();
+    if (saved == true && q != null && q > 0) {
+      final variety = selectedProduct == 'Beans' ? selectedBean : selectedProduct == 'Fertilizer' ? selectedFertilizer : '—';
+      final now = DateTime.now();
+      setState(() {
+        openingStocks.insert(0, {
+          'date': '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
+          'product': selectedProduct, 'variety': variety, 'quantity': q.toString(), 'price': '0.00'
+        });
+        message = 'Opening stock added to this preview.';
+      });
+    }
+  }
+
   Widget stockPage() {
     final balances = <String, Map<String, dynamic>>{};
-    for (final entry in purchases) {
+    for (final entry in openingStocks) {\n      final key = '${entry['product']} • ${entry['variety']}';\n      final row = balances.putIfAbsent(key, () => {'product': entry['product'], 'variety': entry['variety'], 'quantity': 0.0});\n      row['quantity'] = (row['quantity'] as double) + (double.tryParse(entry['quantity'] ?? '0') ?? 0);\n    }\n    for (final entry in purchases) {
       final key = '${entry['product']} • ${entry['variety']}';
       final row = balances.putIfAbsent(key, () => {'product': entry['product'], 'variety': entry['variety'], 'quantity': 0.0});
       row['quantity'] = (row['quantity'] as double) + (double.tryParse(entry['quantity'] ?? '0') ?? 0);
@@ -487,6 +542,8 @@ class _PreviewHomeState extends State<PreviewHome> {
         ])))),
       ]),
       const SizedBox(height: 8),
+      FilledButton.icon(onPressed: addOpeningStock, icon: const Icon(Icons.add_box), label: const Text('Add opening stock')),
+      const SizedBox(height: 8),
       const Text('Available stock by product', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
       if (rows.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(18), child: Text('No stock yet. Add a purchase from the Buy screen to see stock here.'))),
       ...rows.map((row) {
@@ -501,10 +558,10 @@ class _PreviewHomeState extends State<PreviewHome> {
       }),
       const SizedBox(height: 14),
       const Text('Recent stock movements', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-      ...[...purchases.map((e) => {...e, 'movement': 'Stock in'}), ...sales.map((e) => {...e, 'movement': 'Stock out'})]
+      ...[...openingStocks.map((e) => {...e, 'movement': 'Opening stock'}), ...purchases.map((e) => {...e, 'movement': 'Stock in'}), ...sales.map((e) => {...e, 'movement': 'Stock out'})]
         .take(12).map((e) => Card(child: ListTile(
-          leading: Icon(e['movement'] == 'Stock in' ? Icons.arrow_downward : Icons.arrow_upward,
-              color: e['movement'] == 'Stock in' ? brandGreen : Colors.deepOrange),
+          leading: Icon(e['movement'] == 'Stock out' ? Icons.arrow_upward : Icons.arrow_downward,
+              color: e['movement'] == 'Stock out' ? Colors.deepOrange : brandGreen),
           title: Text('${e['movement']} • ${e['product']} • ${e['variety']}'),
           subtitle: Text('${e['date']}'),
           trailing: Text('${e['quantity']} bags'),
