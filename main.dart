@@ -281,17 +281,145 @@ class _StockPageState extends State<StockPage>{
     ...products.map((p)=>Card(child:ListTile(leading:const Icon(Icons.inventory_2,color:brandGreen),title:Text('${p['product_name']??p['name']??'Product'}'),subtitle:Text('Branch: ${p['branch_name']??'Ntulele'}'),trailing:Text('${p['quantity_available']??''} ${p['unit']??''}')))),
   ]);
 }
-class CustomersPage extends StatefulWidget {const CustomersPage({super.key});@override State<CustomersPage> createState()=>_CustomersPageState();}
-class _CustomersPageState extends State<CustomersPage>{
-  List<dynamic> rows=[];String message='';
-  Future<void> load()async{try{final r=await Supabase.instance.client.from('customers').select('name,phone,default_address').order('name');setState(()=>rows=List<dynamic>.from(r));}catch(e){setState(()=>message='Customer list unavailable: $e');}}
-  @override void initState(){super.initState();load();}
-  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(18),children:[
-    const Text('Customers',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),
-    Align(alignment:Alignment.centerLeft,child:OutlinedButton.icon(onPressed:load,icon:const Icon(Icons.refresh),label:const Text('Refresh'))),
-    if(message.isNotEmpty)Text(message),
-    ...rows.map((r)=>Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.person)),title:Text(r['name']??''),subtitle:Text('${r['phone']??''}  ${r['default_address']??''}')))),
-  ]);
+class CustomersPage extends StatefulWidget { const CustomersPage({super.key}); @override State<CustomersPage> createState()=>_CustomersPageState(); }
+class _CustomersPageState extends State<CustomersPage> {
+  List<Map<String,dynamic>> rows=[];
+  String message='';
+  bool busy=false;
+  final search=TextEditingController();
+
+  @override void initState(){ super.initState(); load(); }
+  @override void dispose(){ search.dispose(); super.dispose(); }
+
+  Future<void> load() async {
+    setState(() { busy=true; message=''; });
+    try {
+      final r=await Supabase.instance.client.from('customers')
+        .select('id,customer_type,full_name,phone,email,default_branch_id,active,created_at')
+        .order('full_name');
+      if(!mounted)return;
+      setState(()=>rows=List<Map<String,dynamic>>.from(r));
+    } catch(e) {
+      if(!mounted)return;
+      setState(()=>message='Could not load customers. Customer access is limited to authorized director accounts. Details: $e');
+    }
+    if(mounted)setState(()=>busy=false);
+  }
+
+  Future<void> editCustomer([Map<String,dynamic>? row]) async {
+    final name=TextEditingController(text:row?['full_name']?.toString()??'');
+    final phone=TextEditingController(text:row?['phone']?.toString()??'');
+    final email=TextEditingController(text:row?['email']?.toString()??'');
+    String type=row?['customer_type']?.toString()??'buyer';
+    String? error;
+    final result=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(context,refresh)=>AlertDialog(
+      title:Text(row==null?'Add customer':'Edit customer'),
+      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:name,decoration:const InputDecoration(labelText:'Customer name')),
+        TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
+        TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
+        DropdownButtonFormField<String>(value:type,decoration:const InputDecoration(labelText:'Customer type'),
+          items:const [DropdownMenuItem(value:'buyer',child:Text('Buyer')),DropdownMenuItem(value:'seller',child:Text('Seller'))],
+          onChanged:(v)=>refresh(()=>type=v??'buyer')),
+        if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
+      ])),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+        FilledButton(onPressed:()async{
+          if(name.text.trim().isEmpty||phone.text.trim().isEmpty){refresh(()=>error='Name and phone number are required.');return;}
+          Navigator.pop(dialogContext,true);
+        },child:const Text('Save')),
+      ],
+    )));
+    if(result==true){
+      try {
+        final db=Supabase.instance.client;
+        final values=<String,dynamic>{'customer_type':type,'full_name':name.text.trim(),'phone':phone.text.trim(),
+          'email':email.text.trim().isEmpty?null:email.text.trim()};
+        if(row==null){
+          final branch=await db.from('branches').select('id').eq('code','NTULELE').maybeSingle();
+          if(branch!=null)values['default_branch_id']=branch['id'];
+          await db.from('customers').insert(values);
+        } else {
+          await db.from('customers').update(values).eq('id',row['id']);
+        }
+        await load();
+      } catch(e) { if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Customer could not be saved: $e'))); }
+    }
+    name.dispose();phone.dispose();email.dispose();
+  }
+
+  Future<void> showCustomer(Map<String,dynamic> customer) async {
+    final db=Supabase.instance.client;
+    try {
+      final id=customer['id'];
+      final results=await Future.wait([
+        db.from('sales').select('id,sale_number,sale_date,total_amount').eq('customer_id',id).order('sale_date',ascending:false),
+        db.from('customer_payments').select('id,payment_number,amount,method,status,received_at,created_at').eq('customer_id',id).order('created_at',ascending:false),
+      ]);
+      final sales=List<Map<String,dynamic>>.from(results[0]);
+      final payments=List<Map<String,dynamic>>.from(results[1]);
+      final totalSales=sales.fold<double>(0,(s,r)=>s+((r['total_amount'] as num?)?.toDouble()??0));
+      final verified=payments.where((p)=>p['status']=='verified').fold<double>(0,(s,r)=>s+((r['amount'] as num?)?.toDouble()??0));
+      final balance=totalSales-verified;
+      if(!mounted)return;
+      await showDialog<void>(context:context,builder:(context)=>AlertDialog(
+        title:Text(customer['full_name']?.toString()??'Customer'),
+        content:SizedBox(width:480,child:SingleChildScrollView(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Text('Phone: ${customer['phone']??'—'}'),
+          Text('Email: ${customer['email']??'—'}'),
+          const SizedBox(height:12),
+          Text('Total purchases: KES ${totalSales.toStringAsFixed(2)}'),
+          Text('Verified payments: KES ${verified.toStringAsFixed(2)}'),
+          Text('Outstanding balance: KES ${balance.toStringAsFixed(2)}',style:TextStyle(fontWeight:FontWeight.bold,color:balance>0?Colors.red:brandGreen)),
+          const Divider(),
+          const Text('Purchase history',style:TextStyle(fontWeight:FontWeight.bold)),
+          if(sales.isEmpty)const Text('No sales recorded for this customer.'),
+          ...sales.map((s)=>ListTile(contentPadding:EdgeInsets.zero,title:Text('${s['sale_number']}'),subtitle:Text('${s['sale_date']}'),trailing:Text('KES ${((s['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'))),
+          const Divider(),
+          const Text('Payments',style:TextStyle(fontWeight:FontWeight.bold)),
+          if(payments.isEmpty)const Text('No payments recorded.'),
+          ...payments.map((p)=>ListTile(contentPadding:EdgeInsets.zero,title:Text('KES ${((p['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)} • ${p['method']}'),subtitle:Text('${p['status']} • ${p['payment_number']}'))),
+        ]))),
+        actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Close'))],
+      ));
+    } catch(e) {
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Customer financial history is not available for this account: $e')));
+    }
+  }
+
+  Future<void> setActive(Map<String,dynamic> row,bool active) async {
+    try { await Supabase.instance.client.from('customers').update({'active':active}).eq('id',row['id']); await load(); }
+    catch(e){ if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not update customer: $e'))); }
+  }
+
+  @override Widget build(BuildContext context) {
+    final query=search.text.trim().toLowerCase();
+    final filtered=rows.where((r)=>(r['full_name']??'').toString().toLowerCase().contains(query)||(r['phone']??'').toString().toLowerCase().contains(query)).toList();
+    return ListView(padding:const EdgeInsets.all(18),children:[
+      Row(children:[const Expanded(child:Text('Customers',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold))),
+        IconButton(onPressed:busy?null:load,icon:const Icon(Icons.refresh),tooltip:'Refresh'),
+        FilledButton.icon(onPressed:()=>editCustomer(),icon:const Icon(Icons.person_add),label:const Text('Add'))]),
+      TextField(controller:search,onChanged:(_)=>setState((){}),decoration:const InputDecoration(prefixIcon:Icon(Icons.search),labelText:'Search by name or phone',border:OutlineInputBorder())),
+      const SizedBox(height:10),
+      if(message.isNotEmpty)Padding(padding:const EdgeInsets.all(12),child:Text(message,style:const TextStyle(color:Colors.red))),
+      if(busy)const Center(child:Padding(padding:EdgeInsets.all(20),child:CircularProgressIndicator())),
+      if(!busy&&message.isEmpty&&filtered.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No customers found. Add your first customer.')),
+      ...filtered.map((r)=>Card(child:ListTile(
+        leading:CircleAvatar(child:Icon(r['customer_type']=='seller'?Icons.store:Icons.person)),
+        title:Text(r['full_name']?.toString()??''),
+        subtitle:Text('${r['phone']??''} • ${r['customer_type']??''}${r['active']==false?' • Inactive':''}'),
+        onTap:()=>showCustomer(r),
+        trailing:PopupMenuButton<String>(onSelected:(v){if(v=='edit')editCustomer(r);if(v=='deactivate')setActive(r,false);if(v=='activate')setActive(r,true);},
+          itemBuilder:(context)=>[
+            const PopupMenuItem(value:'edit',child:Text('Edit details')),
+            if(r['active']==true)const PopupMenuItem(value:'deactivate',child:Text('Deactivate')),
+            if(r['active']==false)const PopupMenuItem(value:'activate',child:Text('Reactivate')),
+          ]),
+      ))),
+      const Padding(padding:EdgeInsets.only(top:8),child:Text('Customer balances count verified payments only. Pending, rejected and reversed payments are not treated as money received.',style:TextStyle(fontSize:12,color:Colors.black54))),
+    ]);
+  }
 }
 
 class FormPage extends StatelessWidget {
