@@ -514,7 +514,12 @@ class _PreviewHomeState extends State<PreviewHome> {
 
   Widget stockPage() {
     final balances = <String, Map<String, dynamic>>{};
-    for (final entry in openingStocks) {\n      final key = '${entry['product']} • ${entry['variety']}';\n      final row = balances.putIfAbsent(key, () => {'product': entry['product'], 'variety': entry['variety'], 'quantity': 0.0});\n      row['quantity'] = (row['quantity'] as double) + (double.tryParse(entry['quantity'] ?? '0') ?? 0);\n    }\n    for (final entry in purchases) {
+    for (final entry in openingStocks) {
+      final key = '${entry['product']} • ${entry['variety']}';
+      final row = balances.putIfAbsent(key, () => {'product': entry['product'], 'variety': entry['variety'], 'quantity': 0.0});
+      row['quantity'] = (row['quantity'] as double) + (double.tryParse(entry['quantity'] ?? '0') ?? 0);
+    }
+    for (final entry in purchases) {
       final key = '${entry['product']} • ${entry['variety']}';
       final row = balances.putIfAbsent(key, () => {'product': entry['product'], 'variety': entry['variety'], 'quantity': 0.0});
       row['quantity'] = (row['quantity'] as double) + (double.tryParse(entry['quantity'] ?? '0') ?? 0);
