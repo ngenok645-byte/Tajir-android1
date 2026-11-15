@@ -459,8 +459,60 @@ class _DemoLoginPageState extends State<DemoLoginPage> {
       setState(() => error = 'Enter a valid Kenyan phone number, e.g. 07XXXXXXXX.');
       return;
     }
-    if (!RegExp(r'^\\d{6}
-  const PreviewHome({super.key});
+    if (pin.text.trim().length != 6 || int.tryParse(pin.text.trim()) == null) {
+      setState(() => error = 'Enter a six-digit demo PIN.');
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const PreviewHome()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const BrandMark(),
+                  const SizedBox(height: 22),
+                  Text('TAJIR demo sign in', style: Theme.of(context).textTheme.headlineSmall),
+                  const SizedBox(height: 8),
+                  const Text('Use a phone number and any six-digit PIN to explore the demo.', textAlign: TextAlign.center),
+                  const SizedBox(height: 18),
+                  TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
+                  const SizedBox(height: 12),
+                  TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 6, decoration: const InputDecoration(labelText: 'Six-digit demo PIN', border: OutlineInputBorder(), counterText: '')),
+                  if (error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(error!, style: const TextStyle(color: Colors.red)),
+                  ],
+                  const SizedBox(height: 16),
+                  SizedBox(width: double.infinity, child: FilledButton(onPressed: signIn, child: const Text('Enter demo'))),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
+                    child: const Text('DEMO ONLY: This screen does not send an SMS, verify ownership of the phone number, create an account, or save a PIN. Demo entries stay on this device screen and are not sent to the live database.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class PreviewHome({super.key});
   @override
   State<PreviewHome> createState() => _PreviewHomeState();
 }
