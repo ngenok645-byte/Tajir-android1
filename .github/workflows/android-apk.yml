@@ -30,10 +30,10 @@ jobs:
         run: |
           unzip -q "TAJIR_cloud_android_build_pack (1).zip"
 
-      - name: Install Flutter dependencies
-        working-directory: TAJIR_flutter_app
-        run: |
-                - name: Install Flutter dependencies
+    
+        
+
+             - name: Install Flutter dependencies
         working-directory: TAJIR_flutter_app
         run: |
           flutter create . --platforms=android --org com.tajir --project-name tajir_app --overwrite
