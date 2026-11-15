@@ -1,5 +1,6 @@
 
 
+
 name: Build TAJIR Android Preview APK
 
 'on':
@@ -51,6 +52,22 @@ jobs:
 
           print("Flutter source extracted successfully.")
           PY
+
+      - name: Apply preview-enabled main.dart
+        run: |
+          if [ ! -f "main.dart" ]; then
+            echo "ERROR: root main.dart not found"
+            exit 1
+          fi
+
+          if [ ! -f "TAJIR_flutter_app/lib/main.dart" ]; then
+            echo "ERROR: extracted Flutter app lib/main.dart not found"
+            exit 1
+          fi
+
+          cp main.dart TAJIR_flutter_app/lib/main.dart
+          echo "Preview-enabled main.dart copied successfully."
+          grep -n "TAJIR_PREVIEW" TAJIR_flutter_app/lib/main.dart
 
       - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
