@@ -9,7 +9,7 @@ name: Build TAJIR Android APK
 
 jobs:
   build:
-    name: Build TAJIR APK
+    name: Build TAJIR Preview APK
     runs-on: ubuntu-latest
 
     steps:
@@ -27,19 +27,34 @@ jobs:
         with:
           channel: stable
 
-      - name: Extract TAJIR project
+      - name: Extract TAJIR Flutter app
         run: |
-          unzip -q "TAJIR_cloud_android_build_pack (1).zip"
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          import shutil
 
-      - name: Use updated TAJIR main.dart
-        run: |
-          test -f main.dart
-          cp main.dart TAJIR_flutter_app/lib/main.dart
+          source = Path("/tmp/tajir_source")
+          source.mkdir(parents=True, exist_ok=True)
 
-      - name: Install Flutter dependencies
+          with zipfile.ZipFile("TAJIR_flutter_app.zip") as z:
+              z.extractall(source)
+
+          matches = list(source.rglob("pubspec.yaml"))
+          if not matches:
+              raise SystemExit("ERROR: pubspec.yaml not found")
+
+          app_folder = matches[0].parent
+          destination = Path("TAJIR_flutter_app")
+          shutil.copytree(app_folder, destination, dirs_exist_ok=True)
+          print("Flutter source extracted successfully.")
+          PY
+
+      - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
         run: |
-          flutter create . --platforms=android --org com.tajir --project-name tajir_app --overwrite
+          rm -rf android
+          flutter create . --platforms=android --org com.tajir --project-name tajir_app
           flutter pub get
 
       - name: Build Android Preview APK
