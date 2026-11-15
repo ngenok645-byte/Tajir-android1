@@ -1,6 +1,7 @@
 
 
 
+
 name: Build TAJIR Android APK
 
 'on':
@@ -32,14 +33,15 @@ jobs:
       - name: Extract TAJIR Flutter app
         run: |
           mkdir -p /tmp/tajir_source
-          unzip -q -o TAJIR_flutter_app.zip -d /tmp/tajir_source
-          PUBSPEC="$(find /tmp/tajir_source -name pubspec.yaml -print -quit)"
-          if [ -z "$PUBSPEC" ]; then
-            echo "ERROR: pubspec.yaml not found"
+          PUBSPEC_PATH="$(unzip -Z1 TAJIR_flutter_app.zip | grep -E '(^|/)pubspec.yaml$' | head -n 1)"
+          if [ -z "$PUBSPEC_PATH" ]; then
+            echo "ERROR: pubspec.yaml not found in ZIP"
             exit 1
           fi
+          unzip -q -o TAJIR_flutter_app.zip -d /tmp/tajir_source
+          PUBSPEC="/tmp/tajir_source/$PUBSPEC_PATH"
           mkdir -p TAJIR_flutter_app
-          cp -a "$(dirname "$PUBSPEC")"/. TAJIR_flutter_app/
+          cp -R "$(dirname "$PUBSPEC")/." TAJIR_flutter_app/
 
       - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
