@@ -1,5 +1,6 @@
 
 
+
 name: Build TAJIR Android APK
 
 'on':
@@ -35,6 +36,9 @@ jobs:
         working-directory: TAJIR_flutter_app
         run: |
           flutter create . --platforms=android --org com.tajir --project-name tajir_app
+          rm -f android/build.gradle
+          rm -f android/app/build.gradle
+          rm -f android/settings.gradle
           sed -i 's/gradle-[0-9.]*-\(all\|bin\)\.zip/gradle-9.5.0-bin.zip/' android/gradle/wrapper/gradle-wrapper.properties
           flutter pub get
 
