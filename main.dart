@@ -6,6 +6,11 @@ const brandGold = Color(0xFFD6A52D);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  const previewMode = bool.fromEnvironment('TAJIR_PREVIEW');
+  if (previewMode) {
+    runApp(const TajirApp());
+    return;
+  }
   const url = String.fromEnvironment('SUPABASE_URL');
   const anon = String.fromEnvironment('SUPABASE_ANON_KEY');
   if (url.isEmpty || anon.isEmpty) {
