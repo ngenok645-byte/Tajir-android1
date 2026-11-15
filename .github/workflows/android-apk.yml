@@ -1,5 +1,11 @@
 
-
+      - name: Extract TAJIR Flutter app
+        run: |
+          unzip -o Tajir_flutter_app.zip -d .
+          if [ -d "Tajir flutter app" ]; then
+            mv "Tajir flutter app" TAJIR_flutter_app
+          fi
+        
 
 
 name: Build TAJIR Android APK
