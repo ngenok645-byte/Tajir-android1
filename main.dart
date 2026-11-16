@@ -86,7 +86,7 @@ class _LoginPageState extends State<LoginPage> {
       child: Card(margin: const EdgeInsets.all(24), child: Padding(padding: const EdgeInsets.all(24),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const BrandMark(), const SizedBox(height: 24),
-          const Text('Sign in to TAJIR', style: Theme.of(context).textTheme.headlineSmall),
+          Text('Sign in to TAJIR', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 18),
           TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder())),
           const SizedBox(height: 12),
