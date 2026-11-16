@@ -371,7 +371,7 @@ class _PurchasePageState extends State<PurchasePage> {
   @override Widget build(BuildContext context)=>FormPage(title:'Record purchase', children:[
     DropdownButtonFormField(value:product, items:['Maize','Fertilizer'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(), onChanged:(v)=>setState(()=>product=v!), decoration:const InputDecoration(labelText:'Product')),
     field(qty,'Quantity (bags)',number:true), field(cost,'Buying price per unit (KES)',number:true),
-    field(supplier,'Supplier name'), DropdownButtonFormField(value:payer, items:['Mercy','Edu','Company','Other'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(), onChanged:(v)=>setState(()=>payer=v!), decoration:const InputDecoration(labelText:'Paid by')),
+    field(supplier,'Supplier name'), DropdownButtonFormField(value:payer, items:['Mercy','Edu'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(), onChanged:(v)=>setState(()=>payer=v!), decoration:const InputDecoration(labelText:'Paid by')),
     field(notes,'Notes / extra details'), actionButton('Save purchase',busy,save), if(message.isNotEmpty) Text(message),
     const Text('Note: workers may submit buying prices for recording, but the backend must not expose finance reports or purchase-cost tables to worker accounts.',style:TextStyle(fontSize:12,color:Colors.black54)),
   ]);
