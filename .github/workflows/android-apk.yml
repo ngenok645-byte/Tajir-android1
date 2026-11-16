@@ -1,18 +1,16 @@
 
 
 
-name: Build TAJIR Android Preview APK
+name: Build TAJIR Android  APK
 
 'on':
   workflow_dispatch:
   push:
     branches:
       - main
-      - demo-phone-pin-login
-
 jobs:
   build:
-    name: Build TAJIR Preview APK
+    name: Build TAJIR  APK
     runs-on: ubuntu-24.04
 
     steps:
@@ -54,7 +52,7 @@ jobs:
           print("Flutter source extracted successfully.")
           PY
 
-      - name: Apply preview-enabled main.dart
+      - name: Apply -enabled main.dart
         run: |
           if [ ! -f "main.dart" ]; then
             echo "ERROR: root main.dart not found"
@@ -67,8 +65,8 @@ jobs:
           fi
 
           cp main.dart TAJIR_flutter_app/lib/main.dart
-          echo "Preview-enabled main.dart copied successfully."
-          grep -n "TAJIR_PREVIEW" TAJIR_flutter_app/lib/main.dart
+          echo "-enabled main.dart copied successfully."
+          grep -n "TAJIR_" TAJIR_flutter_app/lib/main.dart
 
       - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
@@ -77,7 +75,7 @@ jobs:
           flutter create . --platforms=android --org com.tajir --project-name tajir_app
           flutter pub get
 
-      - name: Build Android Preview APK
+      - name: Build Android  APK
         working-directory: TAJIR_flutter_app
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -86,11 +84,11 @@ jobs:
           flutter build apk --debug \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
-            --dart-define=TAJIR_PREVIEW=true \
+            --dart-define=TAJIR_=true \
             --android-skip-build-dependency-validation
 
-      - name: Upload TAJIR Preview APK
+      - name: Upload TAJIR  APK
         uses: actions/upload-artifact@v4
         with:
-          name: TAJIR-Android-Preview-APK
+          name: TAJIR-Android--APK
           path: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-debug.apk
