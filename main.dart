@@ -606,7 +606,7 @@ class TractorServicesPage extends StatefulWidget {
 }
 class _TractorServicesPageState extends State<TractorServicesPage>{
  String? branchId; bool loading=true; String message='';
- List<Map<String,dynamic>> tractors=[],jobs=[];
+ List<Map<String,dynamic>> tractors=[],jobs=[]; List<String> locations=[];
  @override void initState(){super.initState();load();}
  Future<void> load()async{
   setState(()=>loading=true);
@@ -619,10 +619,11 @@ class _TractorServicesPageState extends State<TractorServicesPage>{
    if(branchId==null)throw Exception('No branch available');
    final r=await Future.wait([
     db.from('tractor_assets').select('id,tractor_code,registration_number,make_model,status,engine_hours').eq('branch_id',branchId!).order('tractor_code'),
-    db.from('tractor_service_jobs').select('id,job_number,farmer_name,service_type,service_location,status,total_charge').eq('branch_id',branchId!).order('created_at',ascending:false).limit(100)
+    db.from('tractor_service_jobs').select('id,job_number,farmer_name,service_type,service_location,status,total_charge').eq('branch_id',branchId!).order('created_at',ascending:false).limit(100),
+    db.from('branch_locations').select('name').eq('branch_id',branchId!).eq('is_active',true).order('name')
    ]);
    if(!mounted)return;
-   setState(() { tractors=List<Map<String,dynamic>>.from(r[0]); jobs=List<Map<String,dynamic>>.from(r[1]); message=''; });
+   setState(() { tractors=List<Map<String,dynamic>>.from(r[0]); jobs=List<Map<String,dynamic>>.from(r[1]); locations=List<Map<String,dynamic>>.from(r[2]).map((x)=>x['name'].toString()).toList(); message=''; });
   }catch(e){if(mounted)setState(()=>message=e.toString());}
   if(mounted)setState(()=>loading=false);
  }
@@ -644,11 +645,12 @@ class _TractorServicesPageState extends State<TractorServicesPage>{
    TextField(controller:farmer,decoration:const InputDecoration(labelText:'Farmer name')),
    TextField(controller:phone,decoration:const InputDecoration(labelText:'Phone')),
    DropdownButtonFormField<String>(value:tractor,items:tractors.map((t)=>DropdownMenuItem(value:t['id'].toString(),child:Text(t['tractor_code'].toString()))).toList(),onChanged:(v)=>refresh(()=>tractor=v??tractor),decoration:const InputDecoration(labelText:'Tractor')),
+   if(locations.isNotEmpty)DropdownButtonFormField<String>(value:locations.contains(location.text)?location.text:null,items:locations.map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>refresh(()=>location.text=v??''),decoration:const InputDecoration(labelText:'Choose saved farm location')),
    DropdownButtonFormField<String>(value:type,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v)=>refresh(()=>type=v??type),decoration:const InputDecoration(labelText:'Service')),
    TextField(controller:location,decoration:const InputDecoration(labelText:'Farm location')),
    TextField(controller:charge,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Agreed charge (KES)')),
   ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Book'))])));
-  if(ok==true){try{final amount=double.tryParse(charge.text)??0;if(farmer.text.trim().isEmpty||location.text.trim().isEmpty||amount<0)throw Exception('Enter farmer, location and valid charge');await Supabase.instance.client.from('tractor_service_jobs').insert({'job_number':'TRJ-'+DateTime.now().microsecondsSinceEpoch.toString(),'branch_id':branchId,'tractor_id':tractor,'farmer_name':farmer.text.trim(),'farmer_phone':phone.text.trim().isEmpty?null:phone.text.trim(),'service_type':type,'service_location':location.text.trim(),'rate':amount,'total_charge':amount,'status':'booked'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
+  if(ok==true){try{final amount=double.tryParse(charge.text)??0;if(farmer.text.trim().isEmpty||location.text.trim().isEmpty||amount<0)throw Exception('Enter farmer, location and valid charge');final db=Supabase.instance.client;final found=await db.from('branch_locations').select('id').eq('branch_id',branchId!).eq('name',location.text.trim()).maybeSingle();if(found==null){await db.from('branch_locations').insert({'branch_id':branchId,'name':location.text.trim(),'created_by':db.auth.currentUser?.id});}await db.from('tractor_service_jobs').insert({'job_number':'TRJ-'+DateTime.now().microsecondsSinceEpoch.toString(),'branch_id':branchId,'tractor_id':tractor,'farmer_name':farmer.text.trim(),'farmer_phone':phone.text.trim().isEmpty?null:phone.text.trim(),'service_type':type,'service_location':location.text.trim(),'rate':amount,'total_charge':amount,'status':'booked'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
   farmer.dispose();phone.dispose();location.dispose();charge.dispose();
  }
  Future<void> addJobExpense(Map<String,dynamic> job)async{
