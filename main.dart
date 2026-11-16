@@ -651,7 +651,20 @@ class _TractorServicesPageState extends State<TractorServicesPage>{
   if(ok==true){try{final amount=double.tryParse(charge.text)??0;if(farmer.text.trim().isEmpty||location.text.trim().isEmpty||amount<0)throw Exception('Enter farmer, location and valid charge');await Supabase.instance.client.from('tractor_service_jobs').insert({'job_number':'TRJ-'+DateTime.now().microsecondsSinceEpoch.toString(),'branch_id':branchId,'tractor_id':tractor,'farmer_name':farmer.text.trim(),'farmer_phone':phone.text.trim().isEmpty?null:phone.text.trim(),'service_type':type,'service_location':location.text.trim(),'rate':amount,'total_charge':amount,'status':'booked'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
   farmer.dispose();phone.dispose();location.dispose();charge.dispose();
  }
- Future<void> setJobStatus(Map<String,dynamic> job,String status)async{try{final v=<String,dynamic>{'status':status};if(status=='in_progress')v['started_at']=DateTime.now().toIso8601String();if(status=='completed')v['completed_at']=DateTime.now().toIso8601String();await Supabase.instance.client.from('tractor_service_jobs').update(v).eq('id',job['id']);await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
+ Future<void> setJobStatus(Map<String,dynamic> job,String status)async{
+  try{
+   final v=<String,dynamic>{'status':status};
+   if(status=='in_progress')v['started_at']=DateTime.now().toIso8601String();
+   if(status=='completed'){
+    final hours=TextEditingController(text:(job['hours_worked']??0).toString());
+    final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Complete tractor job'),content:TextField(controller:hours,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Actual hours worked')),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Save'))]));
+    if(ok!=true){hours.dispose();return;}
+    final n=double.tryParse(hours.text);hours.dispose();if(n==null||n<0)throw Exception('Enter valid hours worked');
+    v['hours_worked']=n;v['completed_at']=DateTime.now().toIso8601String();
+   }
+   await Supabase.instance.client.from('tractor_service_jobs').update(v).eq('id',job['id']);await load();
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}
+ }
  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(18),children:[
   Row(children:[const Expanded(child:Text('Tractor Services',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold))),IconButton(onPressed:load,icon:const Icon(Icons.refresh)),FilledButton(onPressed:addTractor,child:const Text('Add tractor'))]),
   const Text('Branch-scoped tractor register and field-service bookings.'),
