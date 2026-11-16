@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
+const tajirBackendConfigured = String.fromEnvironment('SUPABASE_URL').isNotEmpty && String.fromEnvironment('SUPABASE_ANON_KEY').isNotEmpty;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -671,10 +672,11 @@ class _DemoLoginPageState extends State<DemoLoginPage> {
                   const SizedBox(height: 16),
                   SizedBox(width: double.infinity, child: FilledButton(onPressed: signIn, child: const Text('Enter demo'))),
                   const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
-                    child: const Text('New customer? Create an account with phone number'),
-                  ),
+                  if (tajirBackendConfigured)
+                    TextButton(
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
+                      child: const Text('New customer? Create an account with phone number'),
+                    ),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(12),
