@@ -400,11 +400,12 @@ class _PurchasePageState extends State<PurchasePage> {
 
 class SalePage extends StatefulWidget { const SalePage({super.key}); @override State<SalePage> createState()=>_SalePageState(); }
 class _SalePageState extends State<SalePage> {
-  final qty=TextEditingController(), price=TextEditingController(), address=TextEditingController(), fee=TextEditingController(), customer=TextEditingController(), paid=TextEditingController(), reference=TextEditingController();
+  final qty=TextEditingController(), price=TextEditingController(), address=TextEditingController(), fee=TextEditingController(), customer=TextEditingController(), customerPhone=TextEditingController(), paid=TextEditingController(), reference=TextEditingController();
   String product='Maize', mode='collection', method='cash'; bool busy=false; String message='';
+  @override void dispose(){qty.dispose();price.dispose();address.dispose();fee.dispose();customer.dispose();customerPhone.dispose();paid.dispose();reference.dispose();super.dispose();}
   Future<void> save() async {
     final q=double.tryParse(qty.text), p=double.tryParse(price.text), amount=double.tryParse(paid.text)??0, deliveryFee=double.tryParse(fee.text)??0;
-    if(q==null||p==null||q<=0||p<0||(mode=='delivery'&&address.text.trim().isEmpty)){setState(()=>message='Check quantity, selling price and delivery address.');return;}
+    if(q==null||p==null||q<=0||p<0||customer.text.trim().isEmpty||(mode=='delivery'&&address.text.trim().isEmpty)){setState(()=>message='Check quantity, selling price and delivery address.');return;}
     setState(()=>busy=true);
     try {
       final db=Supabase.instance.client;
@@ -420,21 +421,22 @@ class _SalePageState extends State<SalePage> {
         final matches=await db.from('customers').select('id').ilike('full_name',customer.text.trim()).limit(1);
         if(matches.isNotEmpty) customerId=matches.first['id'] as String;
       }
+      if(customerId==null&&customerPhone.text.trim().isEmpty) throw Exception('Enter the customer phone number for a new customer.');
       final payload=<String,dynamic>{
-        'branch_id':branchId,'customer_id':customerId,'customer_name':customer.text.trim(),'sale_date':DateTime.now().toIso8601String().substring(0,10),
+        'branch_id':branchId,'customer_id':customerId,'customer_name':customer.text.trim(),'customer_phone':customerPhone.text.trim(),'sale_date':DateTime.now().toIso8601String().substring(0,10),
         'fulfilment_mode':mode,'delivery_address':address.text,'delivery_fee':deliveryFee,
         'items':[{'product_variant_id':prod['id'],'quantity':q,'unit_price':p}],
       };
       if(amount>0) payload['payment']={'amount':amount,'method':method,'reference':reference.text};
       final result=await db.rpc('record_sale',params:{'p_payload':payload});
       setState(()=>message='Sale saved. Reference: ${result['sale_id']}. Balance: KES ${result['balance']}');
-      qty.clear();price.clear();paid.clear();reference.clear();
+      qty.clear();price.clear();paid.clear();reference.clear();customerPhone.clear();
     } catch(e){setState(()=>message='Could not save sale: $e');}
     if(mounted)setState(()=>busy=false);
   }
   @override Widget build(BuildContext context)=>FormPage(title:'Record sale / customer order',children:[
     DropdownButtonFormField(value:product,items:['Maize','Fertilizer'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setState(()=>product=v!),decoration:const InputDecoration(labelText:'Product')),
-    field(qty,'Quantity (bags)',number:true),field(price,'Selling price per bag (KES)',number:true),field(customer,'Customer name (optional)'),
+    field(qty,'Quantity (bags)',number:true),field(price,'Selling price per bag (KES)',number:true),field(customer,'Customer name'),field(customerPhone,'Customer phone (required for a new customer)'),
     DropdownButtonFormField(value:mode,items:const [DropdownMenuItem(value:'collection',child:Text('Collect at your assigned branch')),DropdownMenuItem(value:'delivery',child:Text('Deliver to customer'))],onChanged:(v)=>setState(()=>mode=v!),decoration:const InputDecoration(labelText:'Fulfilment')),
     if(mode=='delivery') field(address,'Delivery address'),
     if(mode=='delivery') field(fee,'Delivery fee (KES)',number:true),
