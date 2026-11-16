@@ -380,7 +380,7 @@ class _PurchasePageState extends State<PurchasePage> {
       final prod=matches.first;
       await db.rpc('record_purchase', params: {'p_payload': {
         'branch_id':branchId, 'purchase_date':DateTime.now().toIso8601String().substring(0,10),
-        'payer':payer, 'notes':notes.text, 'items':[{'product_variant_id':prod['id'],'quantity':q,'unit_cost':c}]
+        'payer':payer, 'notes':[notes.text.trim(),if(supplier.text.trim().isNotEmpty)'Supplier: '+supplier.text.trim()].where((x)=>x.isNotEmpty).join(' | '), 'items':[{'product_variant_id':prod['id'],'quantity':q,'unit_cost':c}]
       }});
       setState(()=>message='Purchase saved. Stock is quarantined pending quality approval.'); qty.clear(); cost.clear(); supplier.clear(); notes.clear(); await loadPending();
     } catch(e) { setState(()=>message='Could not save purchase: $e'); }
