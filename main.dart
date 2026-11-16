@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
-const tajirBackendConfigured = String.fromEnvironment('SUPABASE_URL').isNotEmpty && String.fromEnvironment('SUPABASE_ANON_KEY').isNotEmpty;
+const tajirBackendConfigured = String.fromEnvironment('SUPABASE_URL') != '' && String.fromEnvironment('SUPABASE_ANON_KEY') != '';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
