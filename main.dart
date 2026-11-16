@@ -353,11 +353,16 @@ class _PurchasePageState extends State<PurchasePage> {
     setState(()=>busy=true);
     try {
       final db=Supabase.instance.client;
-      final branch=await db.from('branches').select('id').eq('code','NTULELE').single();
-      final prod=await db.from('products').select('id,unit').eq('category',product.toLowerCase()).single();
+      final ctx=List<Map<String,dynamic>>.from(await db.rpc('get_my_tajir_context'));
+      if(ctx.isEmpty) throw Exception('Active TAJIR profile not found.');
+      var branchId=ctx.first['branch_id']?.toString();
+      if(branchId==null){ final bs=await db.from('branches').select('id').eq('is_active',true).order('name').limit(1); if(bs.isEmpty) throw Exception('No active branch available.'); branchId=bs.first['id'].toString(); }
+      final matches=await db.from('product_variants').select('id,base_unit,products!inner(name)').eq('products.name',product).eq('is_active',true).limit(1);
+      if(matches.isEmpty) throw Exception('No active variant configured for '+product);
+      final prod=matches.first;
       await db.rpc('record_purchase', params: {'p_payload': {
-        'branch_id':branch['id'], 'purchase_date':DateTime.now().toIso8601String().substring(0,10),
-        'payer':payer, 'notes':notes.text, 'items':[{'product_id':prod['id'],'quantity':q,'unit_cost':c,'unit':prod['unit'],'details':{'supplier':supplier.text}}]
+        'branch_id':branchId, 'purchase_date':DateTime.now().toIso8601String().substring(0,10),
+        'payer':payer, 'notes':notes.text, 'items':[{'product_variant_id':prod['id'],'quantity':q,'unit_cost':c}]
       }});
       setState(()=>message='Purchase saved and stock updated.'); qty.clear(); cost.clear(); supplier.clear(); notes.clear();
     } catch(e) { setState(()=>message='Could not save purchase: $e'); }
@@ -382,17 +387,22 @@ class _SalePageState extends State<SalePage> {
     setState(()=>busy=true);
     try {
       final db=Supabase.instance.client;
-      final branch=await db.from('branches').select('id').eq('code','NTULELE').single();
-      final prod=await db.from('products').select('id').eq('category',product.toLowerCase()).single();
+      final ctx=List<Map<String,dynamic>>.from(await db.rpc('get_my_tajir_context'));
+      if(ctx.isEmpty) throw Exception('Active TAJIR profile not found.');
+      var branchId=ctx.first['branch_id']?.toString();
+      if(branchId==null){ final bs=await db.from('branches').select('id').eq('is_active',true).order('name').limit(1); if(bs.isEmpty) throw Exception('No active branch available.'); branchId=bs.first['id'].toString(); }
+      final matches=await db.from('product_variants').select('id,base_unit,products!inner(name)').eq('products.name',product).eq('is_active',true).limit(1);
+      if(matches.isEmpty) throw Exception('No active variant configured for '+product);
+      final prod=matches.first;
       String? customerId;
       if(customer.text.trim().isNotEmpty){
         final matches=await db.from('customers').select('id').ilike('full_name',customer.text.trim()).limit(1);
         if(matches.isNotEmpty) customerId=matches.first['id'] as String;
       }
       final payload=<String,dynamic>{
-        'branch_id':branch['id'],'customer_id':customerId,'sale_date':DateTime.now().toIso8601String().substring(0,10),
+        'branch_id':branchId,'customer_id':customerId,'customer_name':customer.text.trim(),'sale_date':DateTime.now().toIso8601String().substring(0,10),
         'fulfilment_mode':mode,'delivery_address':address.text,'delivery_fee':deliveryFee,
-        'items':[{'product_id':prod['id'],'quantity':q,'unit_price':p}],
+        'items':[{'product_variant_id':prod['id'],'quantity':q,'unit_price':p}],
       };
       if(amount>0) payload['payment']={'amount':amount,'method':method,'reference':reference.text};
       final result=await db.rpc('record_sale',params:{'p_payload':payload});
@@ -409,7 +419,7 @@ class _SalePageState extends State<SalePage> {
     if(mode=='delivery') field(fee,'Delivery fee (KES)',number:true),
     const Divider(), const Text('Payment (optional)',style:TextStyle(fontWeight:FontWeight.bold)),
     field(paid,'Amount received (KES)',number:true),
-    DropdownButtonFormField(value:method,items:const [DropdownMenuItem(value:'mpesa',child:Text('M-Pesa')),DropdownMenuItem(value:'cash',child:Text('Cash')),DropdownMenuItem(value:'bank',child:Text('Bank')),DropdownMenuItem(value:'credit',child:Text('Credit'))],onChanged:(v)=>setState(()=>method=v!),decoration:const InputDecoration(labelText:'Payment method')),
+    DropdownButtonFormField(value:method,items:const [DropdownMenuItem(value:'mpesa',child:Text('M-Pesa')),DropdownMenuItem(value:'cash',child:Text('Cash')),DropdownMenuItem(value:'bank_transfer',child:Text('Bank transfer')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v)=>setState(()=>method=v!),decoration:const InputDecoration(labelText:'Payment method')),
     field(reference,'Payment reference'), actionButton('Save sale',busy,save),if(message.isNotEmpty)Text(message),
     const Text('M-Pesa is recorded as unverified until a Daraja callback integration confirms it. Do not treat a screenshot or typed code as verified payment.',style:TextStyle(fontSize:12,color:Colors.black54)),
   ]);
