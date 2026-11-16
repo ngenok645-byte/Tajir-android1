@@ -118,9 +118,9 @@ class HomeShell extends StatefulWidget {
 }
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
-  final pages = const [DashboardPage(), PurchasePage(), SalePage(), StockPage(), CustomersPage(), BranchesPage()];
-  final labels = const ['Dashboard','Purchases','Sales','Stock','Customers','Branches'];
-  final icons = const [Icons.dashboard, Icons.add_shopping_cart, Icons.point_of_sale, Icons.inventory_2, Icons.people, Icons.store];
+  final pages = const [DashboardPage(), PurchasePage(), SalePage(), StockPage(), CustomersPage(), BranchesPage(), TractorServicesPage()];
+  final labels = const ['Dashboard','Purchases','Sales','Stock','Customers','Branches','Tractor Services'];
+  final icons = const [Icons.dashboard, Icons.add_shopping_cart, Icons.point_of_sale, Icons.inventory_2, Icons.people, Icons.store, Icons.agriculture];
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
@@ -598,6 +598,71 @@ class _CustomersPageState extends State<CustomersPage> {
       const Padding(padding:EdgeInsets.only(top:8),child:Text('Customer balances count verified payments only. Pending, rejected and reversed payments are not treated as money received.',style:TextStyle(fontSize:12,color:Colors.black54))),
     ]);
   }
+}
+
+class TractorServicesPage extends StatefulWidget {
+ const TractorServicesPage({super.key});
+ @override State<TractorServicesPage> createState()=>_TractorServicesPageState();
+}
+class _TractorServicesPageState extends State<TractorServicesPage>{
+ String? branchId; bool loading=true; String message='';
+ List<Map<String,dynamic>> tractors=[],jobs=[];
+ @override void initState(){super.initState();load();}
+ Future<void> load()async{
+  setState(()=>loading=true);
+  try{
+   final db=Supabase.instance.client;
+   final c=List<Map<String,dynamic>>.from(await db.rpc('get_my_tajir_context'));
+   if(c.isEmpty)throw Exception('Active profile not found');
+   branchId=c.first['branch_id']?.toString();
+   if(branchId==null){final b=await db.from('branches').select('id').eq('is_active',true).order('name').limit(1);if(b.isNotEmpty)branchId=b.first['id'].toString();}
+   if(branchId==null)throw Exception('No branch available');
+   final r=await Future.wait([
+    db.from('tractor_assets').select('id,tractor_code,registration_number,make_model,status,engine_hours').eq('branch_id',branchId).order('tractor_code'),
+    db.from('tractor_service_jobs').select('id,job_number,farmer_name,service_type,service_location,status,total_charge').eq('branch_id',branchId).order('created_at',ascending:false).limit(100)
+   ]);
+   if(!mounted)return;
+   setState(()=>{tractors=List<Map<String,dynamic>>.from(r[0]),jobs=List<Map<String,dynamic>>.from(r[1]),message=''});
+  }catch(e){if(mounted)setState(()=>message=e.toString());}
+  if(mounted)setState(()=>loading=false);
+ }
+ Future<void> addTractor()async{
+  final code=TextEditingController(),model=TextEditingController(),reg=TextEditingController();
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Register tractor'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+   TextField(controller:code,decoration:const InputDecoration(labelText:'Tractor code')),
+   TextField(controller:model,decoration:const InputDecoration(labelText:'Make / model')),
+   TextField(controller:reg,decoration:const InputDecoration(labelText:'Registration number (optional')),
+  ]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Save'))]));
+  if(ok==true){try{if(code.text.trim().isEmpty||model.text.trim().isEmpty)throw Exception('Code and make/model required');await Supabase.instance.client.from('tractor_assets').insert({'branch_id':branchId,'tractor_code':code.text.trim(),'make_model':model.text.trim(),'registration_number':reg.text.trim().isEmpty?null:reg.text.trim()});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
+  code.dispose();model.dispose();reg.dispose();
+ }
+ Future<void> bookJob()async{
+  if(tractors.isEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Register a tractor first')));return;}
+  final farmer=TextEditingController(),phone=TextEditingController(),location=TextEditingController(),charge=TextEditingController();
+  String tractor=tractors.first['id'].toString(),type='ploughing';
+  final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh)=>AlertDialog(title:const Text('Book tractor service'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+   TextField(controller:farmer,decoration:const InputDecoration(labelText:'Farmer name')),
+   TextField(controller:phone,decoration:const InputDecoration(labelText:'Phone')),
+   DropdownButtonFormField<String>(value:tractor,items:tractors.map((t)=>DropdownMenuItem(value:t['id'].toString(),child:Text(t['tractor_code'].toString()))).toList(),onChanged:(v)=>refresh(()=>tractor=v??tractor),decoration:const InputDecoration(labelText:'Tractor')),
+   DropdownButtonFormField<String>(value:type,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v)=>refresh(()=>type=v??type),decoration:const InputDecoration(labelText:'Service')),
+   TextField(controller:location,decoration:const InputDecoration(labelText:'Farm location')),
+   TextField(controller:charge,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Agreed charge (KES)')),
+  ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Book'))])));
+  if(ok==true){try{final amount=double.tryParse(charge.text)??0;if(farmer.text.trim().isEmpty||location.text.trim().isEmpty||amount<0)throw Exception('Enter farmer, location and valid charge');await Supabase.instance.client.from('tractor_service_jobs').insert({'job_number':'TRJ-'+DateTime.now().microsecondsSinceEpoch.toString(),'branch_id':branchId,'tractor_id':tractor,'farmer_name':farmer.text.trim(),'farmer_phone':phone.text.trim().isEmpty?null:phone.text.trim(),'service_type':type,'service_location':location.text.trim(),'rate':amount,'total_charge':amount,'status':'booked'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
+  farmer.dispose();phone.dispose();location.dispose();charge.dispose();
+ }
+ Future<void> setJobStatus(Map<String,dynamic> job,String status)async{try{final v=<String,dynamic>{'status':status};if(status=='in_progress')v['started_at']=DateTime.now().toIso8601String();if(status=='completed')v['completed_at']=DateTime.now().toIso8601String();await Supabase.instance.client.from('tractor_service_jobs').update(v).eq('id',job['id']);await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
+ @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(18),children:[
+  Row(children:[const Expanded(child:Text('Tractor Services',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold))),IconButton(onPressed:load,icon:const Icon(Icons.refresh)),FilledButton(onPressed:addTractor,child:const Text('Add tractor'))]),
+  const Text('Branch-scoped tractor register and field-service bookings.'),
+  const SizedBox(height:12),Row(children:[const Expanded(child:Text('Tractors',style:TextStyle(fontWeight:FontWeight.bold))),FilledButton.tonal(onPressed:bookJob,child:const Text('Book service'))]),
+  if(loading)const LinearProgressIndicator(),if(message.isNotEmpty)Text(message,style:const TextStyle(color:Colors.red)),
+  if(tractors.isEmpty&&!loading)const Text('No tractors registered yet.'),
+  ...tractors.map((t)=>Card(child:ListTile(leading:const Icon(Icons.agriculture,color:brandGreen),title:Text(t['tractor_code'].toString()+' • '+t['make_model'].toString()),subtitle:Text(t['status'].toString()+' • '+t['engine_hours'].toString()+' engine hours')))),
+  const Divider(),const Text('Service jobs',style:TextStyle(fontWeight:FontWeight.bold)),
+  if(jobs.isEmpty&&!loading)const Text('No tractor jobs recorded.'),
+  ...jobs.map((j)=>Card(child:ListTile(title:Text(j['farmer_name'].toString()+' • '+j['service_type'].toString()),subtitle:Text(j['job_number'].toString()+' • '+j['service_location'].toString()+' • KES '+j['total_charge'].toString()),trailing:PopupMenuButton<String>(onSelected:(v)=>setJobStatus(j,v),itemBuilder:(_)=>const [PopupMenuItem(value:'confirmed',child:Text('Confirm')),PopupMenuItem(value:'in_progress',child:Text('Start')),PopupMenuItem(value:'completed',child:Text('Complete')),PopupMenuItem(value:'cancelled',child:Text('Cancel'))])))),
+ ]));
 }
 
 class FormPage extends StatelessWidget {
