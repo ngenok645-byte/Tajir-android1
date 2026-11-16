@@ -1,6 +1,3 @@
-
-
-
 name: Build TAJIR Android APK
 
 'on':
@@ -67,6 +64,9 @@ jobs:
 
           cp main.dart TAJIR_flutter_app/lib/main.dart
           echo "Production main.dart copied successfully."
+
+      - name: Apply live Supabase schema integration
+        run: python patch_production.py
 
       - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
