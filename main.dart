@@ -6,11 +6,6 @@ const brandGold = Color(0xFFD6A52D);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  const previewMode = bool.fromEnvironment('TAJIR_PREVIEW');
-  if (previewMode) {
-    runApp(const TajirApp());
-    return;
-  }
   const url = String.fromEnvironment('SUPABASE_URL');
   const anon = String.fromEnvironment('SUPABASE_ANON_KEY');
   if (url.isEmpty || anon.isEmpty) {
@@ -54,15 +49,8 @@ class TajirApp extends StatelessWidget {
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
-  static const previewMode =
-      bool.fromEnvironment('TAJIR_PREVIEW');
-
   @override
   Widget build(BuildContext context) {
-    if (previewMode) {
-      return const DemoLoginPage();
-    }
-
     return StreamBuilder<AuthState>(
       stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
