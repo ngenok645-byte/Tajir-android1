@@ -124,9 +124,9 @@ class HomeShell extends StatefulWidget {
 }
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
-  final pages = const [DashboardPage(), PurchasePage(), SalePage(), StockPage(), CustomersPage()];
-  final labels = const ['Dashboard','Purchases','Sales','Stock','Customers'];
-  final icons = const [Icons.dashboard, Icons.add_shopping_cart, Icons.point_of_sale, Icons.inventory_2, Icons.people];
+  final pages = const [DashboardPage(), PurchasePage(), SalePage(), StockPage(), CustomersPage(), BranchesPage()];
+  final labels = const ['Dashboard','Purchases','Sales','Stock','Customers','Branches'];
+  final icons = const [Icons.dashboard, Icons.add_shopping_cart, Icons.point_of_sale, Icons.inventory_2, Icons.people, Icons.store];
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
@@ -147,6 +147,149 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
+
+class BranchesPage extends StatefulWidget {
+  const BranchesPage({super.key});
+  @override State<BranchesPage> createState() => _BranchesPageState();
+}
+
+class _BranchesPageState extends State<BranchesPage> {
+  List<Map<String,dynamic>> rows = [];
+  bool isDirector = false, busy = false;
+  String message = '';
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    setState(() { busy = true; message = ''; });
+    try {
+      final db = Supabase.instance.client;
+      final contexts = List<Map<String,dynamic>>.from(await db.rpc('get_my_tajir_context'));
+      if (contexts.isEmpty) throw Exception('Your TAJIR profile is not active.');
+      final roleCodes = List<String>.from(contexts.first['role_codes'] ?? const []);
+      final data = await db.from('branches')
+        .select('id,code,name,address,phone,is_active')
+        .order('name');
+      if (!mounted) return;
+      setState(() {
+        isDirector = roleCodes.contains('director');
+        rows = List<Map<String,dynamic>>.from(data);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => message = 'Could not load branches: $e');
+    }
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> editBranch([Map<String,dynamic>? row]) async {
+    if (!isDirector) return;
+    final code = TextEditingController(text: row?['code']?.toString() ?? '');
+    final name = TextEditingController(text: row?['name']?.toString() ?? '');
+    final address = TextEditingController(text: row?['address']?.toString() ?? '');
+    final phone = TextEditingController(text: row?['phone']?.toString() ?? '');
+    String? validation;
+    final ok = await showDialog<bool>(context: context, builder: (dialogContext) =>
+      StatefulBuilder(builder: (context, refresh) => AlertDialog(
+        title: Text(row == null ? 'Add branch' : 'Edit branch'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: code, textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'Branch code')),
+          TextField(controller: name, decoration: const InputDecoration(labelText: 'Branch name')),
+          TextField(controller: address, decoration: const InputDecoration(labelText: 'Location / address')),
+          TextField(controller: phone, keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(labelText: 'Phone number')),
+          if (validation != null) Text(validation!, style: const TextStyle(color: Colors.red)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () {
+            if (code.text.trim().isEmpty || name.text.trim().isEmpty) {
+              refresh(() => validation = 'Branch code and name are required.');
+              return;
+            }
+            Navigator.pop(dialogContext, true);
+          }, child: const Text('Save')),
+        ],
+      )));
+    if (ok == true) {
+      try {
+        final values = <String,dynamic>{
+          'code': code.text.trim().toUpperCase(),
+          'name': name.text.trim(),
+          'address': address.text.trim().isEmpty ? null : address.text.trim(),
+          'phone': phone.text.trim().isEmpty ? null : phone.text.trim(),
+        };
+        final db = Supabase.instance.client;
+        if (row == null) {
+          await db.from('branches').insert(values);
+        } else {
+          await db.from('branches').update(values).eq('id', row['id']);
+        }
+        await load();
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Branch could not be saved: $e')));
+      }
+    }
+    code.dispose(); name.dispose(); address.dispose(); phone.dispose();
+  }
+
+  Future<void> deactivateBranch(Map<String,dynamic> row) async {
+    if (!isDirector || row['is_active'] != true) return;
+    final confirmed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Deactivate branch?'),
+      content: Text('The branch "${row['name']}" will be hidden from new operations. Existing records will be preserved.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Deactivate')),
+      ],
+    ));
+    if (confirmed == true) {
+      try {
+        await Supabase.instance.client.from('branches')
+          .update({'is_active': false}).eq('id', row['id']);
+        await load();
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Branch could not be deactivated: $e')));
+      }
+    }
+  }
+
+  @override Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: load,
+    child: ListView(padding: const EdgeInsets.all(18), children: [
+      Row(children: [
+        const Expanded(child: Text('Branches', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold))),
+        if (isDirector) FilledButton.icon(onPressed: () => editBranch(), icon: const Icon(Icons.add), label: const Text('Add')),
+      ]),
+      const SizedBox(height: 8),
+      const Text('Branch access is restricted by the signed-in user’s branch assignment. Deactivated branches and their historical records are retained.'),
+      if (busy) const LinearProgressIndicator(),
+      if (message.isNotEmpty) Text(message, style: const TextStyle(color: Colors.red)),
+      if (!busy && rows.isEmpty && message.isEmpty)
+        const Card(child: Padding(padding: EdgeInsets.all(18), child: Text('No branches are available to this account.'))),
+      ...rows.map((row) => Card(child: ListTile(
+        leading: Icon(Icons.store, color: row['is_active'] == true ? brandGreen : Colors.grey),
+        title: Text('${row['name']} (${row['code']})'),
+        subtitle: Text('${row['address'] ?? 'No address'} • ${row['phone'] ?? 'No phone'} • ${row['is_active'] == true ? 'Active' : 'Inactive'}'),
+        trailing: isDirector ? PopupMenuButton<String>(
+          onSelected: (value) {
+            if (value == 'edit') editBranch(row);
+            if (value == 'deactivate') deactivateBranch(row);
+          },
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'edit', child: Text('Edit')),
+            if (row['is_active'] == true)
+              const PopupMenuItem(value: 'deactivate', child: Text('Deactivate')),
+          ],
+        ) : null,
+      ))),
+    ]),
+  );
+}
+
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
   @override State<DashboardPage> createState() => _DashboardPageState();
@@ -157,9 +300,19 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> load() async {
     try {
       final db = Supabase.instance.client;
-      final p = await db.from('profiles').select('full_name,role').eq('id', db.auth.currentUser!.id).single();
+      final contextRows = await db.rpc('get_my_tajir_context');
+      final contextList = List<Map<String,dynamic>>.from(contextRows);
+      if (contextList.isEmpty) throw Exception('Your TAJIR profile is not active yet.');
+      final profile = contextList.first;
+      final roleNames = List<String>.from(profile['role_names'] ?? const []);
+      final branchName = profile['branch_name']?.toString();
       final s = await db.rpc('get_stock_balances');
-      setState(() { role = '${p['full_name']} • ${p['role']}'; stock = List<Map<String,dynamic>>.from(s); });
+      if (!mounted) return;
+      setState(() {
+        role = '${profile['display_name']} • ${roleNames.isEmpty ? 'No role assigned' : roleNames.join(', ')}${branchName == null ? '' : ' • $branchName'}';
+        stock = List<Map<String,dynamic>>.from(s);
+        error = null;
+      });
     } catch(e) { setState(() => error = e.toString()); }
   }
   @override Widget build(BuildContext context) => RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.all(18), children: [
