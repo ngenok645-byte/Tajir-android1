@@ -619,7 +619,7 @@ class _TractorServicesPageState extends State<TractorServicesPage>{
    if(branchId==null)throw Exception('No branch available');
    final r=await Future.wait([
     db.from('tractor_assets').select('id,tractor_code,registration_number,make_model,status,engine_hours').eq('branch_id',branchId!).order('tractor_code'),
-    db.from('tractor_service_jobs').select('id,job_number,farmer_name,service_type,service_location,status,total_charge').eq('branch_id',branchId).order('created_at',ascending:false).limit(100)
+    db.from('tractor_service_jobs').select('id,job_number,farmer_name,service_type,service_location,status,total_charge').eq('branch_id',branchId!).order('created_at',ascending:false).limit(100)
    ]);
    if(!mounted)return;
    setState(() { tractors=List<Map<String,dynamic>>.from(r[0]); jobs=List<Map<String,dynamic>>.from(r[1]); message=''; });
