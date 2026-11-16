@@ -314,7 +314,7 @@ class _DashboardPageState extends State<DashboardPage> {
     Text(role, style: const TextStyle(color: Colors.black54)),
     const SizedBox(height: 18),
     const Wrap(spacing: 12, runSpacing: 12, children: [
-      MetricCard(title: 'Location', value: 'Ntulele', icon: Icons.location_on),
+      MetricCard(title: 'Location', value: 'Assigned branch', icon: Icons.location_on),
       MetricCard(title: 'Products', value: 'Maize & Fertilizer', icon: Icons.grain),
       MetricCard(title: 'Payments', value: 'M-Pesa • Cash • Bank • Credit', icon: Icons.payments),
     ]),
