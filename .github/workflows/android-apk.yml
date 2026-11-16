@@ -6,6 +6,7 @@ name: Build TAJIR Android APK
     branches:
       - main
       - production-app
+      - tajir-completion-work
 jobs:
   build:
     name: Build TAJIR Android App
