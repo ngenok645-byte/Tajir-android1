@@ -70,18 +70,13 @@ class LoginPage extends StatefulWidget {
 }
 class _LoginPageState extends State<LoginPage> {
   final email = TextEditingController(), password = TextEditingController();
-  bool busy = false, signup = false;
+  bool busy = false;
   String? error;
   Future<void> submit() async {
     setState(() { busy = true; error = null; });
     try {
       final auth = Supabase.instance.client.auth;
-      if (signup) {
-        await auth.signUp(email: email.text.trim(), password: password.text);
-        if (mounted) setState(() => error = 'Account request submitted. An administrator must assign your TAJIR role.');
-      } else {
-        await auth.signInWithPassword(email: email.text.trim(), password: password.text);
-      }
+      await auth.signInWithPassword(email: email.text.trim(), password: password.text);
     } on AuthException catch (e) { setState(() => error = e.message); }
       catch (e) { setState(() => error = 'Could not sign in: $e'); }
     if (mounted) setState(() => busy = false);
@@ -91,16 +86,15 @@ class _LoginPageState extends State<LoginPage> {
       child: Card(margin: const EdgeInsets.all(24), child: Padding(padding: const EdgeInsets.all(24),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const BrandMark(), const SizedBox(height: 24),
-          Text(signup ? 'Create account' : 'Sign in to TAJIR', style: Theme.of(context).textTheme.headlineSmall),
+          const Text('Sign in to TAJIR', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 18),
           TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder())),
           const SizedBox(height: 12),
           TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder())),
           if (error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: const TextStyle(color: Colors.red))),
           const SizedBox(height: 16),
-          FilledButton(onPressed: busy ? null : submit, child: Text(busy ? 'Please wait…' : signup ? 'Request account' : 'Sign in')),
-          TextButton(onPressed: () => setState(() { signup = !signup; error = null; }), child: Text(signup ? 'Back to sign in' : 'Create an account')),
-          const Text('Only an authorized administrator can grant staff roles.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
+          FilledButton(onPressed: busy ? null : submit, child: Text(busy ? 'Please wait…' : 'Sign in')),
+          const Text('Accounts are created and activated by the TAJIR administrator.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
         ]),
       )),
     )),
@@ -364,7 +358,7 @@ class _PurchasePageState extends State<PurchasePage> {
         'branch_id':branchId, 'purchase_date':DateTime.now().toIso8601String().substring(0,10),
         'payer':payer, 'notes':notes.text, 'items':[{'product_variant_id':prod['id'],'quantity':q,'unit_cost':c}]
       }});
-      setState(()=>message='Purchase saved and stock updated.'); qty.clear(); cost.clear(); supplier.clear(); notes.clear();
+      setState(()=>message='Purchase saved. Stock is quarantined pending quality approval.'); qty.clear(); cost.clear(); supplier.clear(); notes.clear();
     } catch(e) { setState(()=>message='Could not save purchase: $e'); }
     if(mounted) setState(()=>busy=false);
   }
@@ -414,7 +408,7 @@ class _SalePageState extends State<SalePage> {
   @override Widget build(BuildContext context)=>FormPage(title:'Record sale / customer order',children:[
     DropdownButtonFormField(value:product,items:['Maize','Fertilizer'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setState(()=>product=v!),decoration:const InputDecoration(labelText:'Product')),
     field(qty,'Quantity (bags)',number:true),field(price,'Selling price per bag (KES)',number:true),field(customer,'Customer name (optional)'),
-    DropdownButtonFormField(value:mode,items:const [DropdownMenuItem(value:'collection',child:Text('Collect at Ntulele')),DropdownMenuItem(value:'delivery',child:Text('Deliver to customer'))],onChanged:(v)=>setState(()=>mode=v!),decoration:const InputDecoration(labelText:'Fulfilment')),
+    DropdownButtonFormField(value:mode,items:const [DropdownMenuItem(value:'collection',child:Text('Collect at your assigned branch')),DropdownMenuItem(value:'delivery',child:Text('Deliver to customer'))],onChanged:(v)=>setState(()=>mode=v!),decoration:const InputDecoration(labelText:'Fulfilment')),
     if(mode=='delivery') field(address,'Delivery address'),
     if(mode=='delivery') field(fee,'Delivery fee (KES)',number:true),
     const Divider(), const Text('Payment (optional)',style:TextStyle(fontWeight:FontWeight.bold)),
@@ -493,8 +487,9 @@ class _CustomersPageState extends State<CustomersPage> {
         final values=<String,dynamic>{'customer_type':type,'full_name':name.text.trim(),'phone':phone.text.trim(),
           'email':email.text.trim().isEmpty?null:email.text.trim()};
         if(row==null){
-          final branch=await db.from('branches').select('id').eq('code','NTULELE').maybeSingle();
-          if(branch!=null)values['default_branch_id']=branch['id'];
+          final ctx=List<Map<String,dynamic>>.from(await db.rpc('get_my_tajir_context'));
+          final assigned=ctx.isEmpty?null:ctx.first['branch_id'];
+          if(assigned!=null)values['default_branch_id']=assigned;
           await db.from('customers').insert(values);
         } else {
           await db.from('customers').update(values).eq('id',row['id']);
