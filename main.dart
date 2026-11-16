@@ -651,6 +651,36 @@ class _TractorServicesPageState extends State<TractorServicesPage>{
   if(ok==true){try{final amount=double.tryParse(charge.text)??0;if(farmer.text.trim().isEmpty||location.text.trim().isEmpty||amount<0)throw Exception('Enter farmer, location and valid charge');await Supabase.instance.client.from('tractor_service_jobs').insert({'job_number':'TRJ-'+DateTime.now().microsecondsSinceEpoch.toString(),'branch_id':branchId,'tractor_id':tractor,'farmer_name':farmer.text.trim(),'farmer_phone':phone.text.trim().isEmpty?null:phone.text.trim(),'service_type':type,'service_location':location.text.trim(),'rate':amount,'total_charge':amount,'status':'booked'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
   farmer.dispose();phone.dispose();location.dispose();charge.dispose();
  }
+ Future<void> addJobExpense(Map<String,dynamic> job)async{
+  final amount=TextEditingController(),type=TextEditingController(),desc=TextEditingController();
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Record job expense'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+   TextField(controller:type,decoration:const InputDecoration(labelText:'Expense type')),
+   TextField(controller:desc,decoration:const InputDecoration(labelText:'Description')),
+   TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Amount (KES)')),
+  ]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Save'))]));
+  if(ok==true){try{final n=double.tryParse(amount.text);if(n==null||n<=0||type.text.trim().isEmpty)throw Exception('Enter expense type and positive amount');await Supabase.instance.client.from('tractor_job_expenses').insert({'job_id':job['id'],'branch_id':branchId,'expense_type':type.text.trim(),'description':desc.text.trim().isEmpty?null:desc.text.trim(),'amount':n});if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Expense recorded')));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Expense not saved: '+e.toString())));}}
+  amount.dispose();type.dispose();desc.dispose();
+ }
+ Future<void> addJobPayment(Map<String,dynamic> job)async{
+  final amount=TextEditingController(),reference=TextEditingController();String method='cash';
+  final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,refresh)=>AlertDialog(title:const Text('Record tractor payment'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+   TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Amount received (KES)')),
+   DropdownButtonFormField<String>(value:method,items:const [DropdownMenuItem(value:'cash',child:Text('Cash')),DropdownMenuItem(value:'mpesa',child:Text('M-Pesa')),DropdownMenuItem(value:'bank_transfer',child:Text('Bank transfer')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v)=>refresh(()=>method=v??'cash'),decoration:const InputDecoration(labelText:'Method')),
+   TextField(controller:reference,decoration:const InputDecoration(labelText:'Reference')),
+  ]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Save'))])));
+  if(ok==true){try{final n=double.tryParse(amount.text);if(n==null||n<=0)throw Exception('Enter a positive payment amount');final r=await Supabase.instance.client.rpc('record_tractor_job_payment',params:{'p_job_id':job['id'],'p_amount':n,'p_method':method,'p_reference':reference.text.trim()});if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Payment '+r['payment_number'].toString()+' • '+r['status'].toString())));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Payment not saved: '+e.toString())));}}
+  amount.dispose();reference.dispose();
+ }
+ Future<void> addMaintenance(Map<String,dynamic> tractor)async{
+  final type=TextEditingController(),description=TextEditingController(),cost=TextEditingController();
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Record maintenance'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+   TextField(controller:type,decoration:const InputDecoration(labelText:'Maintenance type')),
+   TextField(controller:description,decoration:const InputDecoration(labelText:'Work done / notes')),
+   TextField(controller:cost,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Cost (KES)')),
+  ]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Save'))]));
+  if(ok==true){try{final n=double.tryParse(cost.text)??0;if(type.text.trim().isEmpty||n<0)throw Exception('Enter a maintenance type and valid cost');await Supabase.instance.client.from('tractor_maintenance_records').insert({'tractor_id':tractor['id'],'branch_id':branchId,'maintenance_type':type.text.trim(),'description':description.text.trim().isEmpty?null:description.text.trim(),'cost':n,'engine_hours':tractor['engine_hours']});await Supabase.instance.client.from('tractor_assets').update({'status':'maintenance'}).eq('id',tractor['id']);await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Maintenance not saved: '+e.toString())));}}
+  type.dispose();description.dispose();cost.dispose();
+ }
  Future<void> setJobStatus(Map<String,dynamic> job,String status)async{
   try{
    final v=<String,dynamic>{'status':status};
@@ -671,10 +701,10 @@ class _TractorServicesPageState extends State<TractorServicesPage>{
   const SizedBox(height:12),Row(children:[const Expanded(child:Text('Tractors',style:TextStyle(fontWeight:FontWeight.bold))),FilledButton.tonal(onPressed:bookJob,child:const Text('Book service'))]),
   if(loading)const LinearProgressIndicator(),if(message.isNotEmpty)Text(message,style:const TextStyle(color:Colors.red)),
   if(tractors.isEmpty&&!loading)const Text('No tractors registered yet.'),
-  ...tractors.map((t)=>Card(child:ListTile(leading:const Icon(Icons.agriculture,color:brandGreen),title:Text(t['tractor_code'].toString()+' • '+t['make_model'].toString()),subtitle:Text(t['status'].toString()+' • '+t['engine_hours'].toString()+' engine hours')))),
+  ...tractors.map((t)=>Card(child:ListTile(leading:const Icon(Icons.agriculture,color:brandGreen),title:Text(t['tractor_code'].toString()+' • '+t['make_model'].toString()),subtitle:Text(t['status'].toString()+' • '+t['engine_hours'].toString()+' engine hours'),trailing:PopupMenuButton<String>(onSelected:(v){if(v=='maintenance')addMaintenance(t);if(v=='available')Supabase.instance.client.from('tractor_assets').update({'status':'available'}).eq('id',t['id']).then((_)=>load());},itemBuilder:(_)=>const [PopupMenuItem(value:'maintenance',child:Text('Record maintenance')),PopupMenuItem(value:'available',child:Text('Mark available'))])))),
   const Divider(),const Text('Service jobs',style:TextStyle(fontWeight:FontWeight.bold)),
   if(jobs.isEmpty&&!loading)const Text('No tractor jobs recorded.'),
-  ...jobs.map((j)=>Card(child:ListTile(title:Text(j['farmer_name'].toString()+' • '+j['service_type'].toString()),subtitle:Text(j['job_number'].toString()+' • '+j['service_location'].toString()+' • KES '+j['total_charge'].toString()),trailing:PopupMenuButton<String>(onSelected:(v)=>setJobStatus(j,v),itemBuilder:(_)=>const [PopupMenuItem(value:'confirmed',child:Text('Confirm')),PopupMenuItem(value:'in_progress',child:Text('Start')),PopupMenuItem(value:'completed',child:Text('Complete')),PopupMenuItem(value:'cancelled',child:Text('Cancel'))])))),
+  ...jobs.map((j)=>Card(child:ListTile(title:Text(j['farmer_name'].toString()+' • '+j['service_type'].toString()),subtitle:Text(j['job_number'].toString()+' • '+j['service_location'].toString()+' • KES '+j['total_charge'].toString()),trailing:PopupMenuButton<String>(onSelected:(v){if(v=='expense')addJobExpense(j);else if(v=='payment')addJobPayment(j);else setJobStatus(j,v);},itemBuilder:(_)=>const [PopupMenuItem(value:'confirmed',child:Text('Confirm')),PopupMenuItem(value:'in_progress',child:Text('Start')),PopupMenuItem(value:'completed',child:Text('Complete')),PopupMenuItem(value:'cancelled',child:Text('Cancel')),PopupMenuItem(value:'expense',child:Text('Record expense')),PopupMenuItem(value:'payment',child:Text('Record payment'))])))),
  ]));
 }
 
