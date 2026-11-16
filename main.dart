@@ -622,7 +622,7 @@ class _TractorServicesPageState extends State<TractorServicesPage>{
     db.from('tractor_service_jobs').select('id,job_number,farmer_name,service_type,service_location,status,total_charge').eq('branch_id',branchId).order('created_at',ascending:false).limit(100)
    ]);
    if(!mounted)return;
-   setState(()=>{tractors=List<Map<String,dynamic>>.from(r[0]),jobs=List<Map<String,dynamic>>.from(r[1]),message=''});
+   setState(() { tractors=List<Map<String,dynamic>>.from(r[0]); jobs=List<Map<String,dynamic>>.from(r[1]); message=''; });
   }catch(e){if(mounted)setState(()=>message=e.toString());}
   if(mounted)setState(()=>loading=false);
  }
