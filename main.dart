@@ -340,7 +340,31 @@ class MetricCard extends StatelessWidget {
 class PurchasePage extends StatefulWidget { const PurchasePage({super.key}); @override State<PurchasePage> createState()=>_PurchasePageState(); }
 class _PurchasePageState extends State<PurchasePage> {
   final qty=TextEditingController(), cost=TextEditingController(), supplier=TextEditingController(), notes=TextEditingController();
-  String product='Maize', payer='Mercy'; bool busy=false; String message='';
+  String product='Maize', payer='Mercy'; bool busy=false; String message=''; List<Map<String,dynamic>> pending=[];
+  @override void initState(){super.initState();loadPending();}
+  Future<void> loadPending() async { try { final r=await Supabase.instance.client.rpc('get_pending_purchase_quality'); if(!mounted)return; setState(()=>pending=List<Map<String,dynamic>>.from(r)); } catch(_) {} }
+  Future<void> reviewQuality(Map<String,dynamic> purchase) async {
+    final items=List<Map<String,dynamic>>.from(purchase['items']??const []);
+    final controllers=items.map((x)=>TextEditingController(text:(x['quantity']??0).toString())).toList();
+    final accepted=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+      title:Text('Quality check • ${purchase['purchase_number']}'),
+      content:SizedBox(width:420,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        const Text('Enter the accepted quantity for each received item. Rejected quantity is calculated automatically.'),
+        ...List.generate(items.length,(i)=>TextField(controller:controllers[i],keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:'Accepted of ${items[i]['quantity']} ${items[i]['unit']}'))),
+      ]))),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Approve'))],
+    ));
+    if(accepted==true){
+      try {
+        final payload=<Map<String,dynamic>>[];
+        for(var i=0;i<items.length;i++){ final n=double.tryParse(controllers[i].text); final max=(items[i]['quantity'] as num).toDouble(); if(n==null||n<0||n>max)throw Exception('Accepted quantity must be between 0 and $max'); payload.add({'purchase_item_id':items[i]['purchase_item_id'],'accepted_quantity':n}); }
+        await Supabase.instance.client.rpc('approve_purchase_quality',params:{'p_purchase_id':purchase['purchase_id'],'p_accepted':payload});
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Quality decision saved. Approved quantities are now reflected in stock.')));
+        await loadPending();
+      } catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Quality approval failed: $e')));}
+    }
+    for(final c in controllers){c.dispose();}
+  }
   Future<void> save() async {
     final q=double.tryParse(qty.text), c=double.tryParse(cost.text);
     if(q==null || c==null || q<=0 || c<0) { setState(()=>message='Enter a valid quantity and buying price.'); return; }
@@ -358,7 +382,7 @@ class _PurchasePageState extends State<PurchasePage> {
         'branch_id':branchId, 'purchase_date':DateTime.now().toIso8601String().substring(0,10),
         'payer':payer, 'notes':notes.text, 'items':[{'product_variant_id':prod['id'],'quantity':q,'unit_cost':c}]
       }});
-      setState(()=>message='Purchase saved. Stock is quarantined pending quality approval.'); qty.clear(); cost.clear(); supplier.clear(); notes.clear();
+      setState(()=>message='Purchase saved. Stock is quarantined pending quality approval.'); qty.clear(); cost.clear(); supplier.clear(); notes.clear(); await loadPending();
     } catch(e) { setState(()=>message='Could not save purchase: $e'); }
     if(mounted) setState(()=>busy=false);
   }
@@ -367,6 +391,9 @@ class _PurchasePageState extends State<PurchasePage> {
     field(qty,'Quantity (bags)',number:true), field(cost,'Buying price per unit (KES)',number:true),
     field(supplier,'Supplier name'), DropdownButtonFormField(value:payer, items:['Mercy','Edu'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(), onChanged:(v)=>setState(()=>payer=v!), decoration:const InputDecoration(labelText:'Paid by')),
     field(notes,'Notes / extra details'), actionButton('Save purchase',busy,save), if(message.isNotEmpty) Text(message),
+    const Divider(), const Align(alignment:Alignment.centerLeft,child:Text('Pending stock quality checks',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold))),
+    if(pending.isEmpty) const Align(alignment:Alignment.centerLeft,child:Text('No purchases awaiting quality approval.')),
+    ...pending.map((p)=>Card(child:ListTile(title:Text(p['purchase_number'].toString()),subtitle:Text('${(p['items'] as List).length} item(s) awaiting inspection'),trailing:TextButton(onPressed:()=>reviewQuality(p),child:const Text('Review'))))),
     const Text('Note: workers may submit buying prices for recording, but the backend must not expose finance reports or purchase-cost tables to worker accounts.',style:TextStyle(fontSize:12,color:Colors.black54)),
   ]);
 }
