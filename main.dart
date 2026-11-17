@@ -1082,91 +1082,506 @@ class TractorServicesPage extends StatefulWidget {
   const TractorServicesPage({super.key});
   @override State<TractorServicesPage> createState() => _TractorServicesPageState();
 }
+
 class _TractorServicesPageState extends State<TractorServicesPage> with SingleTickerProviderStateMixin {
-  late final TabController tabs = TabController(length: 3, vsync: this);
+  late final TabController tabs = TabController(length: 5, vsync: this);
   final db = Supabase.instance.client;
-  List<Map<String,dynamic>> tractors = [], jobs = [];
-  String? branchId, selectedTractor, selectedJob;
+  List<Map<String,dynamic>> branches = [], tractors = [], jobs = [], customers = [], operators = [], payments = [], expenses = [];
+  String? branchId, selectedTractor, selectedJob, selectedCustomerId, selectedOperatorId;
   bool loading = true, saving = false;
-  String message = '', ownership = 'company', service = 'ploughing', paymentMethod = 'cash', payer = 'Edu', expenseType = 'fuel';
+  String message = '', financeMessage = '';
+  String ownership = 'company', service = 'ploughing', paymentMethod = 'cash', payer = 'Edu';
+  String expenseType = 'fuel', maintenanceType = 'routine_service', reportPeriod = 'daily', tractorStatus = 'available';
+  DateTime bookedFor = DateTime.now().add(const Duration(days: 1));
+  DateTime? nextServiceDate;
   final code=TextEditingController(), reg=TextEditingController(), model=TextEditingController(), owner=TextEditingController();
+  final assetHours=TextEditingController(), assetNotes=TextEditingController();
   final farmer=TextEditingController(), phone=TextEditingController(), location=TextEditingController(), acres=TextEditingController(), rate=TextEditingController(), notes=TextEditingController();
-  final pay=TextEditingController(), reference=TextEditingController(), expense=TextEditingController(), expenseNote=TextEditingController(), maintenance=TextEditingController(), maintenanceCost=TextEditingController();
+  final pay=TextEditingController(), reference=TextEditingController(), expense=TextEditingController(), expenseNote=TextEditingController();
+  final maintenance=TextEditingController(), maintenanceCost=TextEditingController(), maintenanceHours=TextEditingController(), finishHours=TextEditingController();
+
   @override void initState(){super.initState();load();}
-  @override void dispose(){tabs.dispose();for(final c in [code,reg,model,owner,farmer,phone,location,acres,rate,notes,pay,reference,expense,expenseNote,maintenance,maintenanceCost]){c.dispose();}super.dispose();}
+  @override void dispose(){
+    tabs.dispose();
+    for(final c in [code,reg,model,owner,assetHours,assetNotes,farmer,phone,location,acres,rate,notes,pay,reference,expense,expenseNote,maintenance,maintenanceCost,maintenanceHours,finishHours]){c.dispose();}
+    super.dispose();
+  }
+
+  String dateText(DateTime d)=>d.year.toString()+'-'+d.month.toString().padLeft(2,'0')+'-'+d.day.toString().padLeft(2,'0');
+  String dateTimeText(DateTime d)=>dateText(d)+' '+d.hour.toString().padLeft(2,'0')+':'+d.minute.toString().padLeft(2,'0');
+  double numberOf(Map<String,dynamic> row,String key)=>double.tryParse((row[key]??0).toString())??0;
+  String money(double value)=>'KES '+value.toStringAsFixed(2);
+  String labelCase(String value)=>value.replaceAll('_',' ').split(' ').map((s)=>s.isEmpty?s:s[0].toUpperCase()+s.substring(1)).join(' ');
+
   Future<void> load() async {
-    setState((){loading=true;message='';});
+    if(mounted)setState((){loading=true;message='';});
     try{
-      final b=await db.from('branches').select('id').eq('code','NTULELE').single(); branchId=b['id'].toString();
+      final b=await db.from('branches').select('id,code,name').eq('is_active',true).order('name');
+      branches=List<Map<String,dynamic>>.from(b);
+      if(branches.isEmpty)throw Exception('No branch is available to this account. Check its branch assignment.');
+      if(branchId==null||!branches.any((x)=>x['id'].toString()==branchId)){branchId=branches.first['id'].toString();}
+      await loadBranchData();
+    }catch(e){if(mounted)setState((){loading=false;message='Could not load tractor services: '+e.toString();});}
+  }
+
+  Future<void> loadBranchData() async {
+    if(branchId==null)return;
+    if(mounted)setState(()=>loading=true);
+    try{
       final a=await db.from('tractor_assets').select().eq('branch_id',branchId!).order('created_at',ascending:false);
       final j=await db.from('tractor_service_jobs').select().eq('branch_id',branchId!).order('created_at',ascending:false);
-      if(!mounted)return; setState((){tractors=List<Map<String,dynamic>>.from(a);jobs=List<Map<String,dynamic>>.from(j);loading=false;});
-      if(selectedTractor==null&&tractors.isNotEmpty)selectedTractor=tractors.first['id'].toString();
-      if(selectedJob==null&&jobs.isNotEmpty)selectedJob=jobs.first['id'].toString();
-    }catch(e){if(mounted)setState((){loading=false;message='Could not load tractor records: '+e.toString();});}
+      tractors=List<Map<String,dynamic>>.from(a);
+      jobs=List<Map<String,dynamic>>.from(j);
+      if(selectedTractor==null||!tractors.any((x)=>x['id'].toString()==selectedTractor)){selectedTractor=tractors.isEmpty?null:tractors.first['id'].toString();}
+      if(selectedJob==null||!jobs.any((x)=>x['id'].toString()==selectedJob)){selectedJob=jobs.isEmpty?null:jobs.first['id'].toString();}
+      if(selectedTractor!=null){
+        final selected=tractors.firstWhere((x)=>x['id'].toString()==selectedTractor);
+        assetHours.text=(selected['engine_hours']??0).toString();
+      }
+      financeMessage='';
+      try{
+        final p=await db.from('tractor_job_payments').select().eq('branch_id',branchId!).order('created_at',ascending:false);
+        payments=List<Map<String,dynamic>>.from(p);
+      }catch(e){payments=[];financeMessage='Payment history is restricted for this account.';}
+      try{
+        final x=await db.from('tractor_job_expenses').select().eq('branch_id',branchId!).order('created_at',ascending:false);
+        expenses=List<Map<String,dynamic>>.from(x);
+      }catch(e){expenses=[];financeMessage='Financial history is restricted for this account.';}
+      try{
+        final c=await db.from('customers').select('id,full_name,phone').eq('active',true).order('full_name');
+        customers=List<Map<String,dynamic>>.from(c);
+      }catch(e){customers=[];}
+      try{
+        final assignments=await db.from('user_branch_assignments').select('user_id,ended_at').eq('branch_id',branchId!);
+        final assignedIds=List<Map<String,dynamic>>.from(assignments).where((x)=>x['ended_at']==null).map((x)=>x['user_id'].toString()).toSet();
+        final roles=await db.from('user_role_assignments').select('user_id,role_id').eq('is_active',true);
+        final workerIds=List<Map<String,dynamic>>.from(roles).where((x)=>x['role_id'].toString()=='4'&&assignedIds.contains(x['user_id'].toString())).map((x)=>x['user_id'].toString()).toSet().toList();
+        if(workerIds.isNotEmpty){
+          final staff=await db.from('profiles').select('id,display_name,phone').inFilter('id',workerIds).order('display_name');
+          operators=List<Map<String,dynamic>>.from(staff);
+        }else{operators=[];}
+      }catch(e){operators=[];}
+      if(selectedOperatorId!=null&&!operators.any((x)=>x['id'].toString()==selectedOperatorId)){selectedOperatorId=null;}
+      if(selectedCustomerId!=null&&!customers.any((x)=>x['id'].toString()==selectedCustomerId)){selectedCustomerId=null;}
+      if(mounted)setState(()=>loading=false);
+    }catch(e){if(mounted)setState((){loading=false;message='Could not load this branch tractor records: '+e.toString();});}
   }
+
+  Future<void> changeBranch(String? value) async {
+    if(value==null||value==branchId)return;
+    setState((){branchId=value;selectedTractor=null;selectedJob=null;selectedCustomerId=null;selectedOperatorId=null;message='';});
+    await loadBranchData();
+  }
+
   Future<void> registerTractor() async {
-    if(code.text.trim().isEmpty||model.text.trim().isEmpty){setState(()=>message='Enter tractor code and make/model.');return;}
+    final hours=double.tryParse(assetHours.text.trim())??0;
+    if(branchId==null||code.text.trim().isEmpty||model.text.trim().isEmpty||hours<0){setState(()=>message='Enter a tractor code, make/model and a valid engine-hour reading.');return;}
     setState(()=>saving=true);
-    try{await db.from('tractor_assets').insert({'branch_id':branchId,'tractor_code':code.text.trim(),'registration_number':reg.text.trim().isEmpty?null:reg.text.trim(),'make_model':model.text.trim(),'ownership_type':ownership,'owner_name':owner.text.trim().isEmpty?null:owner.text.trim(),'created_by':db.auth.currentUser!.id});
-      code.clear();reg.clear();model.clear();owner.clear();setState(()=>message='Tractor registered.');await load();
-    }catch(e){setState(()=>message='Could not register tractor: '+e.toString());}if(mounted)setState(()=>saving=false);
+    try{
+      await db.from('tractor_assets').insert({
+        'branch_id':branchId,'tractor_code':code.text.trim(),'registration_number':reg.text.trim().isEmpty?null:reg.text.trim(),
+        'make_model':model.text.trim(),'ownership_type':ownership,'owner_name':owner.text.trim().isEmpty?null:owner.text.trim(),
+        'engine_hours':hours,'notes':assetNotes.text.trim().isEmpty?null:assetNotes.text.trim(),'created_by':db.auth.currentUser!.id
+      });
+      code.clear();reg.clear();model.clear();owner.clear();assetHours.text='0';assetNotes.clear();
+      setState(()=>message='Tractor registered successfully.');await loadBranchData();
+    }catch(e){setState(()=>message='Could not register tractor: '+e.toString());}
+    if(mounted)setState(()=>saving=false);
   }
+
+  Future<void> saveTractorDetails() async {
+    if(selectedTractor==null){setState(()=>message='Select a tractor first.');return;}
+    final hours=double.tryParse(assetHours.text.trim());
+    if(hours==null||hours<0){setState(()=>message='Enter a valid engine-hour reading.');return;}
+    setState(()=>saving=true);
+    try{
+      await db.from('tractor_assets').update({'engine_hours':hours,'notes':assetNotes.text.trim().isEmpty?null:assetNotes.text.trim(),'status':tractorStatus}).eq('id',selectedTractor!);
+      setState(()=>message='Tractor details updated.');await loadBranchData();
+    }catch(e){setState(()=>message='Could not update tractor: '+e.toString());}
+    if(mounted)setState(()=>saving=false);
+  }
+
+  Future<void> chooseBookingDate() async {
+    final picked=await showDatePicker(context:context,initialDate:bookedFor,firstDate:DateTime.now().subtract(const Duration(days:1)),lastDate:DateTime(2100));
+    if(picked==null||!mounted)return;
+    setState(()=>bookedFor=DateTime(picked.year,picked.month,picked.day,bookedFor.hour,bookedFor.minute));
+  }
+  Future<void> chooseBookingTime() async {
+    final picked=await showTimePicker(context:context,initialTime:TimeOfDay.fromDateTime(bookedFor));
+    if(picked==null||!mounted)return;
+    setState(()=>bookedFor=DateTime(bookedFor.year,bookedFor.month,bookedFor.day,picked.hour,picked.minute));
+  }
+  Future<void> chooseNextServiceDate() async {
+    final picked=await showDatePicker(context:context,initialDate:nextServiceDate??DateTime.now().add(const Duration(days:30)),firstDate:DateTime.now(),lastDate:DateTime(2100));
+    if(picked!=null&&mounted)setState(()=>nextServiceDate=picked);
+  }
+
   Future<void> bookJob() async {
-    final a=double.tryParse(acres.text), r=double.tryParse(rate.text);
-    if(selectedTractor==null||farmer.text.trim().isEmpty||location.text.trim().isEmpty||r==null||r<0||(acres.text.isNotEmpty&&(a==null||a<=0))){setState(()=>message='Select a tractor and enter farmer, location, acres and rate.');return;}
+    final area=acres.text.trim().isEmpty?null:double.tryParse(acres.text.trim());
+    final unitRate=double.tryParse(rate.text.trim());
+    final selectedCustomer=customers.where((x)=>x['id'].toString()==selectedCustomerId).toList();
+    final customerName=selectedCustomer.isNotEmpty?selectedCustomer.first['full_name'].toString():farmer.text.trim();
+    final customerPhone=selectedCustomer.isNotEmpty?(selectedCustomer.first['phone']??'').toString():phone.text.trim();
+    if(branchId==null||selectedTractor==null||customerName.isEmpty||location.text.trim().isEmpty||unitRate==null||unitRate<0||(acres.text.trim().isNotEmpty&&(area==null||area<=0))){
+      setState(()=>message='Choose a tractor and enter farmer, farm location, valid area (if applicable) and rate.');return;
+    }
+    final tractor=tractors.where((x)=>x['id'].toString()==selectedTractor).toList();
+    if(tractor.isEmpty||['maintenance','inactive'].contains(tractor.first['status'])){setState(()=>message='This tractor is not available for booking.');return;}
     setState(()=>saving=true);
-    try{await db.from('tractor_service_jobs').insert({'job_number':'TRJ-'+DateTime.now().millisecondsSinceEpoch.toString(),'branch_id':branchId,'tractor_id':selectedTractor,'farmer_name':farmer.text.trim(),'farmer_phone':phone.text.trim().isEmpty?null:phone.text.trim(),'service_type':service,'service_location':location.text.trim(),'area_acres':a,'rate':r,'total_charge':(a??1)*r,'status':'booked','notes':notes.text.trim(),'recorded_by':db.auth.currentUser!.id});
-      farmer.clear();phone.clear();location.clear();acres.clear();rate.clear();notes.clear();setState(()=>message='Tractor booking saved.');await load();
-    }catch(e){setState(()=>message='Could not save booking: '+e.toString());}if(mounted)setState(()=>saving=false);
+    try{
+      await db.from('tractor_service_jobs').insert({
+        'job_number':'TRJ-'+DateTime.now().millisecondsSinceEpoch.toString(),'branch_id':branchId,'tractor_id':selectedTractor,
+        'customer_id':selectedCustomerId,'farmer_name':customerName,'farmer_phone':customerPhone.isEmpty?null:customerPhone,
+        'service_type':service,'service_location':location.text.trim(),'area_acres':area,'booked_for':bookedFor.toIso8601String(),
+        'operator_id':selectedOperatorId,'rate':unitRate,'total_charge':(area??1)*unitRate,'status':'booked',
+        'notes':notes.text.trim().isEmpty?null:notes.text.trim(),'recorded_by':db.auth.currentUser!.id
+      });
+      await db.from('tractor_assets').update({'status':'booked'}).eq('id',selectedTractor!);
+      farmer.clear();phone.clear();location.clear();acres.clear();rate.clear();notes.clear();selectedCustomerId=null;selectedOperatorId=null;
+      setState(()=>message='Booking saved. The job has been added to the schedule.');await loadBranchData();
+    }catch(e){setState(()=>message='Could not save booking: '+e.toString());}
+    if(mounted)setState(()=>saving=false);
   }
+
+  Future<void> refreshTractorStatus(String tractorId) async {
+    try{
+      final asset=await db.from('tractor_assets').select('status').eq('id',tractorId).single();
+      if(asset['status']=='maintenance'||asset['status']=='inactive')return;
+      final active=await db.from('tractor_service_jobs').select('status').eq('tractor_id',tractorId).inFilter('status',['booked','confirmed','in_progress']);
+      final rows=List<Map<String,dynamic>>.from(active);
+      final next=rows.any((x)=>x['status']=='in_progress')?'working':rows.isNotEmpty?'booked':'available';
+      await db.from('tractor_assets').update({'status':next}).eq('id',tractorId);
+    }catch(_){}
+  }
+
+  Future<void> updateJobStatus(String nextStatus) async {
+    if(selectedJob==null){setState(()=>message='Select a service job first.');return;}
+    final selected=jobs.where((x)=>x['id'].toString()==selectedJob).toList();
+    if(selected.isEmpty)return;
+    final job=selected.first;
+    final update=<String,dynamic>{'status':nextStatus};
+    if(nextStatus=='in_progress')update['started_at']=DateTime.now().toIso8601String();
+    if(nextStatus=='completed'){
+      final hours=double.tryParse(finishHours.text.trim());
+      if(hours==null||hours<=0){setState(()=>message='Enter the actual hours worked before completing the job.');return;}
+      update['hours_worked']=hours;update['completed_at']=DateTime.now().toIso8601String();
+    }
+    setState(()=>saving=true);
+    try{
+      await db.from('tractor_service_jobs').update(update).eq('id',selectedJob!);
+      if(nextStatus=='completed'){
+        final asset=await db.from('tractor_assets').select('engine_hours').eq('id',job['tractor_id'].toString()).single();
+        final newHours=numberOf(asset,'engine_hours')+numberOf({'hours':finishHours.text},'hours');
+        await db.from('tractor_assets').update({'engine_hours':newHours}).eq('id',job['tractor_id'].toString());
+        finishHours.clear();
+      }
+      await refreshTractorStatus(job['tractor_id'].toString());
+      setState(()=>message='Job status updated to '+labelCase(nextStatus)+'.');await loadBranchData();
+    }catch(e){setState(()=>message='Could not update job: '+e.toString());}
+    if(mounted)setState(()=>saving=false);
+  }
+
   Future<void> recordPayment() async {
-    final amount=double.tryParse(pay.text);if(selectedJob==null||amount==null||amount<=0){setState(()=>message='Select a job and enter a valid payment.');return;}
+    final amount=double.tryParse(pay.text.trim());
+    if(selectedJob==null||amount==null||amount<=0){setState(()=>message='Select a job and enter a valid payment amount.');return;}
     setState(()=>saving=true);
-    try{final result=await db.rpc('record_tractor_job_payment',params:{'p_job_id':selectedJob,'p_amount':amount,'p_method':paymentMethod,'p_reference':reference.text.trim().isEmpty?null:reference.text.trim()});pay.clear();reference.clear();setState(()=>message='Payment recorded: '+result['payment_number'].toString()+' ('+result['status'].toString()+').');}
-    catch(e){setState(()=>message='Could not record payment: '+e.toString());}if(mounted)setState(()=>saving=false);
+    try{
+      final result=await db.rpc('record_tractor_job_payment',params:{'p_job_id':selectedJob,'p_amount':amount,'p_method':paymentMethod,'p_reference':reference.text.trim().isEmpty?null:reference.text.trim()});
+      pay.clear();reference.clear();
+      setState(()=>message='Payment recorded: '+result['payment_number'].toString()+' • '+result['status'].toString()+'.');
+      await loadBranchData();
+    }catch(e){setState(()=>message='Could not record payment: '+e.toString());}
+    if(mounted)setState(()=>saving=false);
   }
+
   Future<void> recordExpense() async {
-    final amount=double.tryParse(expense.text);if(selectedJob==null||amount==null||amount<=0){setState(()=>message='Select a job and enter a valid expense.');return;}
+    final amount=double.tryParse(expense.text.trim());
+    if(selectedJob==null||amount==null||amount<=0){setState(()=>message='Select a job and enter a valid expense amount.');return;}
     setState(()=>saving=true);
-    try{await db.from('tractor_job_expenses').insert({'job_id':selectedJob,'branch_id':branchId,'expense_type':expenseType,'description':expenseNote.text.trim(),'amount':amount,'paid_by_owner':payer,'recorded_by':db.auth.currentUser!.id});expense.clear();expenseNote.clear();setState(()=>message='Expense recorded.');}
-    catch(e){setState(()=>message='Could not record expense: '+e.toString());}if(mounted)setState(()=>saving=false);
+    try{
+      await db.from('tractor_job_expenses').insert({
+        'job_id':selectedJob,'branch_id':branchId,'expense_type':expenseType,'description':expenseNote.text.trim().isEmpty?null:expenseNote.text.trim(),
+        'amount':amount,'paid_by_owner':payer,'recorded_by':db.auth.currentUser!.id
+      });
+      expense.clear();expenseNote.clear();setState(()=>message='Expense saved to this job.');await loadBranchData();
+    }catch(e){setState(()=>message='Could not save expense: '+e.toString());}
+    if(mounted)setState(()=>saving=false);
   }
+
   Future<void> saveMaintenance() async {
-    final cost=double.tryParse(maintenanceCost.text)??0;if(selectedTractor==null||maintenance.text.trim().isEmpty||cost<0){setState(()=>message='Select a tractor and describe maintenance.');return;}
+    final cost=double.tryParse(maintenanceCost.text.trim())??0;
+    final hours=maintenanceHours.text.trim().isEmpty?null:double.tryParse(maintenanceHours.text.trim());
+    if(selectedTractor==null||maintenance.text.trim().isEmpty||cost<0||(maintenanceHours.text.trim().isNotEmpty&&(hours==null||hours<0))){
+      setState(()=>message='Select a tractor, describe the work and enter valid cost/hour readings.');return;
+    }
     setState(()=>saving=true);
-    try{await db.from('tractor_maintenance_records').insert({'tractor_id':selectedTractor,'branch_id':branchId,'maintenance_type':'service','description':maintenance.text.trim(),'cost':cost,'recorded_by':db.auth.currentUser!.id});await db.from('tractor_assets').update({'status':'maintenance'}).eq('id',selectedTractor!);maintenance.clear();maintenanceCost.clear();setState(()=>message='Maintenance saved; tractor marked for maintenance.');await load();}
-    catch(e){setState(()=>message='Could not save maintenance: '+e.toString());}if(mounted)setState(()=>saving=false);
+    try{
+      await db.from('tractor_maintenance_records').insert({
+        'tractor_id':selectedTractor,'branch_id':branchId,'maintenance_type':maintenanceType,
+        'description':maintenance.text.trim(),'cost':cost,'engine_hours':hours,
+        'next_service_date':nextServiceDate==null?null:dateText(nextServiceDate!),
+        'recorded_by':db.auth.currentUser!.id
+      });
+      await db.from('tractor_assets').update({'status':'maintenance',if(hours!=null)'engine_hours':hours}).eq('id',selectedTractor!);
+      maintenance.clear();maintenanceCost.clear();maintenanceHours.clear();nextServiceDate=null;
+      setState(()=>message='Maintenance record saved. Tractor status set to maintenance until it is released.');await loadBranchData();
+    }catch(e){setState(()=>message='Could not save maintenance: '+e.toString());}
+    if(mounted)setState(()=>saving=false);
   }
-  Widget field(TextEditingController c,String label,{bool number=false})=>Padding(padding:const EdgeInsets.only(bottom:10),child:TextField(controller:c,keyboardType:number?const TextInputType.numberWithOptions(decimal:true):TextInputType.text,decoration:InputDecoration(labelText:label,border:const OutlineInputBorder())));
-  Widget dropdown(String label,String value,List<String> values,ValueChanged<String?> change)=>Padding(padding:const EdgeInsets.only(bottom:10),child:DropdownButtonFormField<String>(value:value,decoration:InputDecoration(labelText:label,border:const OutlineInputBorder()),items:values.map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),onChanged:change));
+
+  Future<void> releaseTractor() async {
+    if(selectedTractor==null){setState(()=>message='Select a tractor first.');return;}
+    setState(()=>saving=true);
+    try{
+      await db.from('tractor_assets').update({'status':'available'}).eq('id',selectedTractor!).eq('status','maintenance');
+      await refreshTractorStatus(selectedTractor!);
+      setState(()=>message='Tractor released from maintenance.');await loadBranchData();
+    }catch(e){setState(()=>message='Could not release tractor: '+e.toString());}
+    if(mounted)setState(()=>saving=false);
+  }
+
+  DateTime reportStart(){
+    final now=DateTime.now();
+    if(reportPeriod=='daily')return DateTime(now.year,now.month,now.day);
+    if(reportPeriod=='weekly')return DateTime(now.year,now.month,now.day-(now.weekday-1));
+    if(reportPeriod=='monthly')return DateTime(now.year,now.month,1);
+    return DateTime(2000,1,1);
+  }
+  List<Map<String,dynamic>> inPeriod(List<Map<String,dynamic>> rows){
+    final start=reportStart();
+    return rows.where((x){final d=DateTime.tryParse((x['created_at']??'').toString());return d!=null&&!d.isBefore(start);}).toList();
+  }
+  void showReceipt(Map<String,dynamic> p) {
+    final job=jobs.where((x)=>x['id'].toString()==p['job_id'].toString()).toList();
+    showDialog(context:context,builder:(ctx)=>AlertDialog(
+      title:const Text('TAJIR tractor service receipt'),
+      content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Text('Receipt: '+p['payment_number'].toString()),Text('Date: '+(p['created_at']??'').toString()),
+        Text('Customer: '+(job.isEmpty?'Service customer':job.first['farmer_name'].toString())),
+        Text('Job: '+(job.isEmpty?'—':job.first['job_number'].toString())),
+        Text('Amount: '+money(numberOf(p,'amount'))),Text('Method: '+labelCase(p['method'].toString())),
+        Text('Status: '+labelCase(p['status'].toString()))
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Close'))]
+    ));
+  }
+
+  Widget field(TextEditingController c,String label,{bool number=false,int lines=1})=>Padding(
+    padding:const EdgeInsets.only(bottom:10),
+    child:TextField(controller:c,maxLines:lines,keyboardType:number?const TextInputType.numberWithOptions(decimal:true):TextInputType.text,
+      decoration:InputDecoration(labelText:label,border:const OutlineInputBorder()))
+  );
+  Widget dropdown(String label,String? value,List<String> values,ValueChanged<String?> change)=>Padding(
+    padding:const EdgeInsets.only(bottom:10),
+    child:DropdownButtonFormField<String>(value:value,decoration:InputDecoration(labelText:label,border:const OutlineInputBorder()),
+      items:values.map((v)=>DropdownMenuItem(value:v,child:Text(labelCase(v)))).toList(),onChanged:change)
+  );
   Widget button(String label,VoidCallback fn)=>SizedBox(width:double.infinity,child:FilledButton(onPressed:saving?null:fn,child:Text(saving?'Saving…':label)));
-  Widget tractorPicker()=>Padding(padding:const EdgeInsets.only(bottom:10),child:DropdownButtonFormField<String>(value:selectedTractor,decoration:const InputDecoration(labelText:'Tractor',border:OutlineInputBorder()),items:tractors.map((t)=>DropdownMenuItem(value:t['id'].toString(),child:Text(t['tractor_code'].toString()+' • '+t['make_model'].toString()))).toList(),onChanged:(v)=>setState(()=>selectedTractor=v)));
-  Widget jobPicker()=>Padding(padding:const EdgeInsets.only(bottom:10),child:DropdownButtonFormField<String>(value:selectedJob,decoration:const InputDecoration(labelText:'Job',border:OutlineInputBorder()),items:jobs.map((j)=>DropdownMenuItem(value:j['id'].toString(),child:Text(j['job_number'].toString()+' • '+j['farmer_name'].toString()))).toList(),onChanged:(v)=>setState(()=>selectedJob=v)));
-  Widget tractorTab()=>ListView(padding:const EdgeInsets.all(14),children:[
+  Widget branchPicker()=>Padding(padding:const EdgeInsets.fromLTRB(14,8,14,4),child:DropdownButtonFormField<String>(
+    value:branchId,decoration:const InputDecoration(labelText:'Branch',border:OutlineInputBorder(),isDense:true),
+    items:branches.map((b)=>DropdownMenuItem(value:b['id'].toString(),child:Text(b['name'].toString()+' ('+b['code'].toString()+')'))).toList(),
+    onChanged:branches.length>1?changeBranch:null
+  ));
+  Widget tractorPicker()=>Padding(padding:const EdgeInsets.only(bottom:10),child:DropdownButtonFormField<String>(
+    value:selectedTractor,decoration:const InputDecoration(labelText:'Tractor',border:OutlineInputBorder()),
+    items:tractors.map((t)=>DropdownMenuItem(value:t['id'].toString(),child:Text(t['tractor_code'].toString()+' • '+t['make_model'].toString()))).toList(),
+    onChanged:(v)=>setState((){
+      selectedTractor=v;
+      final found=tractors.where((x)=>x['id'].toString()==v).toList();
+      if(found.isNotEmpty){assetHours.text=(found.first['engine_hours']??0).toString();tractorStatus=(found.first['status']??'available').toString();assetNotes.text=(found.first['notes']??'').toString();}
+    })
+  ));
+  Widget jobPicker()=>Padding(padding:const EdgeInsets.only(bottom:10),child:DropdownButtonFormField<String>(
+    value:selectedJob,decoration:const InputDecoration(labelText:'Service job',border:OutlineInputBorder()),
+    items:jobs.map((j)=>DropdownMenuItem(value:j['id'].toString(),child:Text(j['job_number'].toString()+' • '+j['farmer_name'].toString()))).toList(),
+    onChanged:(v)=>setState(()=>selectedJob=v)
+  ));
+
+  Widget fleetTab()=>ListView(padding:const EdgeInsets.all(14),children:[
     const Text('Register tractor',style:TextStyle(fontSize:19,fontWeight:FontWeight.bold)),
-    field(code,'Tractor code'),field(reg,'Registration number'),field(model,'Make / model'),dropdown('Ownership',ownership,['company','leased','third_party'],(v)=>setState(()=>ownership=v!)),field(owner,'Owner name'),button('Register tractor',registerTractor),
-    const Divider(height:30),Text('Tractors ('+tractors.length.toString()+')',style:const TextStyle(fontWeight:FontWeight.bold)),
-    ...tractors.map((t)=>Card(child:ListTile(leading:const Icon(Icons.agriculture,color:brandGreen),title:Text(t['tractor_code'].toString()+' • '+t['make_model'].toString()),subtitle:Text((t['registration_number']??'No registration').toString()+' • '+t['ownership_type'].toString()),trailing:Text((t['status']??'').toString())))),
-    const Divider(height:30),const Text('Maintenance',style:TextStyle(fontWeight:FontWeight.bold)),tractorPicker(),field(maintenance,'Maintenance / repair details'),field(maintenanceCost,'Cost (KES)',number:true),button('Save maintenance',saveMaintenance)
+    field(code,'Tractor code / fleet number'),field(reg,'Registration number'),field(model,'Make and model'),
+    dropdown('Ownership type',ownership,['company','leased','third_party'],(v)=>setState(()=>ownership=v??'company')),
+    field(owner,'Owner name (if leased or third-party)'),field(assetHours,'Current engine hours',number:true),field(assetNotes,'Tractor notes',lines:2),
+    button('Register tractor',registerTractor),
+    const Divider(height:30),Text('Fleet records ('+tractors.length.toString()+')',style:const TextStyle(fontWeight:FontWeight.bold)),
+    if(tractors.isEmpty)const Padding(padding:EdgeInsets.all(12),child:Text('No tractors registered for this branch yet.')),
+    ...tractors.map((t)=>Card(child:ListTile(
+      leading:const Icon(Icons.agriculture,color:brandGreen),
+      title:Text(t['tractor_code'].toString()+' • '+t['make_model'].toString()),
+      subtitle:Text((t['registration_number']??'No registration').toString()+' • '+labelCase(t['ownership_type'].toString())+' • '+numberOf(t,'engine_hours').toStringAsFixed(1)+' engine hours'),
+      trailing:Text(labelCase((t['status']??'available').toString())),
+      onTap:()=>setState((){
+        selectedTractor=t['id'].toString();assetHours.text=(t['engine_hours']??0).toString();
+        assetNotes.text=(t['notes']??'').toString();tractorStatus=(t['status']??'available').toString();
+      })
+    ))),
+    const Divider(height:30),const Text('Update selected tractor',style:TextStyle(fontWeight:FontWeight.bold)),
+    tractorPicker(),field(assetHours,'Engine-hour reading',number:true),field(assetNotes,'Notes',lines:2),
+    dropdown('Fleet status',tractorStatus,['available','booked','working','maintenance','inactive'],(v)=>setState(()=>tractorStatus=v??'available')),
+    button('Save tractor details',saveTractorDetails),
+    const Divider(height:30),const Text('Maintenance and repairs',style:TextStyle(fontWeight:FontWeight.bold)),
+    tractorPicker(),dropdown('Maintenance type',maintenanceType,['routine_service','repair','oil_change','tyre','other'],(v)=>setState(()=>maintenanceType=v??'routine_service')),
+    field(maintenance,'Work done / repair details',lines:2),field(maintenanceCost,'Maintenance cost (KES)',number:true),
+    field(maintenanceHours,'Engine hours at service (optional)',number:true),
+    TextButton.icon(onPressed:chooseNextServiceDate,icon:const Icon(Icons.calendar_month),label:Text(nextServiceDate==null?'Set next service date':'Next service: '+dateText(nextServiceDate!))),
+    button('Save maintenance record',saveMaintenance),
+    OutlinedButton.icon(onPressed:saving?null:releaseTractor,icon:const Icon(Icons.check_circle_outline),label:const Text('Release selected tractor from maintenance'))
   ]);
-  Widget bookingsTab()=>ListView(padding:const EdgeInsets.all(14),children:[
-    const Text('Book tractor service',style:TextStyle(fontSize:19,fontWeight:FontWeight.bold)),tractorPicker(),field(farmer,'Farmer / customer name'),field(phone,'Phone number'),
-    dropdown('Service',service,['ploughing','planting','harrowing','transport','other'],(v)=>setState(()=>service=v!)),field(location,'Farm location'),field(acres,'Area (acres)',number:true),field(rate,'Rate per acre (KES)',number:true),field(notes,'Notes'),button('Save booking',bookJob),
-    const Divider(height:30),Text('Service jobs ('+jobs.length.toString()+')',style:const TextStyle(fontWeight:FontWeight.bold)),
-    ...jobs.map((j)=>Card(child:ListTile(leading:const Icon(Icons.event_available),title:Text(j['job_number'].toString()+' • '+j['farmer_name'].toString()),subtitle:Text(j['service_type'].toString()+' • '+j['service_location'].toString()+' • '+(j['area_acres']??'-').toString()+' acres'),trailing:Text('KES '+j['total_charge'].toString()+'\n'+j['status'].toString(),textAlign:TextAlign.end))))
+
+  Widget bookingTab()=>ListView(padding:const EdgeInsets.all(14),children:[
+    const Text('Book tractor service',style:TextStyle(fontSize:19,fontWeight:FontWeight.bold)),
+    tractorPicker(),
+    if(customers.isNotEmpty)Padding(padding:const EdgeInsets.only(bottom:10),child:DropdownButtonFormField<String>(
+      value:selectedCustomerId,decoration:const InputDecoration(labelText:'Link an existing customer (optional)',border:OutlineInputBorder()),
+      items:customers.map((c)=>DropdownMenuItem(value:c['id'].toString(),child:Text(c['full_name'].toString()+' • '+c['phone'].toString()))).toList(),
+      onChanged:(v)=>setState((){
+        selectedCustomerId=v;
+        final found=customers.where((x)=>x['id'].toString()==v).toList();
+        if(found.isNotEmpty){farmer.text=found.first['full_name'].toString();phone.text=(found.first['phone']??'').toString();}
+      })
+    )),
+    field(farmer,'Farmer / customer name'),field(phone,'Customer phone number'),
+    dropdown('Service type',service,['ploughing','planting','harrowing','transport','other'],(v)=>setState(()=>service=v??'ploughing')),
+    field(location,'Farm location / village'),field(acres,'Area in acres (leave blank for flat-rate job)',number:true),
+    field(rate,'Rate per acre or flat rate (KES)',number:true),
+    if(operators.isNotEmpty)Padding(padding:const EdgeInsets.only(bottom:10),child:DropdownButtonFormField<String>(
+      value:selectedOperatorId,decoration:const InputDecoration(labelText:'Assign operator / driver',border:OutlineInputBorder()),
+      items:operators.map((o)=>DropdownMenuItem(value:o['id'].toString(),child:Text(o['display_name'].toString()+' • '+(o['phone']??'').toString()))).toList(),
+      onChanged:(v)=>setState(()=>selectedOperatorId=v)
+    )),
+    Row(children:[
+      Expanded(child:TextButton.icon(onPressed:chooseBookingDate,icon:const Icon(Icons.calendar_month),label:Text(dateText(bookedFor)))),
+      Expanded(child:TextButton.icon(onPressed:chooseBookingTime,icon:const Icon(Icons.access_time),label:Text(bookedFor.hour.toString().padLeft(2,'0')+':'+bookedFor.minute.toString().padLeft(2,'0'))))
+    ]),
+    field(notes,'Booking notes / instructions',lines:2),
+    if(double.tryParse(rate.text.trim())!=null)Padding(padding:const EdgeInsets.only(bottom:12),child:Text(
+      'Quotation total: '+money((double.tryParse(rate.text.trim())??0)*(double.tryParse(acres.text.trim())??1)),
+      style:const TextStyle(fontWeight:FontWeight.bold,fontSize:16)
+    )),
+    button('Save booking and quotation',bookJob),
+    const Divider(height:30),Text('Bookings ('+jobs.length.toString()+')',style:const TextStyle(fontWeight:FontWeight.bold)),
+    ...jobs.map((j)=>Card(child:ListTile(
+      leading:const Icon(Icons.event_available,color:brandGreen),
+      title:Text(j['job_number'].toString()+' • '+j['farmer_name'].toString()),
+      subtitle:Text(labelCase(j['service_type'].toString())+' • '+j['service_location'].toString()+' • '+dateTimeText(DateTime.tryParse((j['booked_for']??j['created_at']).toString())??DateTime.now())),
+      trailing:Text(money(numberOf(j,'total_charge'))+'\n'+labelCase(j['status'].toString()),textAlign:TextAlign.end),
+      onTap:()=>setState(()=>selectedJob=j['id'].toString())
+    )))
   ]);
+
+  Widget jobControlTab()=>ListView(padding:const EdgeInsets.all(14),children:[
+    const Text('Job scheduling and progress',style:TextStyle(fontSize:19,fontWeight:FontWeight.bold)),
+    jobPicker(),
+    if(selectedJob!=null)...[
+      ...jobs.where((j)=>j['id'].toString()==selectedJob).map((j)=>Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Text(j['job_number'].toString(),style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+        Text('Customer: '+j['farmer_name'].toString()+' • '+(j['farmer_phone']??'').toString()),
+        Text('Service: '+labelCase(j['service_type'].toString())+' at '+j['service_location'].toString()),
+        Text('Area: '+(j['area_acres']??'Flat rate').toString()+' acres • Rate: '+money(numberOf(j,'rate'))),
+        Text('Quotation: '+money(numberOf(j,'total_charge'))+' • Status: '+labelCase(j['status'].toString())),
+        Text('Operator: '+(operators.where((o)=>o['id'].toString()==(j['operator_id']??'').toString()).map((o)=>o['display_name'].toString()).firstOrNull??'Not assigned')),
+        Text('Hours worked: '+numberOf(j,'hours_worked').toStringAsFixed(1)),
+      ])))),
+      const SizedBox(height:8),
+      Wrap(spacing:8,runSpacing:8,children:[
+        if(['booked'].contains(jobs.firstWhere((x)=>x['id'].toString()==selectedJob)['status']))OutlinedButton(onPressed:saving?null:()=>updateJobStatus('confirmed'),child:const Text('Confirm job')),
+        if(['booked','confirmed'].contains(jobs.firstWhere((x)=>x['id'].toString()==selectedJob)['status']))FilledButton.tonal(onPressed:saving?null:()=>updateJobStatus('in_progress'),child:const Text('Start job')),
+        if(jobs.firstWhere((x)=>x['id'].toString()==selectedJob)['status']=='in_progress')SizedBox(width:180,child:field(finishHours,'Actual hours worked',number:true)),
+        if(jobs.firstWhere((x)=>x['id'].toString()==selectedJob)['status']=='in_progress')FilledButton(onPressed:saving?null:()=>updateJobStatus('completed'),child:const Text('Complete job')),
+        if(!['completed','cancelled'].contains(jobs.firstWhere((x)=>x['id'].toString()==selectedJob)['status']))TextButton(onPressed:saving?null:()=>updateJobStatus('cancelled'),child:const Text('Cancel job'))
+      ])
+    ],
+    const Divider(height:30),const Text('All service jobs',style:TextStyle(fontWeight:FontWeight.bold)),
+    ...jobs.map((j)=>Card(child:ListTile(
+      title:Text(j['job_number'].toString()+' • '+j['farmer_name'].toString()),
+      subtitle:Text(labelCase(j['service_type'].toString())+' • '+labelCase(j['status'].toString())),
+      trailing:Text(money(numberOf(j,'total_charge'))),
+      onTap:()=>setState(()=>selectedJob=j['id'].toString())
+    )))
+  ]);
+
   Widget financeTab()=>ListView(padding:const EdgeInsets.all(14),children:[
-    const Text('Payments and expenses',style:TextStyle(fontSize:19,fontWeight:FontWeight.bold)),jobPicker(),field(pay,'Payment amount (KES)',number:true),dropdown('Payment method',paymentMethod,['cash','mpesa','bank_transfer','other'],(v)=>setState(()=>paymentMethod=v!)),field(reference,'M-Pesa / bank reference'),button('Record payment',recordPayment),
-    const Divider(height:30),dropdown('Expense type',expenseType,['fuel','labour','transport','repair','other'],(v)=>setState(()=>expenseType=v!)),field(expenseNote,'Expense details'),field(expense,'Expense amount (KES)',number:true),dropdown('Paid by',payer,['Edu','Mercy'],(v)=>setState(()=>payer=v!)),button('Record expense',recordExpense),
-    const Padding(padding:EdgeInsets.only(top:14),child:Text('Non-cash payments remain pending until verified. Supabase applies branch and role restrictions to financial records.',style:TextStyle(fontSize:12,color:Colors.black54)))
+    const Text('Payments, balances and costs',style:TextStyle(fontSize:19,fontWeight:FontWeight.bold)),
+    if(financeMessage.isNotEmpty)Padding(padding:const EdgeInsets.only(bottom:8),child:Text(financeMessage,style:const TextStyle(color:Colors.deepOrange))),
+    jobPicker(),
+    if(selectedJob!=null)...jobs.where((j)=>j['id'].toString()==selectedJob).map((j){
+      final paid=payments.where((p)=>p['job_id'].toString()==selectedJob&&p['status']=='verified').fold<double>(0,(s,p)=>s+numberOf(p,'amount'));
+      final due=numberOf(j,'total_charge')-paid;
+      return Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Text('Job value: '+money(numberOf(j,'total_charge'))),
+        Text('Verified payments: '+money(paid)),
+        Text('Outstanding balance: '+money(due<0?0:due),style:const TextStyle(fontWeight:FontWeight.bold))
+      ])));
+    }),
+    field(pay,'Payment amount (KES)',number:true),
+    dropdown('Payment method',paymentMethod,['cash','mpesa','bank_transfer','other'],(v)=>setState(()=>paymentMethod=v??'cash')),
+    field(reference,'M-Pesa / bank reference'),button('Record payment',recordPayment),
+    const Divider(height:30),const Text('Payment receipts',style:TextStyle(fontWeight:FontWeight.bold)),
+    if(payments.isEmpty)const Text('No payment records visible for this branch or role.'),
+    ...payments.map((p)=>Card(child:ListTile(
+      leading:const Icon(Icons.receipt_long,color:brandGreen),title:Text(p['payment_number'].toString()+' • '+money(numberOf(p,'amount'))),
+      subtitle:Text(labelCase(p['method'].toString())+' • '+labelCase(p['status'].toString())),
+      trailing:const Icon(Icons.visibility),onTap:()=>showReceipt(p)
+    ))),
+    const Divider(height:30),const Text('Operating expenses',style:TextStyle(fontWeight:FontWeight.bold)),
+    dropdown('Expense type',expenseType,['fuel','labour','transport','repair','other'],(v)=>setState(()=>expenseType=v??'fuel')),
+    field(expenseNote,'Expense description'),field(expense,'Expense amount (KES)',number:true),
+    dropdown('Paid by',payer,['Edu','Mercy'],(v)=>setState(()=>payer=v??'Edu')),button('Save job expense',recordExpense),
+    ...expenses.take(20).map((x)=>Card(child:ListTile(
+      leading:const Icon(Icons.money_off),title:Text(labelCase(x['expense_type'].toString())+' • '+money(numberOf(x,'amount'))),
+      subtitle:Text((x['description']??'No description').toString()+' • Paid by '+(x['paid_by_owner']??'—').toString())
+    )))
   ]);
+
+  Widget reportCard(String title,double value,{bool highlight=false})=>Card(child:Padding(
+    padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      Text(title,style:const TextStyle(color:Colors.black54)),const SizedBox(height:5),
+      Text(money(value),style:TextStyle(fontSize:20,fontWeight:FontWeight.bold,color:highlight?(value>=0?brandGreen:Colors.red):null))
+    ])
+  ));
+
+  Widget reportsTab(){
+    final p=inPeriod(payments);
+    final x=inPeriod(expenses);
+    final j=inPeriod(jobs);
+    final received=p.where((r)=>r['status']=='verified').fold<double>(0,(s,r)=>s+numberOf(r,'amount'));
+    final pending=p.where((r)=>r['status']=='pending').fold<double>(0,(s,r)=>s+numberOf(r,'amount'));
+    final costs=x.fold<double>(0,(s,r)=>s+numberOf(r,'amount'));
+    final invoiced=j.fold<double>(0,(s,r)=>s+numberOf(r,'total_charge'));
+    final profit=received-costs;
+    return ListView(padding:const EdgeInsets.all(14),children:[
+      const Text('Tractor service reports',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+      dropdown('Reporting period',reportPeriod,['daily','weekly','monthly','overall'],(v)=>setState(()=>reportPeriod=v??'daily')),
+      Text('From '+dateText(reportStart())+' • '+j.length.toString()+' jobs'),
+      reportCard('Invoiced service charges',invoiced),
+      reportCard('Payments received and verified',received),
+      reportCard('Pending payments',pending),
+      reportCard('Operating and maintenance expenses',costs),
+      reportCard(profit>=0?'Net operating profit':'Net operating loss',profit,highlight:true),
+      reportCard('Outstanding customer balances',invoiced-received),
+      const Divider(height:24),const Text('Job status summary',style:TextStyle(fontWeight:FontWeight.bold)),
+      ...['booked','confirmed','in_progress','completed','cancelled'].map((status){
+        final count=j.where((r)=>r['status']==status).length;
+        return ListTile(dense:true,title:Text(labelCase(status)),trailing:Text(count.toString(),style:const TextStyle(fontWeight:FontWeight.bold)));
+      }),
+      const Text('Profit is calculated from verified receipts less recorded expenses for the selected period. Pending M-Pesa/bank payments are not counted as received income.',style:TextStyle(fontSize:12,color:Colors.black54))
+    ]);
+  }
+
   @override Widget build(BuildContext context)=>Column(children:[
-    const Padding(padding:EdgeInsets.fromLTRB(16,12,16,2),child:Align(alignment:Alignment.centerLeft,child:Text('Tractor Services',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)))),
-    TabBar(controller:tabs,isScrollable:true,labelColor:brandGreen,tabs:const[Tab(icon:Icon(Icons.agriculture),text:'Tractors'),Tab(icon:Icon(Icons.event),text:'Bookings'),Tab(icon:Icon(Icons.payments),text:'Payments & costs')]),
+    const Padding(padding:EdgeInsets.fromLTRB(16,10,16,0),child:Align(alignment:Alignment.centerLeft,child:Text('Tractor Services',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)))),
+    if(branches.isNotEmpty)branchPicker(),
     if(message.isNotEmpty)Padding(padding:const EdgeInsets.all(8),child:Text(message,style:TextStyle(color:message.startsWith('Could not')?Colors.red:brandGreen))),
-    Expanded(child:loading?const Center(child:CircularProgressIndicator()):TabBarView(controller:tabs,children:[tractorTab(),bookingsTab(),financeTab()])),
-    Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:load,icon:const Icon(Icons.refresh),label:const Text('Refresh')))
+    if(loading)const Expanded(child:Center(child:CircularProgressIndicator()))
+    else Expanded(child:Column(children:[
+      TabBar(controller:tabs,isScrollable:true,labelColor:brandGreen,tabs:const[
+        Tab(icon:Icon(Icons.agriculture),text:'Fleet'),Tab(icon:Icon(Icons.event),text:'Bookings'),
+        Tab(icon:Icon(Icons.assignment_turned_in),text:'Job control'),Tab(icon:Icon(Icons.payments),text:'Payments & costs'),
+        Tab(icon:Icon(Icons.analytics),text:'Reports')
+      ]),
+      Expanded(child:TabBarView(controller:tabs,children:[fleetTab(),bookingTab(),jobControlTab(),financeTab(),reportsTab()]))
+    ])),
+    Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:loading?null:load,icon:const Icon(Icons.refresh),label:const Text('Refresh')))
   ]);
 }
 
