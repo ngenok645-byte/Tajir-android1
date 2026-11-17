@@ -81,47 +81,133 @@ class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
   @override State<LoginPage> createState() => _LoginPageState();
 }
+
+String staffAuthPassword(String pin) => 'TAJIR-PIN-$pin-Account#2026';
+
 class _LoginPageState extends State<LoginPage> {
-  final email = TextEditingController(), password = TextEditingController();
-  bool busy = false, signup = false;
+  final email = TextEditingController();
+  final password = TextEditingController();
+  final phone = TextEditingController();
+  final pin = TextEditingController();
+  final confirmPin = TextEditingController();
+  bool busy = false, signup = false, setupDirector = false, emailMode = false;
   String? error;
+
+  @override
+  void dispose() {
+    email.dispose();
+    password.dispose();
+    phone.dispose();
+    pin.dispose();
+    confirmPin.dispose();
+    super.dispose();
+  }
+
   Future<void> submit() async {
     setState(() { busy = true; error = null; });
     try {
-      final auth = Supabase.instance.client.auth;
-      if (signup) {
-        await auth.signUp(email: email.text.trim(), password: password.text);
-        if (mounted) setState(() => error = 'Account request submitted. An administrator must assign your TAJIR role.');
+      final db = Supabase.instance.client;
+      if (emailMode) {
+        if (signup) {
+          await db.auth.signUp(email: email.text.trim(), password: password.text);
+          if (mounted) setState(() => error = 'Account request submitted. An administrator must assign your TAJIR role.');
+        } else {
+          await db.auth.signInWithPassword(email: email.text.trim(), password: password.text);
+        }
       } else {
-        await auth.signInWithPassword(email: email.text.trim(), password: password.text);
+        final normalized = normalizeKenyanPhone(phone.text);
+        if (!RegExp(r'^\d{4}$').hasMatch(pin.text)) {
+          throw const FormatException('Enter a four-digit PIN.');
+        }
+        if (setupDirector) {
+          if (pin.text != confirmPin.text) {
+            throw const FormatException('The PIN entries do not match.');
+          }
+          final response = await db.functions.invoke(
+            'tajir-director-setup',
+            body: {'phone': phone.text.trim(), 'pin': pin.text},
+          );
+          if (response.status != 200) {
+            final data = response.data;
+            throw FormatException(data is Map ? (data['error']?.toString() ?? 'Director setup failed.') : 'Director setup failed.');
+          }
+        }
+        await db.auth.signInWithPassword(
+          phone: normalized,
+          password: staffAuthPassword(pin.text),
+        );
       }
-    } on AuthException catch (e) { setState(() => error = e.message); }
-      catch (e) { setState(() => error = 'Could not sign in: $e'); }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } on FunctionException catch (e) {
+      final details = e.details;
+      if (mounted) setState(() => error = details is Map ? (details['error']?.toString() ?? e.reasonPhrase ?? 'Director setup failed.') : (e.reasonPhrase ?? 'Director setup failed.'));
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString().replaceFirst('FormatException: ', ''));
+    }
     if (mounted) setState(() => busy = false);
   }
+
   @override Widget build(BuildContext context) => Scaffold(
-    body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420),
-      child: Card(margin: const EdgeInsets.all(24), child: Padding(padding: const EdgeInsets.all(24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const BrandMark(), const SizedBox(height: 24),
-          Text(signup ? 'Create account' : 'Sign in to TAJIR', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 18),
-          TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder())),
-          const SizedBox(height: 12),
-          TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder())),
-          if (error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: const TextStyle(color: Colors.red))),
-          const SizedBox(height: 16),
-          FilledButton(onPressed: busy ? null : submit, child: Text(busy ? 'Please wait…' : signup ? 'Request account' : 'Sign in')),
-          TextButton(onPressed: () => setState(() { signup = !signup; error = null; }), child: Text(signup ? 'Back to sign in' : 'Create a staff account')),
-          TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
-            child: const Text('Customer? Register or sign in with phone number')),
-          const Text('Staff roles require administrator approval. Customer accounts use a phone number and six-digit PIN.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
-        ]),
-      )),
+    body: Center(child: SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420),
+        child: Card(child: Padding(padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const BrandMark(),
+            const SizedBox(height: 24),
+            Text(emailMode
+              ? (signup ? 'Create staff account' : 'Staff email sign in')
+              : (setupDirector ? 'Set up director access' : 'Sign in to TAJIR'),
+              style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 18),
+            if (emailMode) ...[
+              TextField(controller: email, keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder())),
+              const SizedBox(height: 12),
+              TextField(controller: password, obscureText: true,
+                decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder())),
+            ] else ...[
+              TextField(controller: phone, keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'Director phone number', hintText: '0700020140', border: OutlineInputBorder())),
+              const SizedBox(height: 12),
+              TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+                decoration: const InputDecoration(labelText: 'Four-digit PIN', border: OutlineInputBorder(), counterText: '')),
+              if (setupDirector) ...[
+                const SizedBox(height: 12),
+                TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+                  decoration: const InputDecoration(labelText: 'Confirm four-digit PIN', border: OutlineInputBorder(), counterText: '')),
+              ],
+              const SizedBox(height: 6),
+              Text(setupDirector
+                ? 'One-time setup for the pre-approved TAJIR Director account. No OTP or email confirmation is needed.'
+                : 'Sign in with your registered phone number and director PIN.',
+                textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+            ],
+            if (error != null) Padding(padding: const EdgeInsets.only(top: 12),
+              child: Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
+            const SizedBox(height: 16),
+            SizedBox(width: double.infinity, child: FilledButton(
+              onPressed: busy ? null : submit,
+              child: Text(busy ? 'Please wait…' : emailMode ? (signup ? 'Request account' : 'Sign in') : setupDirector ? 'Set up and sign in' : 'Sign in'),
+            )),
+            if (!emailMode)
+              TextButton(onPressed: busy ? null : () => setState(() { setupDirector = !setupDirector; error = null; }),
+                child: Text(setupDirector ? 'I already set up my PIN — sign in' : 'First time? Set up director PIN'))
+            else
+              TextButton(onPressed: busy ? null : () => setState(() { signup = !signup; error = null; }),
+                child: Text(signup ? 'Back to sign in' : 'Create a staff account')),
+            TextButton(onPressed: busy ? null : () => setState(() { emailMode = !emailMode; error = null; }),
+              child: Text(emailMode ? 'Use director phone and PIN' : 'Staff email sign in')),
+            TextButton(onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
+              child: const Text('Customer? Register or sign in with phone number')),
+          ]),
+        )),
+      ),
     )),
   );
 }
-
 
 String normalizeKenyanPhone(String input) {
   var digits = input.replaceAll(RegExp(r'[^0-9]'), '');
