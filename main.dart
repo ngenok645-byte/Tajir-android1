@@ -91,7 +91,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() { busy = true; error = null; });
     try {
       final enteredPin = pin.text.trim();
-      if (!RegExp(r'^\\d{4}$').hasMatch(enteredPin)) {
+      if (!RegExp(r'^\d{4}$').hasMatch(enteredPin)) {
         throw Exception('Enter your four-digit PIN.');
       }
       final auth = Supabase.instance.client.auth;
