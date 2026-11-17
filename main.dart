@@ -1086,7 +1086,7 @@ class TractorServicesPage extends StatefulWidget {
 class _TractorServicesPageState extends State<TractorServicesPage> with SingleTickerProviderStateMixin {
   late final TabController tabs = TabController(length: 5, vsync: this);
   final db = Supabase.instance.client;
-  List<Map<String,dynamic>> branches = [], tractors = [], jobs = [], customers = [], operators = [], payments = [], expenses = [];
+  List<Map<String,dynamic>> branches = [], tractors = [], jobs = [], customers = [], operators = [], payments = [], expenses = [], maintenanceRecords = [];
   String? branchId, selectedTractor, selectedJob, selectedCustomerId, selectedOperatorId;
   bool loading = true, saving = false;
   String message = '', financeMessage = '';
@@ -1111,6 +1111,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
   String dateTimeText(DateTime d)=>dateText(d)+' '+d.hour.toString().padLeft(2,'0')+':'+d.minute.toString().padLeft(2,'0');
   double numberOf(Map<String,dynamic> row,String key)=>double.tryParse((row[key]??0).toString())??0;
   String money(double value)=>'KES '+value.toStringAsFixed(2);
+  String operatorName(dynamic id){final found=operators.where((o)=>o['id'].toString()==(id??'').toString()).toList();return found.isEmpty?'Not assigned':found.first['display_name'].toString();}
   String labelCase(String value)=>value.replaceAll('_',' ').split(' ').map((s)=>s.isEmpty?s:s[0].toUpperCase()+s.substring(1)).join(' ');
 
   Future<void> load() async {
@@ -1147,6 +1148,10 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
         final x=await db.from('tractor_job_expenses').select().eq('branch_id',branchId!).order('created_at',ascending:false);
         expenses=List<Map<String,dynamic>>.from(x);
       }catch(e){expenses=[];financeMessage='Financial history is restricted for this account.';}
+      try{
+        final m=await db.from('tractor_maintenance_records').select().eq('branch_id',branchId!).order('created_at',ascending:false);
+        maintenanceRecords=List<Map<String,dynamic>>.from(m);
+      }catch(e){maintenanceRecords=[];}
       try{
         final c=await db.from('customers').select('id,full_name,phone').eq('active',true).order('full_name');
         customers=List<Map<String,dynamic>>.from(c);
@@ -1236,7 +1241,6 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
         'operator_id':selectedOperatorId,'rate':unitRate,'total_charge':(area??1)*unitRate,'status':'booked',
         'notes':notes.text.trim().isEmpty?null:notes.text.trim(),'recorded_by':db.auth.currentUser!.id
       });
-      await db.from('tractor_assets').update({'status':'booked'}).eq('id',selectedTractor!);
       farmer.clear();phone.clear();location.clear();acres.clear();rate.clear();notes.clear();selectedCustomerId=null;selectedOperatorId=null;
       setState(()=>message='Booking saved. The job has been added to the schedule.');await loadBranchData();
     }catch(e){setState(()=>message='Could not save booking: '+e.toString());}
@@ -1270,9 +1274,11 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     try{
       await db.from('tractor_service_jobs').update(update).eq('id',selectedJob!);
       if(nextStatus=='completed'){
-        final asset=await db.from('tractor_assets').select('engine_hours').eq('id',job['tractor_id'].toString()).single();
-        final newHours=numberOf(asset,'engine_hours')+numberOf({'hours':finishHours.text},'hours');
-        await db.from('tractor_assets').update({'engine_hours':newHours}).eq('id',job['tractor_id'].toString());
+        try{
+          final asset=await db.from('tractor_assets').select('engine_hours').eq('id',job['tractor_id'].toString()).single();
+          final newHours=numberOf(asset,'engine_hours')+numberOf({'hours':finishHours.text},'hours');
+          await db.from('tractor_assets').update({'engine_hours':newHours}).eq('id',job['tractor_id'].toString());
+        }catch(_){}
         finishHours.clear();
       }
       await refreshTractorStatus(job['tractor_id'].toString());
@@ -1291,6 +1297,17 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       setState(()=>message='Payment recorded: '+result['payment_number'].toString()+' • '+result['status'].toString()+'.');
       await loadBranchData();
     }catch(e){setState(()=>message='Could not record payment: '+e.toString());}
+    if(mounted)setState(()=>saving=false);
+  }
+
+  Future<void> verifyPayment(Map<String,dynamic> payment) async {
+    setState(()=>saving=true);
+    try{
+      final updated=await db.from('tractor_job_payments').update({'status':'verified','received_at':DateTime.now().toIso8601String(),'verified_at':DateTime.now().toIso8601String(),'verified_by':db.auth.currentUser!.id}).eq('id',payment['id'].toString()).eq('status','pending').select('id').maybeSingle();
+      if(updated==null)throw Exception('Payment could not be verified. Check your branch and finance permissions.');
+      setState(()=>message='Payment '+payment['payment_number'].toString()+' verified.');
+      await loadBranchData();
+    }catch(e){setState(()=>message='Could not verify payment: '+e.toString());}
     if(mounted)setState(()=>saving=false);
   }
 
@@ -1479,7 +1496,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
         Text('Service: '+labelCase(j['service_type'].toString())+' at '+j['service_location'].toString()),
         Text('Area: '+(j['area_acres']??'Flat rate').toString()+' acres • Rate: '+money(numberOf(j,'rate'))),
         Text('Quotation: '+money(numberOf(j,'total_charge'))+' • Status: '+labelCase(j['status'].toString())),
-        Text('Operator: '+(operators.where((o)=>o['id'].toString()==(j['operator_id']??'').toString()).map((o)=>o['display_name'].toString()).firstOrNull??'Not assigned')),
+        Text('Operator: '+operatorName(j['operator_id'])), 
         Text('Hours worked: '+numberOf(j,'hours_worked').toStringAsFixed(1)),
       ])))),
       const SizedBox(height:8),
@@ -1521,7 +1538,10 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     ...payments.map((p)=>Card(child:ListTile(
       leading:const Icon(Icons.receipt_long,color:brandGreen),title:Text(p['payment_number'].toString()+' • '+money(numberOf(p,'amount'))),
       subtitle:Text(labelCase(p['method'].toString())+' • '+labelCase(p['status'].toString())),
-      trailing:const Icon(Icons.visibility),onTap:()=>showReceipt(p)
+      trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[
+        if(p['status']=='pending')IconButton(tooltip:'Verify payment',onPressed:saving?null:()=>verifyPayment(p),icon:const Icon(Icons.verified,color:brandGreen)),
+        IconButton(tooltip:'View receipt',onPressed:()=>showReceipt(p),icon:const Icon(Icons.visibility))
+      ]),onTap:()=>showReceipt(p)
     ))),
     const Divider(height:30),const Text('Operating expenses',style:TextStyle(fontWeight:FontWeight.bold)),
     dropdown('Expense type',expenseType,['fuel','labour','transport','repair','other'],(v)=>setState(()=>expenseType=v??'fuel')),
@@ -1530,6 +1550,11 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     ...expenses.take(20).map((x)=>Card(child:ListTile(
       leading:const Icon(Icons.money_off),title:Text(labelCase(x['expense_type'].toString())+' • '+money(numberOf(x,'amount'))),
       subtitle:Text((x['description']??'No description').toString()+' • Paid by '+(x['paid_by_owner']??'—').toString())
+    ))),
+    const Divider(height:30),const Text('Maintenance and repair history',style:TextStyle(fontWeight:FontWeight.bold)),
+    ...maintenanceRecords.take(20).map((m)=>Card(child:ListTile(
+      leading:const Icon(Icons.build_circle_outlined),title:Text(labelCase(m['maintenance_type'].toString())+' • '+money(numberOf(m,'cost'))),
+      subtitle:Text((m['description']??'').toString()+' • '+(m['maintenance_date']??'').toString()+' • '+(m['next_service_date']??'No next service date').toString())
     )))
   ]);
 
@@ -1543,10 +1568,11 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
   Widget reportsTab(){
     final p=inPeriod(payments);
     final x=inPeriod(expenses);
+    final m=inPeriod(maintenanceRecords);
     final j=inPeriod(jobs);
     final received=p.where((r)=>r['status']=='verified').fold<double>(0,(s,r)=>s+numberOf(r,'amount'));
     final pending=p.where((r)=>r['status']=='pending').fold<double>(0,(s,r)=>s+numberOf(r,'amount'));
-    final costs=x.fold<double>(0,(s,r)=>s+numberOf(r,'amount'));
+    final costs=x.fold<double>(0,(s,r)=>s+numberOf(r,'amount'))+m.fold<double>(0,(s,r)=>s+numberOf(r,'cost'));
     final invoiced=j.fold<double>(0,(s,r)=>s+numberOf(r,'total_charge'));
     final profit=received-costs;
     return ListView(padding:const EdgeInsets.all(14),children:[
