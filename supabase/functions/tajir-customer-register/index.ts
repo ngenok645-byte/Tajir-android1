@@ -17,7 +17,7 @@ Deno.serve(async(req)=>{
   if(!url||!key)return json(500,{error:"Authentication service is not configured."});
   const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
   const ip=req.headers.get("cf-connecting-ip")||req.headers.get("x-real-ip")||(req.headers.get("x-forwarded-for")||"unknown").split(",")[0].trim();
-  const {data:allowed,error:rateError}=await db.schema("private").rpc("consume_tajir_registration_attempt",{p_phone:phone,p_ip:ip});
+  const {data:allowed,error:rateError}=await db.rpc("consume_tajir_registration_attempt",{p_phone:phone,p_ip:ip});
   if(rateError)throw rateError;
   if(allowed!==true)return json(429,{error:"Too many registration attempts. Please wait before trying again."});
   const localPhone=`0${phone.slice(4)}`;
