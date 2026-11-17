@@ -359,7 +359,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
   final pages = const [DashboardPage(), PurchasePage(), SalePage(), StockPage(), CustomersPage(), TractorServicesPage()];
-  final labels = const ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services'];
+  final labels = const ['Dashboard','Purchases','Sales','Stock','Customers','Tractors'];
   final icons = const [Icons.dashboard, Icons.add_shopping_cart, Icons.point_of_sale, Icons.inventory_2, Icons.people, Icons.agriculture];
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
