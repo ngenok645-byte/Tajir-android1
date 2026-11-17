@@ -9,6 +9,7 @@ name: Build TAJIR Android Preview APK
     branches:
       - main
       - demo-phone-pin-login
+      - customer-self-registration
 
 jobs:
   build:

@@ -3,16 +3,17 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
+const tajirBackendConfigured = String.fromEnvironment('SUPABASE_URL') != '' && String.fromEnvironment('SUPABASE_ANON_KEY') != '';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   const previewMode = bool.fromEnvironment('TAJIR_PREVIEW');
-  if (previewMode) {
+  const url = String.fromEnvironment('SUPABASE_URL');
+  const anon = String.fromEnvironment('SUPABASE_ANON_KEY');
+  if (previewMode && (url.isEmpty || anon.isEmpty)) {
     runApp(const TajirApp());
     return;
   }
-  const url = String.fromEnvironment('SUPABASE_URL');
-  const anon = String.fromEnvironment('SUPABASE_ANON_KEY');
   if (url.isEmpty || anon.isEmpty) {
     runApp(const SetupRequiredApp());
     return;
@@ -69,7 +70,7 @@ class AuthGate extends StatelessWidget {
         if (Supabase.instance.client.auth.currentSession == null) {
           return const LoginPage();
         }
-        return const HomeShell();
+        return const AccountRouter();
       },
     );
   }
@@ -111,11 +112,169 @@ class _LoginPageState extends State<LoginPage> {
           if (error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: const TextStyle(color: Colors.red))),
           const SizedBox(height: 16),
           FilledButton(onPressed: busy ? null : submit, child: Text(busy ? 'Please wait…' : signup ? 'Request account' : 'Sign in')),
-          TextButton(onPressed: () => setState(() { signup = !signup; error = null; }), child: Text(signup ? 'Back to sign in' : 'Create an account')),
-          const Text('Only an authorized administrator can grant staff roles.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
+          TextButton(onPressed: () => setState(() { signup = !signup; error = null; }), child: Text(signup ? 'Back to sign in' : 'Create a staff account')),
+          TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
+            child: const Text('Customer? Register or sign in with phone number')),
+          const Text('Staff roles require administrator approval. Customer accounts use a phone number and six-digit PIN.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
         ]),
       )),
     )),
+  );
+}
+
+
+String normalizeKenyanPhone(String input) {
+  var digits = input.replaceAll(RegExp(r'[^0-9]'), '');
+  if (digits.length == 10 && digits.startsWith('0')) digits = '254' + digits.substring(1);
+  if (digits.length == 12 && digits.startsWith('254')) return '+' + digits;
+  throw const FormatException('Enter a valid Kenyan phone number, e.g. 0712345678.');
+}
+
+class CustomerAuthPage extends StatefulWidget {
+  const CustomerAuthPage({super.key});
+  @override State<CustomerAuthPage> createState() => _CustomerAuthPageState();
+}
+class _CustomerAuthPageState extends State<CustomerAuthPage> {
+  final name = TextEditingController();
+  final phone = TextEditingController();
+  final pin = TextEditingController();
+  final confirmPin = TextEditingController();
+  bool createAccount = true, busy = false;
+  String? message;
+  @override void dispose() {
+    name.dispose(); phone.dispose(); pin.dispose(); confirmPin.dispose(); super.dispose();
+  }
+
+  Future<void> submit() async {
+    setState(() { busy = true; message = null; });
+    try {
+      final db = Supabase.instance.client;
+      final normalized = normalizeKenyanPhone(phone.text);
+      if (pin.text.length != 6 || int.tryParse(pin.text) == null) {
+        throw const FormatException('PIN must contain exactly six digits.');
+      }
+      if (createAccount) {
+        if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
+        if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
+        final response = await db.auth.signUp(phone: normalized, password: pin.text);
+        if (response.session == null) {
+          throw const FormatException('Phone confirmation is still enabled in Supabase. TAJIR must disable phone confirmation before no-OTP registration can work. No customer record has been created yet.');
+        }
+        await db.rpc('register_customer_account', params: {
+          'p_full_name': name.text.trim(), 'p_phone': normalized,
+        });
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const CustomerPendingPage()), (route) => false);
+      } else {
+        await db.auth.signInWithPassword(phone: normalized, password: pin.text);
+        final result = await db.rpc('get_my_account_status');
+        final rows = List<Map<String,dynamic>>.from(result);
+        if (rows.isEmpty || rows.first['is_customer'] != true) {
+          throw const FormatException('No customer account is linked to this phone number. Please register first.');
+        }
+        final row = rows.first;
+        if (!mounted) return;
+        if (row['account_status'] == 'active' && row['customer_active'] == true) {
+          Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
+        } else {
+          Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const CustomerPendingPage()), (route) => false);
+        }
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => message = e.message);
+    } catch (e) {
+      if (mounted) setState(() => message = e.toString().replaceFirst('FormatException: ', ''));
+    }
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('TAJIR customer account')),
+    body: Center(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
+      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 440),
+        child: Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(
+          mainAxisSize: MainAxisSize.min, children: [
+            const BrandMark(), const SizedBox(height: 18),
+            Text(createAccount ? 'Create customer account' : 'Customer sign in',
+              style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            const Text('No OTP or SMS is used. Your phone number is not verified.', textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.deepOrange, fontSize: 12)),
+            const SizedBox(height: 16),
+            if (createAccount) TextField(controller: name, textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
+            if (createAccount) const SizedBox(height: 12),
+            TextField(controller: phone, keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 6,
+              decoration: const InputDecoration(labelText: 'Six-digit PIN', border: OutlineInputBorder(), counterText: '')),
+            if (createAccount) const SizedBox(height: 12),
+            if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 6,
+              decoration: const InputDecoration(labelText: 'Confirm six-digit PIN', border: OutlineInputBorder(), counterText: '')),
+            if (message != null) Padding(padding: const EdgeInsets.only(top: 12),
+              child: Text(message!, style: const TextStyle(color: Colors.red))),
+            const SizedBox(height: 16),
+            SizedBox(width: double.infinity, child: FilledButton(onPressed: busy ? null : submit,
+              child: Text(busy ? 'Please wait…' : createAccount ? 'Create account' : 'Sign in'))),
+            TextButton(onPressed: busy ? null : () => setState(() { createAccount = !createAccount; message = null; }),
+              child: Text(createAccount ? 'Already registered? Sign in' : 'New customer? Register')),
+          ],
+        ))),
+      )),
+    ),
+  );
+}
+
+class CustomerPendingPage extends StatelessWidget {
+  const CustomerPendingPage({super.key});
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('TAJIR account approval')),
+    body: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(
+      mainAxisSize: MainAxisSize.min, children: const [
+        Icon(Icons.hourglass_top, size: 64, color: brandGold),
+        SizedBox(height: 16),
+        Text('Registration received', style: TextStyle(fontSize: 23, fontWeight: FontWeight.bold)),
+        SizedBox(height: 10),
+        Text('Your customer account is waiting for approval by TAJIR staff. You can sign in again after your account is activated.', textAlign: TextAlign.center),
+      ],
+    ))),
+  );
+}
+
+class CustomerPortalPage extends StatelessWidget {
+  const CustomerPortalPage({super.key});
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('TAJIR customer')),
+    body: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(
+      mainAxisSize: MainAxisSize.min, children: [
+        const BrandMark(), const SizedBox(height: 18),
+        const Text('Your customer account is active.', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        const Text('Customer orders and account history will appear here as those features are connected.'),
+        const SizedBox(height: 16),
+        FilledButton(onPressed: () => Supabase.instance.client.auth.signOut(), child: const Text('Sign out')),
+      ],
+    ))),
+  );
+}
+
+class AccountRouter extends StatelessWidget {
+  const AccountRouter({super.key});
+  @override Widget build(BuildContext context) => FutureBuilder<dynamic>(
+    future: Supabase.instance.client.rpc('get_my_account_status'),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      if (snapshot.hasError) return const HomeShell();
+      final rows = List<Map<String,dynamic>>.from(snapshot.data ?? const []);
+      if (rows.isNotEmpty && rows.first['is_customer'] == true) {
+        final row = rows.first;
+        if (row['account_status'] == 'active' && row['customer_active'] == true) return const CustomerPortalPage();
+        return const CustomerPendingPage();
+      }
+      return const HomeShell();
+    },
   );
 }
 
@@ -394,8 +553,19 @@ class _CustomersPageState extends State<CustomersPage> {
   }
 
   Future<void> setActive(Map<String,dynamic> row,bool active) async {
-    try { await Supabase.instance.client.from('customers').update({'active':active}).eq('id',row['id']); await load(); }
-    catch(e){ if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not update customer: $e'))); }
+    try {
+      final db = Supabase.instance.client;
+      await db.from('customers').update({
+        'active': active,
+        if (active) 'approved_at': DateTime.now().toUtc().toIso8601String(),
+        if (active) 'approved_by': db.auth.currentUser!.id,
+      }).eq('id',row['id']);
+      final profileId = row['profile_id'];
+      if (profileId != null) {
+        await db.from('profiles').update({'status': active ? 'active' : 'suspended'}).eq('id',profileId);
+      }
+      await load();
+    } catch(e){ if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not update customer: $e'))); }
   }
 
   @override Widget build(BuildContext context) {
@@ -419,7 +589,7 @@ class _CustomersPageState extends State<CustomersPage> {
           itemBuilder:(context)=>[
             const PopupMenuItem(value:'edit',child:Text('Edit details')),
             if(r['active']==true)const PopupMenuItem(value:'deactivate',child:Text('Deactivate')),
-            if(r['active']==false)const PopupMenuItem(value:'activate',child:Text('Reactivate')),
+            if(r['active']==false)const PopupMenuItem(value:'activate',child:Text('Approve / activate account')),
           ]),
       ))),
       const Padding(padding:EdgeInsets.only(top:8),child:Text('Customer balances count verified payments only. Pending, rejected and reversed payments are not treated as money received.',style:TextStyle(fontSize:12,color:Colors.black54))),
@@ -501,6 +671,12 @@ class _DemoLoginPageState extends State<DemoLoginPage> {
                   ],
                   const SizedBox(height: 16),
                   SizedBox(width: double.infinity, child: FilledButton(onPressed: signIn, child: const Text('Enter demo'))),
+                  const SizedBox(height: 8),
+                  if (tajirBackendConfigured)
+                    TextButton(
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
+                      child: const Text('New customer? Create an account with phone number'),
+                    ),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(12),
