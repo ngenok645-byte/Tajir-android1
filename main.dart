@@ -210,8 +210,199 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
     try {
       final db = Supabase.instance.client;
       final normalized = normalizeKenyanPhone(phone.text);
-      if (!RegExp(r'^\d{4}$').hasMatch(pin.text)) {
-        throw const FormatException('PIN must contain exactly four digits.');
+      if (createAccount && !RegExp(r'^\d{4}
+      if (createAccount) {
+        if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
+        if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
+        final response = await db.functions.invoke(
+          'tajir-customer-register',
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text},
+        );
+        final resultData = response.data;
+        if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
+          final data = resultData;
+          throw FormatException(data is Map ? (data['error']?.toString() ?? 'Customer registration failed.') : 'Customer registration failed.');
+        }
+        await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
+      } else {
+        await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
+        final result = await db.rpc('get_my_account_status');
+        final rows = List<Map<String,dynamic>>.from(result);
+        if (rows.isEmpty || rows.first['is_customer'] != true) {
+          throw const FormatException('No customer account is linked to this phone number. Please register first.');
+        }
+        final row = rows.first;
+        if (!mounted) return;
+        if (row['account_status'] == 'active' && row['customer_active'] == true) {
+          Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
+        } else {
+          Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const CustomerPendingPage()), (route) => false);
+        }
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => message = e.message);
+    } catch (e) {
+      if (mounted) setState(() => message = e.toString().replaceFirst('FormatException: ', ''));
+    }
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('TAJIR customer account')),
+    body: Center(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
+      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 440),
+        child: Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(
+          mainAxisSize: MainAxisSize.min, children: [
+            const BrandMark(), const SizedBox(height: 18),
+            Text(createAccount ? 'Create customer account' : 'Customer sign in',
+              style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            const Text('No OTP or SMS is used. Your phone number is not verified.', textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.deepOrange, fontSize: 12)),
+            const SizedBox(height: 16),
+            if (createAccount) TextField(controller: name, textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
+            if (createAccount) const SizedBox(height: 12),
+            TextField(controller: phone, keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: createAccount ? 4 : 6,
+              decoration: InputDecoration(labelText: createAccount ? 'Four-digit PIN' : 'PIN', border: const OutlineInputBorder(), counterText: '')),
+            if (createAccount) const SizedBox(height: 12),
+            if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+              decoration: const InputDecoration(labelText: 'Confirm four-digit PIN', border: OutlineInputBorder(), counterText: '')),
+            if (message != null) Padding(padding: const EdgeInsets.only(top: 12),
+              child: Text(message!, style: const TextStyle(color: Colors.red))),
+            const SizedBox(height: 16),
+            SizedBox(width: double.infinity, child: FilledButton(onPressed: busy ? null : submit,
+              child: Text(busy ? 'Please wait…' : createAccount ? 'Create account' : 'Sign in'))),
+            TextButton(onPressed: busy ? null : () => setState(() { createAccount = !createAccount; message = null; }),
+              child: Text(createAccount ? 'Already registered? Sign in' : 'New customer? Register')),
+          ],
+        ))),
+      )),
+    ),
+  );
+}
+
+class CustomerPendingPage extends StatelessWidget {
+  const CustomerPendingPage({super.key});
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('TAJIR account approval')),
+    body: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(
+      mainAxisSize: MainAxisSize.min, children: const [
+        Icon(Icons.hourglass_top, size: 64, color: brandGold),
+        SizedBox(height: 16),
+        Text('Registration received', style: TextStyle(fontSize: 23, fontWeight: FontWeight.bold)),
+        SizedBox(height: 10),
+        Text('Your customer account is waiting for approval by TAJIR staff. You can sign in again after your account is activated.', textAlign: TextAlign.center),
+      ],
+    ))),
+  );
+}
+
+).hasMatch(pin.text)) {
+        throw const FormatException('New customer PIN must contain exactly four digits.');
+      }
+      if (!createAccount && !RegExp(r'^(?:\d{4}|\d{6})
+      if (createAccount) {
+        if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
+        if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
+        final response = await db.functions.invoke(
+          'tajir-customer-register',
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text},
+        );
+        final resultData = response.data;
+        if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
+          final data = resultData;
+          throw FormatException(data is Map ? (data['error']?.toString() ?? 'Customer registration failed.') : 'Customer registration failed.');
+        }
+        await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
+      } else {
+        await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
+        final result = await db.rpc('get_my_account_status');
+        final rows = List<Map<String,dynamic>>.from(result);
+        if (rows.isEmpty || rows.first['is_customer'] != true) {
+          throw const FormatException('No customer account is linked to this phone number. Please register first.');
+        }
+        final row = rows.first;
+        if (!mounted) return;
+        if (row['account_status'] == 'active' && row['customer_active'] == true) {
+          Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
+        } else {
+          Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const CustomerPendingPage()), (route) => false);
+        }
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => message = e.message);
+    } catch (e) {
+      if (mounted) setState(() => message = e.toString().replaceFirst('FormatException: ', ''));
+    }
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('TAJIR customer account')),
+    body: Center(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
+      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 440),
+        child: Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(
+          mainAxisSize: MainAxisSize.min, children: [
+            const BrandMark(), const SizedBox(height: 18),
+            Text(createAccount ? 'Create customer account' : 'Customer sign in',
+              style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            const Text('No OTP or SMS is used. Your phone number is not verified.', textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.deepOrange, fontSize: 12)),
+            const SizedBox(height: 16),
+            if (createAccount) TextField(controller: name, textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
+            if (createAccount) const SizedBox(height: 12),
+            TextField(controller: phone, keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+              decoration: const InputDecoration(labelText: 'Four-digit PIN', border: OutlineInputBorder(), counterText: '')),
+            if (createAccount) const SizedBox(height: 12),
+            if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+              decoration: const InputDecoration(labelText: 'Confirm four-digit PIN', border: OutlineInputBorder(), counterText: '')),
+            if (message != null) Padding(padding: const EdgeInsets.only(top: 12),
+              child: Text(message!, style: const TextStyle(color: Colors.red))),
+            const SizedBox(height: 16),
+            SizedBox(width: double.infinity, child: FilledButton(onPressed: busy ? null : submit,
+              child: Text(busy ? 'Please wait…' : createAccount ? 'Create account' : 'Sign in'))),
+            TextButton(onPressed: busy ? null : () => setState(() { createAccount = !createAccount; message = null; }),
+              child: Text(createAccount ? 'Already registered? Sign in' : 'New customer? Register')),
+          ],
+        ))),
+      )),
+    ),
+  );
+}
+
+class CustomerPendingPage extends StatelessWidget {
+  const CustomerPendingPage({super.key});
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('TAJIR account approval')),
+    body: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(
+      mainAxisSize: MainAxisSize.min, children: const [
+        Icon(Icons.hourglass_top, size: 64, color: brandGold),
+        SizedBox(height: 16),
+        Text('Registration received', style: TextStyle(fontSize: 23, fontWeight: FontWeight.bold)),
+        SizedBox(height: 10),
+        Text('Your customer account is waiting for approval by TAJIR staff. You can sign in again after your account is activated.', textAlign: TextAlign.center),
+      ],
+    ))),
+  );
+}
+
+).hasMatch(pin.text)) {
+        throw const FormatException('Enter your four-digit PIN or your existing six-digit PIN.');
       }
       if (createAccount) {
         if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
@@ -975,7 +1166,7 @@ class _CustomersPageState extends State<CustomersPage> {
     setState(() { busy=true; message=''; });
     try {
       final r=await Supabase.instance.client.from('customers')
-        .select('id,customer_type,full_name,phone,email,default_branch_id,active,created_at')
+        .select('id,profile_id,customer_type,full_name,phone,email,default_branch_id,active,approved_at,approved_by,created_at')
         .order('full_name');
       if(!mounted)return;
       setState(()=>rows=List<Map<String,dynamic>>.from(r));
@@ -1048,6 +1239,13 @@ class _CustomersPageState extends State<CustomersPage> {
         content:SizedBox(width:480,child:SingleChildScrollView(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Text('Phone: ${customer['phone']??'—'}'),
           Text('Email: ${customer['email']??'—'}'),
+          Text('Customer type: ${customer['customer_type']??'—'}'),
+          Text('Account status: ${customer['active']==true?'Active':'Inactive'}'),
+          Text('Customer record ID: ${customer['id']??'—'}'),
+          Text('Login profile ID: ${customer['profile_id']??'Not linked'}'),
+          Text('Default branch ID: ${customer['default_branch_id']??'Not assigned'}'),
+          Text('Registered: ${customer['created_at']??'—'}'),
+          Text('Approved at: ${customer['approved_at']??'Not approved'}'),
           const SizedBox(height:12),
           Text('Total purchases: KES ${totalSales.toStringAsFixed(2)}'),
           Text('Verified payments: KES ${verified.toStringAsFixed(2)}'),
