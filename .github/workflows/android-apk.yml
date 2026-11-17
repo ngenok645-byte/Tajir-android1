@@ -72,7 +72,7 @@ jobs:
                   end = source.find(">", start)
                   if start < 0 or end < 0:
                       raise SystemExit("Could not locate Android manifest root element")
-                  source = source[:end + 1] + f'\\n    <uses-permission android:name="{permission}" />' + source[end + 1:]
+                  source = source[:end + 1] + f'\n    <uses-permission android:name="{permission}" />' + source[end + 1:]
           manifest.write_text(source)
           print("Android network permissions verified.")
           PY
