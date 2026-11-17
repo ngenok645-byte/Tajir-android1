@@ -68,35 +68,112 @@ class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
   @override State<LoginPage> createState() => _LoginPageState();
 }
+
 class _LoginPageState extends State<LoginPage> {
-  final email = TextEditingController(), password = TextEditingController();
-  bool busy = false;
+  final phone = TextEditingController();
+  final pin = TextEditingController();
+  final confirmPin = TextEditingController();
+  bool busy = false, setupMode = false;
   String? error;
+
+  String normalizedPhone(String input) {
+    final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.startsWith('254') && digits.length == 12) return '+$digits';
+    if (digits.startsWith('0') && digits.length == 10) return '+254${digits.substring(1)}';
+    if (digits.length == 9) return '+254$digits';
+    throw const FormatException('Enter a valid Kenyan phone number, e.g. 0700123456.');
+  }
+
+  String passwordFromPin(String value) => 'TAJIR-PIN-$value-Account#2026';
+
   Future<void> submit() async {
+    FocusScope.of(context).unfocus();
     setState(() { busy = true; error = null; });
     try {
+      final enteredPin = pin.text.trim();
+      if (!RegExp(r'^\\d{4}$').hasMatch(enteredPin)) {
+        throw Exception('Enter your four-digit PIN.');
+      }
       final auth = Supabase.instance.client.auth;
-      await auth.signInWithPassword(email: email.text.trim(), password: password.text);
-    } on AuthException catch (e) { setState(() => error = e.message); }
-      catch (e) { setState(() => error = 'Could not sign in: $e'); }
+      final authPhone = normalizedPhone(phone.text.trim());
+
+      if (setupMode) {
+        if (confirmPin.text.trim() != enteredPin) {
+          throw Exception('The PIN entries do not match.');
+        }
+        await Supabase.instance.client.functions.invoke(
+          'tajir-director-setup',
+          body: {'phone': phone.text.trim(), 'pin': enteredPin},
+        );
+      }
+
+      await auth.signInWithPassword(
+        phone: authPhone,
+        password: passwordFromPin(enteredPin),
+      );
+    } on AuthException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } on FunctionException catch (e) {
+      if (mounted) {
+        final details = e.details;
+        setState(() => error = details is Map && details['error'] != null
+          ? details['error'].toString()
+          : 'Director setup failed. Please try again or contact support.');
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+    }
     if (mounted) setState(() => busy = false);
   }
-  @override Widget build(BuildContext context) => Scaffold(
-    body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420),
-      child: Card(margin: const EdgeInsets.all(24), child: Padding(padding: const EdgeInsets.all(24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const BrandMark(), const SizedBox(height: 24),
-          Text('Sign in to TAJIR', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 18),
-          TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder())),
-          const SizedBox(height: 12),
-          TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder())),
-          if (error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: const TextStyle(color: Colors.red))),
-          const SizedBox(height: 16),
-          FilledButton(onPressed: busy ? null : submit, child: Text(busy ? 'Please wait…' : 'Sign in')),
-          const Text('Accounts are created and activated by the TAJIR administrator.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
-        ]),
-      )),
+
+  @override
+  void dispose() {
+    phone.dispose(); pin.dispose(); confirmPin.dispose(); super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(child: SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420),
+        child: Card(child: Padding(padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const BrandMark(), const SizedBox(height: 24),
+            Text(setupMode ? 'Set up Director account' : 'Sign in to TAJIR',
+              style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            Text(setupMode
+              ? 'Create the first Director PIN for the pre-registered administrator phone number.'
+              : 'Sign in using your registered phone number and four-digit PIN.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.black54)),
+            const SizedBox(height: 18),
+            TextField(controller: phone, keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Phone number', hintText: '0700123456', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: pin, keyboardType: TextInputType.number,
+              obscureText: true, maxLength: 4,
+              decoration: const InputDecoration(labelText: '4-digit PIN', counterText: '', border: OutlineInputBorder())),
+            if (setupMode) ...[
+              const SizedBox(height: 12),
+              TextField(controller: confirmPin, keyboardType: TextInputType.number,
+                obscureText: true, maxLength: 4,
+                decoration: const InputDecoration(labelText: 'Confirm 4-digit PIN', counterText: '', border: OutlineInputBorder())),
+            ],
+            if (error != null) Padding(padding: const EdgeInsets.only(top: 12),
+              child: Text(error!, style: const TextStyle(color: Colors.red))),
+            const SizedBox(height: 16),
+            SizedBox(width: double.infinity, child: FilledButton(
+              onPressed: busy ? null : submit,
+              child: Text(busy ? 'Please wait…' : setupMode ? 'Create Director account' : 'Sign in'))),
+            TextButton(
+              onPressed: busy ? null : () => setState(() { setupMode = !setupMode; error = null; }),
+              child: Text(setupMode ? 'Already set up? Sign in' : 'First time? Set up Director account')),
+            const Text('Staff accounts are created by the Director. No email or OTP is required.',
+              textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
+          ]),
+        )),
+      ),
     )),
   );
 }
