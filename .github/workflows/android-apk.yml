@@ -68,14 +68,11 @@ jobs:
           for permission in permissions:
               marker = f'android:name="{permission}"'
               if marker not in source:
-                  source, count = re.subn(
-                      r'(<manifest\\b[^>]*>)',
-                      r'\\1\\n    <uses-permission android:name="' + permission + '" />',
-                      source,
-                      count=1,
-                  )
-                  if count != 1:
-                      raise SystemExit(f"Could not add {permission} to Android manifest")
+                  start = source.find("<manifest")
+                  end = source.find(">", start)
+                  if start < 0 or end < 0:
+                      raise SystemExit("Could not locate Android manifest root element")
+                  source = source[:end + 1] + f'\\n    <uses-permission android:name="{permission}" />' + source[end + 1:]
           manifest.write_text(source)
           print("Android network permissions verified.")
           PY
