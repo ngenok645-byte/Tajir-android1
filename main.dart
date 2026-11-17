@@ -1274,11 +1274,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     try{
       await db.from('tractor_service_jobs').update(update).eq('id',selectedJob!);
       if(nextStatus=='completed'){
-        try{
-          final asset=await db.from('tractor_assets').select('engine_hours').eq('id',job['tractor_id'].toString()).single();
-          final newHours=numberOf(asset,'engine_hours')+numberOf({'hours':finishHours.text},'hours');
-          await db.from('tractor_assets').update({'engine_hours':newHours}).eq('id',job['tractor_id'].toString());
-        }catch(_){}
+        // A database trigger updates fleet engine hours atomically when the job is completed.
         finishHours.clear();
       }
       await refreshTractorStatus(job['tractor_id'].toString());
