@@ -210,8 +210,8 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
     try {
       final db = Supabase.instance.client;
       final normalized = normalizeKenyanPhone(phone.text);
-      if (pin.text.length != 6 || int.tryParse(pin.text) == null) {
-        throw const FormatException('PIN must contain exactly six digits.');
+      if (!RegExp(r'^\d{4}$').hasMatch(pin.text)) {
+        throw const FormatException('PIN must contain exactly four digits.');
       }
       if (createAccount) {
         if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
@@ -228,7 +228,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const CustomerPendingPage()), (route) => false);
+          MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
       } else {
         await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
         final result = await db.rpc('get_my_account_status');
@@ -271,11 +271,11 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             TextField(controller: phone, keyboardType: TextInputType.phone,
               decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
             const SizedBox(height: 12),
-            TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 6,
-              decoration: const InputDecoration(labelText: 'Six-digit PIN', border: OutlineInputBorder(), counterText: '')),
+            TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+              decoration: const InputDecoration(labelText: 'Four-digit PIN', border: OutlineInputBorder(), counterText: '')),
             if (createAccount) const SizedBox(height: 12),
-            if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 6,
-              decoration: const InputDecoration(labelText: 'Confirm six-digit PIN', border: OutlineInputBorder(), counterText: '')),
+            if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+              decoration: const InputDecoration(labelText: 'Confirm four-digit PIN', border: OutlineInputBorder(), counterText: '')),
             if (message != null) Padding(padding: const EdgeInsets.only(top: 12),
               child: Text(message!, style: const TextStyle(color: Colors.red))),
             const SizedBox(height: 16),
