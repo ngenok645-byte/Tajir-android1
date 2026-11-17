@@ -163,15 +163,13 @@ class _LoginPageState extends State<LoginPage> {
                 ? 'One-time setup for the pre-approved TAJIR Director account. No OTP or email confirmation is needed.'
                 : 'Sign in with your registered phone number and director PIN.',
                 textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
-            ],
             if (error != null) Padding(padding: const EdgeInsets.only(top: 12),
               child: Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
             const SizedBox(height: 16),
             SizedBox(width: double.infinity, child: FilledButton(
               onPressed: busy ? null : submit,
-              child: Text(busy ? 'Please wait…' : emailMode ? (signup ? 'Request account' : 'Sign in') : setupDirector ? 'Set up and sign in' : 'Sign in'),
+              child: Text(busy ? 'Please wait…' : setupDirector ? 'Set up and sign in' : 'Sign in'),
             )),
-            if (!emailMode)
             TextButton(onPressed: busy ? null : () => setState(() { setupDirector = !setupDirector; error = null; }),
               child: Text(setupDirector ? 'I already set up my PIN — sign in' : 'First time? Set up director PIN')),
             TextButton(onPressed: () => Navigator.of(context).push(
