@@ -1097,13 +1097,13 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
   final code=TextEditingController(), reg=TextEditingController(), model=TextEditingController(), owner=TextEditingController();
   final assetHours=TextEditingController(), assetNotes=TextEditingController();
   final farmer=TextEditingController(), phone=TextEditingController(), location=TextEditingController(), acres=TextEditingController(), rate=TextEditingController(), notes=TextEditingController();
-  final pay=TextEditingController(), reference=TextEditingController(), expense=TextEditingController(), expenseNote=TextEditingController();
+  final pay=TextEditingController(), reference=TextEditingController(), expense=TextEditingController(), expenseNote=TextEditingController(), estimatedHours=TextEditingController(text:'1');
   final maintenance=TextEditingController(), maintenanceCost=TextEditingController(), maintenanceHours=TextEditingController(), finishHours=TextEditingController();
 
   @override void initState(){super.initState();load();}
   @override void dispose(){
     tabs.dispose();
-    for(final c in [code,reg,model,owner,assetHours,assetNotes,farmer,phone,location,acres,rate,notes,pay,reference,expense,expenseNote,maintenance,maintenanceCost,maintenanceHours,finishHours]){c.dispose();}
+    for(final c in [code,reg,model,owner,assetHours,assetNotes,farmer,phone,location,acres,rate,notes,pay,reference,expense,expenseNote,estimatedHours,maintenance,maintenanceCost,maintenanceHours,finishHours]){c.dispose();}
     super.dispose();
   }
 
@@ -1224,10 +1224,11 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
   Future<void> bookJob() async {
     final area=acres.text.trim().isEmpty?null:double.tryParse(acres.text.trim());
     final unitRate=double.tryParse(rate.text.trim());
+    final duration=double.tryParse(estimatedHours.text.trim());
     final selectedCustomer=customers.where((x)=>x['id'].toString()==selectedCustomerId).toList();
     final customerName=selectedCustomer.isNotEmpty?selectedCustomer.first['full_name'].toString():farmer.text.trim();
     final customerPhone=selectedCustomer.isNotEmpty?(selectedCustomer.first['phone']??'').toString():phone.text.trim();
-    if(branchId==null||selectedTractor==null||customerName.isEmpty||location.text.trim().isEmpty||unitRate==null||unitRate<0||(acres.text.trim().isNotEmpty&&(area==null||area<=0))){
+    if(branchId==null||selectedTractor==null||customerName.isEmpty||location.text.trim().isEmpty||unitRate==null||unitRate<0||duration==null||duration<=0||(acres.text.trim().isNotEmpty&&(area==null||area<=0))){
       setState(()=>message='Choose a tractor and enter farmer, farm location, valid area (if applicable) and rate.');return;
     }
     final tractor=tractors.where((x)=>x['id'].toString()==selectedTractor).toList();
@@ -1237,11 +1238,11 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       await db.from('tractor_service_jobs').insert({
         'job_number':'TRJ-'+DateTime.now().millisecondsSinceEpoch.toString(),'branch_id':branchId,'tractor_id':selectedTractor,
         'customer_id':selectedCustomerId,'farmer_name':customerName,'farmer_phone':customerPhone.isEmpty?null:customerPhone,
-        'service_type':service,'service_location':location.text.trim(),'area_acres':area,'booked_for':bookedFor.toIso8601String(),
+        'service_type':service,'service_location':location.text.trim(),'area_acres':area,'booked_for':bookedFor.toIso8601String(),'estimated_hours':duration,
         'operator_id':selectedOperatorId,'rate':unitRate,'total_charge':(area??1)*unitRate,'status':'booked',
         'notes':notes.text.trim().isEmpty?null:notes.text.trim(),'recorded_by':db.auth.currentUser!.id
       });
-      farmer.clear();phone.clear();location.clear();acres.clear();rate.clear();notes.clear();selectedCustomerId=null;selectedOperatorId=null;
+      farmer.clear();phone.clear();location.clear();acres.clear();rate.clear();notes.clear();estimatedHours.text='1';selectedCustomerId=null;selectedOperatorId=null;
       setState(()=>message='Booking saved. The job has been added to the schedule.');await loadBranchData();
     }catch(e){setState(()=>message='Could not save booking: '+e.toString());}
     if(mounted)setState(()=>saving=false);
@@ -1476,7 +1477,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     field(farmer,'Farmer / customer name'),field(phone,'Customer phone number'),
     dropdown('Service type',service,['ploughing','planting','harrowing','transport','other'],(v)=>setState(()=>service=v??'ploughing')),
     field(location,'Farm location / village'),field(acres,'Area in acres (leave blank for flat-rate job)',number:true),
-    field(rate,'Rate per acre or flat rate (KES)',number:true),
+    field(estimatedHours,'Estimated job duration (hours)',number:true),field(rate,'Rate per acre or flat rate (KES)',number:true),
     if(operators.isNotEmpty)Padding(padding:const EdgeInsets.only(bottom:10),child:DropdownButtonFormField<String>(
       value:selectedOperatorId,decoration:const InputDecoration(labelText:'Assign operator / driver',border:OutlineInputBorder()),
       items:operators.map((o)=>DropdownMenuItem(value:o['id'].toString(),child:Text(o['display_name'].toString()+' • '+(o['phone']??'').toString()))).toList(),
@@ -1496,7 +1497,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     ...jobs.map((j)=>Card(child:ListTile(
       leading:const Icon(Icons.event_available,color:brandGreen),
       title:Text(j['job_number'].toString()+' • '+j['farmer_name'].toString()),
-      subtitle:Text(labelCase(j['service_type'].toString())+' • '+j['service_location'].toString()+' • '+dateTimeText(DateTime.tryParse((j['booked_for']??j['created_at']).toString())??DateTime.now())),
+      subtitle:Text(labelCase(j['service_type'].toString())+' • '+j['service_location'].toString()+' • '+dateTimeText(DateTime.tryParse((j['booked_for']??j['created_at']).toString())??DateTime.now())+' • '+numberOf(j,'estimated_hours').toStringAsFixed(1)+' hrs'),
       trailing:Text(money(numberOf(j,'total_charge'))+'\n'+labelCase(j['status'].toString()),textAlign:TextAlign.end),
       onTap:()=>setState(()=>selectedJob=j['id'].toString())
     )))
@@ -1510,7 +1511,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
         Text(j['job_number'].toString(),style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
         Text('Customer: '+j['farmer_name'].toString()+' • '+(j['farmer_phone']??'').toString()),
         Text('Service: '+labelCase(j['service_type'].toString())+' at '+j['service_location'].toString()),
-        Text('Area: '+(j['area_acres']??'Flat rate').toString()+' acres • Rate: '+money(numberOf(j,'rate'))),
+        Text('Area: '+(j['area_acres']??'Flat rate').toString()+' acres • Estimated duration: '+numberOf(j,'estimated_hours').toStringAsFixed(1)+' hours • Rate: '+money(numberOf(j,'rate'))),
         Text('Quotation: '+money(numberOf(j,'total_charge'))+' • Status: '+labelCase(j['status'].toString())),
         Text('Operator: '+operatorName(j['operator_id'])), 
         Text('Hours worked: '+numberOf(j,'hours_worked').toStringAsFixed(1)),
