@@ -222,7 +222,12 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
     try {
       final db = Supabase.instance.client;
       final normalized = normalizeKenyanPhone(phone.text);
-      if (createAccount && !RegExp(r'^\d{4}
+      if (createAccount && !RegExp(r'^\d{4}$').hasMatch(pin.text)) {
+        throw const FormatException('New customer PIN must contain exactly four digits.');
+      }
+      if (!createAccount && !RegExp(r'^(?:\d{4}|\d{6})$').hasMatch(pin.text)) {
+        throw const FormatException('Enter your four-digit PIN or your existing six-digit PIN.');
+      }
       if (createAccount) {
         if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
         if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
