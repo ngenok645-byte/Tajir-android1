@@ -1555,7 +1555,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     ...payments.map((p)=>Card(child:ListTile(
       leading:const Icon(Icons.receipt_long,color:brandGreen),title:Text(p['payment_number'].toString()+' • '+money(numberOf(p,'amount'))),
       subtitle:Text(labelCase(p['method'].toString())+' • '+labelCase(p['status'].toString())),
-      trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[
+      trailing:Row(mainAxisSize:MainAxisSize.min,children:[
         if(p['status']=='pending')IconButton(tooltip:'Verify payment',onPressed:saving?null:()=>verifyPayment(p),icon:const Icon(Icons.verified,color:brandGreen)),
         IconButton(tooltip:'View receipt',onPressed:()=>showReceipt(p),icon:const Icon(Icons.visibility))
       ]),onTap:()=>showReceipt(p)
