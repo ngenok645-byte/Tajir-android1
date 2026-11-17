@@ -361,6 +361,27 @@ class _HomeShellState extends State<HomeShell> {
   final pages = const [DashboardPage(), PurchasePage(), SalePage(), StockPage(), CustomersPage(), TractorServicesPage()];
   final labels = const ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services'];
   final icons = const [Icons.dashboard, Icons.add_shopping_cart, Icons.point_of_sale, Icons.inventory_2, Icons.people, Icons.agriculture];
+  void openMoreMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        ListTile(
+          leading: const Icon(Icons.people),
+          title: const Text('Customers'),
+          selected: index == 4,
+          onTap: () { Navigator.pop(sheetContext); setState(() => index = 4); },
+        ),
+        ListTile(
+          leading: const Icon(Icons.agriculture),
+          title: const Text('Tractor Services'),
+          selected: index == 5,
+          onTap: () { Navigator.pop(sheetContext); setState(() => index = 5); },
+        ),
+        const SizedBox(height: 8),
+      ])),
+    );
+  }
+
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
@@ -375,8 +396,23 @@ class _HomeShellState extends State<HomeShell> {
         ),
         Expanded(child: IndexedStack(index: index, children: pages)),
       ]),
-      bottomNavigationBar: wide ? null : NavigationBar(selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v),
-        destinations: List.generate(labels.length, (i) => NavigationDestination(icon: Icon(icons[i]), label: labels[i]))),
+      bottomNavigationBar: wide ? null : NavigationBar(
+        selectedIndex: index < 4 ? index : 4,
+        onDestinationSelected: (v) {
+          if (v == 4) {
+            openMoreMenu();
+          } else {
+            setState(() => index = v);
+          }
+        },
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
+          NavigationDestination(icon: Icon(Icons.add_shopping_cart), label: 'Purchases'),
+          NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'Sales'),
+          NavigationDestination(icon: Icon(Icons.inventory_2), label: 'Stock'),
+          NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
+        ],
+      ),
     );
   }
 }
