@@ -85,18 +85,14 @@ class LoginPage extends StatefulWidget {
 String staffAuthPassword(String pin) => 'TAJIR-PIN-$pin-Account#2026';
 
 class _LoginPageState extends State<LoginPage> {
-  final email = TextEditingController();
-  final password = TextEditingController();
   final phone = TextEditingController();
   final pin = TextEditingController();
   final confirmPin = TextEditingController();
-  bool busy = false, signup = false, setupDirector = false, emailMode = false;
+  bool busy = false, setupDirector = false;
   String? error;
 
   @override
   void dispose() {
-    email.dispose();
-    password.dispose();
     phone.dispose();
     pin.dispose();
     confirmPin.dispose();
@@ -107,14 +103,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() { busy = true; error = null; });
     try {
       final db = Supabase.instance.client;
-      if (emailMode) {
-        if (signup) {
-          await db.auth.signUp(email: email.text.trim(), password: password.text);
-          if (mounted) setState(() => error = 'Account request submitted. An administrator must assign your TAJIR role.');
-        } else {
-          await db.auth.signInWithPassword(email: email.text.trim(), password: password.text);
-        }
-      } else {
+      {
         final normalized = normalizeKenyanPhone(phone.text);
         if (!RegExp(r'^\d{4}$').hasMatch(pin.text)) {
           throw const FormatException('Enter a four-digit PIN.');
@@ -156,19 +145,10 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const BrandMark(),
             const SizedBox(height: 24),
-            Text(emailMode
-              ? (signup ? 'Create staff account' : 'Staff email sign in')
-              : (setupDirector ? 'Set up director access' : 'Sign in to TAJIR'),
+            Text(setupDirector ? 'Set up director access' : 'Sign in to TAJIR',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 18),
-            if (emailMode) ...[
-              TextField(controller: email, keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder())),
-              const SizedBox(height: 12),
-              TextField(controller: password, obscureText: true,
-                decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder())),
-            ] else ...[
-              TextField(controller: phone, keyboardType: TextInputType.phone,
+            TextField(controller: phone, keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(labelText: 'Director phone number', hintText: '0700020140', border: OutlineInputBorder())),
               const SizedBox(height: 12),
               TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
@@ -192,13 +172,8 @@ class _LoginPageState extends State<LoginPage> {
               child: Text(busy ? 'Please wait…' : emailMode ? (signup ? 'Request account' : 'Sign in') : setupDirector ? 'Set up and sign in' : 'Sign in'),
             )),
             if (!emailMode)
-              TextButton(onPressed: busy ? null : () => setState(() { setupDirector = !setupDirector; error = null; }),
-                child: Text(setupDirector ? 'I already set up my PIN — sign in' : 'First time? Set up director PIN'))
-            else
-              TextButton(onPressed: busy ? null : () => setState(() { signup = !signup; error = null; }),
-                child: Text(signup ? 'Back to sign in' : 'Create a staff account')),
-            TextButton(onPressed: busy ? null : () => setState(() { emailMode = !emailMode; error = null; }),
-              child: Text(emailMode ? 'Use director phone and PIN' : 'Staff email sign in')),
+            TextButton(onPressed: busy ? null : () => setState(() { setupDirector = !setupDirector; error = null; }),
+              child: Text(setupDirector ? 'I already set up my PIN — sign in' : 'First time? Set up director PIN')),
             TextButton(onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
               child: const Text('Customer? Register or sign in with phone number')),
