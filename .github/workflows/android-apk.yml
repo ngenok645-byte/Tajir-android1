@@ -1,21 +1,15 @@
-
-
-
-name: Build TAJIR Android Preview APK
+name: Build TAJIR Android APK
 
 'on':
   workflow_dispatch:
   push:
     branches:
       - main
-      - demo-phone-pin-login
-      - customer-self-registration
 
 jobs:
   build:
-    name: Build TAJIR Preview APK
+    name: Build TAJIR Android APK
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,39 +31,23 @@ jobs:
           import zipfile
           from pathlib import Path
           import shutil
-
           source = Path("/tmp/tajir_source")
           source.mkdir(parents=True, exist_ok=True)
-
           with zipfile.ZipFile("TAJIR_flutter_app.zip") as z:
               z.extractall(source)
-
           matches = list(source.rglob("pubspec.yaml"))
           if not matches:
               raise SystemExit("ERROR: pubspec.yaml not found")
-
           app_folder = matches[0].parent
-          destination = Path("TAJIR_flutter_app")
-          shutil.copytree(app_folder, destination, dirs_exist_ok=True)
-
+          shutil.copytree(app_folder, Path("TAJIR_flutter_app"), dirs_exist_ok=True)
           print("Flutter source extracted successfully.")
           PY
 
-      - name: Apply preview-enabled main.dart
+      - name: Apply TAJIR application entry point
         run: |
-          if [ ! -f "main.dart" ]; then
-            echo "ERROR: root main.dart not found"
-            exit 1
-          fi
-
-          if [ ! -f "TAJIR_flutter_app/lib/main.dart" ]; then
-            echo "ERROR: extracted Flutter app lib/main.dart not found"
-            exit 1
-          fi
-
+          test -f main.dart
+          test -f TAJIR_flutter_app/lib/main.dart
           cp main.dart TAJIR_flutter_app/lib/main.dart
-          echo "Preview-enabled main.dart copied successfully."
-          grep -n "TAJIR_PREVIEW" TAJIR_flutter_app/lib/main.dart
 
       - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
@@ -78,20 +56,24 @@ jobs:
           flutter create . --platforms=android --org com.tajir --project-name tajir_app
           flutter pub get
 
-      - name: Build Android Preview APK
+      - name: Build TAJIR Android APK
         working-directory: TAJIR_flutter_app
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          flutter build apk --debug \
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "Missing SUPABASE_URL or SUPABASE_ANON_KEY repository secrets."
+            exit 1
+          fi
+          flutter build apk --release \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
-            --dart-define=TAJIR_PREVIEW=true \
             --android-skip-build-dependency-validation
 
-      - name: Upload TAJIR Preview APK
+      - name: Upload TAJIR Android APK
         uses: actions/upload-artifact@v4
         with:
-          name: TAJIR-Android-Preview-APK
-          path: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-debug.apk
+          name: TAJIR-Android-APK
+          path: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
