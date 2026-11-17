@@ -57,7 +57,16 @@ jobs:
           flutter pub get
           # Work around an Android Lint detector crash in the current toolchain.
           # This skips only the release lint analysis task; APK compilation remains enabled.
-          printf '\ntasks.configureEach { if (name.startsWith("lintVital")) { enabled = false } }\n' >> android/app/build.gradle.kts
+          # Disable the broken lint task across ALL Android subprojects (including plugins).
+          cat >> android/build.gradle.kts <<'GRADLE'
+          subprojects {
+              tasks.configureEach {
+                  if (name.startsWith("lintVital")) {
+                      enabled = false
+                  }
+              }
+          }
+          GRADLE
 
       - name: Build TAJIR Android APK
         working-directory: TAJIR_flutter_app
