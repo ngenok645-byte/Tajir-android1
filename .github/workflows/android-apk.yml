@@ -54,6 +54,31 @@ jobs:
         run: |
           rm -rf android
           flutter create . --platforms=android --org com.tajir --project-name tajir_app
+          # The generated Flutter manifest does not include INTERNET permission.
+          # Add it explicitly so Android can reach Supabase from the release APK.
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          source = manifest.read_text()
+          permissions = [
+              "android.permission.INTERNET",
+              "android.permission.ACCESS_NETWORK_STATE",
+          ]
+          for permission in permissions:
+              marker = f'android:name="{permission}"'
+              if marker not in source:
+                  source, count = re.subn(
+                      r'(<manifest\\b[^>]*>)',
+                      r'\\1\\n    <uses-permission android:name="' + permission + '" />',
+                      source,
+                      count=1,
+                  )
+                  if count != 1:
+                      raise SystemExit(f"Could not add {permission} to Android manifest")
+          manifest.write_text(source)
+          print("Android network permissions verified.")
+          PY
           flutter pub get
           # Work around an Android Lint detector crash in the current toolchain.
           # This skips only the release lint analysis task; APK compilation remains enabled.
