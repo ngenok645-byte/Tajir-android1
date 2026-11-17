@@ -71,7 +71,7 @@ jobs:
       - name: Build TAJIR Android APK
         working-directory: TAJIR_flutter_app
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: https://zgqwjlyyinaapfmiomjo.supabase.co
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
