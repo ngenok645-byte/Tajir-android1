@@ -1301,13 +1301,33 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
   }
 
   Future<void> verifyPayment(Map<String,dynamic> payment) async {
+    final referenceController=TextEditingController(text:(payment['provider_reference']??'').toString());
+    final confirmed=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+      title:const Text('Verify payment'),
+      content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Text('Payment '+payment['payment_number'].toString()+' • '+money(numberOf(payment,'amount'))),
+        Text('Method: '+labelCase(payment['method'].toString())),
+        const SizedBox(height:12),
+        const Text('Only verify after checking the actual cash, M-Pesa statement or bank transaction.'),
+        const SizedBox(height:8),
+        TextField(controller:referenceController,decoration:const InputDecoration(labelText:'Transaction reference',border:OutlineInputBorder()))
+      ]),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Confirm verification'))
+      ]
+    ));
+    if(confirmed!=true){referenceController.dispose();return;}
     setState(()=>saving=true);
     try{
-      final updated=await db.from('tractor_job_payments').update({'status':'verified','received_at':DateTime.now().toIso8601String(),'verified_at':DateTime.now().toIso8601String(),'verified_by':db.auth.currentUser!.id}).eq('id',payment['id'].toString()).eq('status','pending').select('id').maybeSingle();
-      if(updated==null)throw Exception('Payment could not be verified. Check your branch and finance permissions.');
-      setState(()=>message='Payment '+payment['payment_number'].toString()+' verified.');
+      final result=await db.rpc('verify_tractor_job_payment',params:{
+        'p_payment_id':payment['id'].toString(),
+        'p_transaction_reference':referenceController.text.trim()
+      });
+      setState(()=>message='Payment '+result['payment_number'].toString()+' verified.');
       await loadBranchData();
     }catch(e){setState(()=>message='Could not verify payment: '+e.toString());}
+    referenceController.dispose();
     if(mounted)setState(()=>saving=false);
   }
 
