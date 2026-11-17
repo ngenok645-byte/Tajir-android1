@@ -402,7 +402,7 @@ class _DashboardPageState extends State<DashboardPage> {
     const SizedBox(height: 18),
     const Wrap(spacing: 12, runSpacing: 12, children: [
       MetricCard(title: 'Location', value: 'Ntulele', icon: Icons.location_on),
-      MetricCard(title: 'Products', value: 'Maize & Fertilizer', icon: Icons.grain),
+      MetricCard(title: 'Products', value: 'Maize, Beans & Fertilizer', icon: Icons.grain),
       MetricCard(title: 'Payments', value: 'M-Pesa • Cash • Bank • Credit', icon: Icons.payments),
     ]),
     const SizedBox(height: 24),
@@ -424,76 +424,493 @@ class MetricCard extends StatelessWidget {
   ]))));
 }
 
-class PurchasePage extends StatefulWidget { const PurchasePage({super.key}); @override State<PurchasePage> createState()=>_PurchasePageState(); }
-class _PurchasePageState extends State<PurchasePage> {
-  final qty=TextEditingController(), cost=TextEditingController(), supplier=TextEditingController(), notes=TextEditingController();
-  String product='Maize', payer='Mercy'; bool busy=false; String message='';
-  Future<void> save() async {
-    final q=double.tryParse(qty.text), c=double.tryParse(cost.text);
-    if(q==null || c==null || q<=0 || c<0) { setState(()=>message='Enter a valid quantity and buying price.'); return; }
-    setState(()=>busy=true);
-    try {
-      final db=Supabase.instance.client;
-      final branch=await db.from('branches').select('id').eq('code','NTULELE').single();
-      final prod=await db.from('products').select('id,unit').eq('category',product.toLowerCase()).single();
-      await db.rpc('record_purchase', params: {'p_payload': {
-        'branch_id':branch['id'], 'purchase_date':DateTime.now().toIso8601String().substring(0,10),
-        'payer':payer, 'notes':notes.text, 'items':[{'product_id':prod['id'],'quantity':q,'unit_cost':c,'unit':prod['unit'],'details':{'supplier':supplier.text}}]
-      }});
-      setState(()=>message='Purchase saved and stock updated.'); qty.clear(); cost.clear(); supplier.clear(); notes.clear();
-    } catch(e) { setState(()=>message='Could not save purchase: $e'); }
-    if(mounted) setState(()=>busy=false);
-  }
-  @override Widget build(BuildContext context)=>FormPage(title:'Record purchase', children:[
-    DropdownButtonFormField(value:product, items:['Maize','Fertilizer'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(), onChanged:(v)=>setState(()=>product=v!), decoration:const InputDecoration(labelText:'Product')),
-    field(qty,'Quantity (bags)',number:true), field(cost,'Buying price per unit (KES)',number:true),
-    field(supplier,'Supplier name'), DropdownButtonFormField(value:payer, items:['Mercy','Edu','Company','Other'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(), onChanged:(v)=>setState(()=>payer=v!), decoration:const InputDecoration(labelText:'Paid by')),
-    field(notes,'Notes / extra details'), actionButton('Save purchase',busy,save), if(message.isNotEmpty) Text(message),
-    const Text('Note: workers may submit buying prices for recording, but the backend must not expose finance reports or purchase-cost tables to worker accounts.',style:TextStyle(fontSize:12,color:Colors.black54)),
-  ]);
+class PurchasePage extends StatefulWidget {
+  const PurchasePage({super.key});
+  @override
+  State<PurchasePage> createState() => _PurchasePageState();
 }
 
-class SalePage extends StatefulWidget { const SalePage({super.key}); @override State<SalePage> createState()=>_SalePageState(); }
-class _SalePageState extends State<SalePage> {
-  final qty=TextEditingController(), price=TextEditingController(), address=TextEditingController(), fee=TextEditingController(), customer=TextEditingController(), paid=TextEditingController(), reference=TextEditingController();
-  String product='Maize', mode='collection', method='cash'; bool busy=false; String message='';
-  Future<void> save() async {
-    final q=double.tryParse(qty.text), p=double.tryParse(price.text), amount=double.tryParse(paid.text)??0, deliveryFee=double.tryParse(fee.text)??0;
-    if(q==null||p==null||q<=0||p<0||(mode=='delivery'&&address.text.trim().isEmpty)){setState(()=>message='Check quantity, selling price and delivery address.');return;}
-    setState(()=>busy=true);
-    try {
-      final db=Supabase.instance.client;
-      final branch=await db.from('branches').select('id').eq('code','NTULELE').single();
-      final prod=await db.from('products').select('id').eq('category',product.toLowerCase()).single();
-      String? customerId;
-      if(customer.text.trim().isNotEmpty){
-        final matches=await db.from('customers').select('id').ilike('full_name',customer.text.trim()).limit(1);
-        if(matches.isNotEmpty) customerId=matches.first['id'] as String;
-      }
-      final payload=<String,dynamic>{
-        'branch_id':branch['id'],'customer_id':customerId,'sale_date':DateTime.now().toIso8601String().substring(0,10),
-        'fulfilment_mode':mode,'delivery_address':address.text,'delivery_fee':deliveryFee,
-        'items':[{'product_id':prod['id'],'quantity':q,'unit_price':p}],
-      };
-      if(amount>0) payload['payment']={'amount':amount,'method':method,'reference':reference.text};
-      final result=await db.rpc('record_sale',params:{'p_payload':payload});
-      setState(()=>message='Sale saved. Reference: ${result['sale_id']}. Balance: KES ${result['balance']}');
-      qty.clear();price.clear();paid.clear();reference.clear();
-    } catch(e){setState(()=>message='Could not save sale: $e');}
-    if(mounted)setState(()=>busy=false);
+class _PurchasePageState extends State<PurchasePage> {
+  final qty = TextEditingController();
+  final cost = TextEditingController();
+  final supplier = TextEditingController();
+  final notes = TextEditingController();
+
+  String product = 'Maize';
+  String payer = 'Mercy';
+  String? productId;
+  String? selectedVariantId;
+  List<Map<String, dynamic>> variants = [];
+  bool busy = false;
+  bool loadingVariants = false;
+  String message = '';
+
+  @override
+  void initState() {
+    super.initState();
+    loadProductVariants();
   }
-  @override Widget build(BuildContext context)=>FormPage(title:'Record sale / customer order',children:[
-    DropdownButtonFormField(value:product,items:['Maize','Fertilizer'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setState(()=>product=v!),decoration:const InputDecoration(labelText:'Product')),
-    field(qty,'Quantity (bags)',number:true),field(price,'Selling price per bag (KES)',number:true),field(customer,'Customer name (optional)'),
-    DropdownButtonFormField(value:mode,items:const [DropdownMenuItem(value:'collection',child:Text('Collect at Ntulele')),DropdownMenuItem(value:'delivery',child:Text('Deliver to customer'))],onChanged:(v)=>setState(()=>mode=v!),decoration:const InputDecoration(labelText:'Fulfilment')),
-    if(mode=='delivery') field(address,'Delivery address'),
-    if(mode=='delivery') field(fee,'Delivery fee (KES)',number:true),
-    const Divider(), const Text('Payment (optional)',style:TextStyle(fontWeight:FontWeight.bold)),
-    field(paid,'Amount received (KES)',number:true),
-    DropdownButtonFormField(value:method,items:const [DropdownMenuItem(value:'mpesa',child:Text('M-Pesa')),DropdownMenuItem(value:'cash',child:Text('Cash')),DropdownMenuItem(value:'bank',child:Text('Bank')),DropdownMenuItem(value:'credit',child:Text('Credit'))],onChanged:(v)=>setState(()=>method=v!),decoration:const InputDecoration(labelText:'Payment method')),
-    field(reference,'Payment reference'), actionButton('Save sale',busy,save),if(message.isNotEmpty)Text(message),
-    const Text('M-Pesa is recorded as unverified until a Daraja callback integration confirms it. Do not treat a screenshot or typed code as verified payment.',style:TextStyle(fontSize:12,color:Colors.black54)),
-  ]);
+
+  @override
+  void dispose() {
+    qty.dispose();
+    cost.dispose();
+    supplier.dispose();
+    notes.dispose();
+    super.dispose();
+  }
+
+  Future<void> loadProductVariants() async {
+    setState(() {
+      loadingVariants = true;
+      variants = [];
+      selectedVariantId = null;
+      productId = null;
+      message = '';
+    });
+    try {
+      final db = Supabase.instance.client;
+      final category = await db
+          .from('product_categories')
+          .select('id')
+          .eq('code', product.toLowerCase())
+          .single();
+      final products = await db
+          .from('products')
+          .select('id,name')
+          .eq('category_id', category['id'])
+          .eq('is_active', true);
+      final productRows = List<Map<String, dynamic>>.from(products);
+      if (productRows.isEmpty) throw Exception('No active product is configured for ' + product + '.');
+      final row = productRows.firstWhere(
+        (item) => item['name'] == product,
+        orElse: () => productRows.first,
+      );
+      final loaded = await db
+          .from('product_variants')
+          .select('id,variant_name,base_unit')
+          .eq('product_id', row['id'])
+          .eq('is_active', true)
+          .order('variant_name');
+      final loadedRows = List<Map<String, dynamic>>.from(loaded);
+      if (!mounted) return;
+      setState(() {
+        productId = row['id'] as String;
+        variants = loadedRows;
+        selectedVariantId = loadedRows.isNotEmpty ? loadedRows.first['id'] as String : null;
+        if (loadedRows.isEmpty) message = 'No active stock option is configured for ' + product + '.';
+      });
+    } catch (e) {
+      if (mounted) setState(() => message = 'Could not load ' + product + ' options: ' + e.toString());
+    } finally {
+      if (mounted) setState(() => loadingVariants = false);
+    }
+  }
+
+  Future<void> addVariant() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(product == 'Beans' ? 'Add bean variety' : 'Add fertilizer type'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(
+            labelText: product == 'Beans' ? 'Variety name' : 'Fertilizer type',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Add')),
+        ],
+      ),
+    );
+    controller.dispose();
+    final cleanName = name?.trim() ?? '';
+    if (cleanName.isEmpty || productId == null) return;
+    try {
+      final inserted = await Supabase.instance.client
+          .from('product_variants')
+          .insert({
+            'product_id': productId,
+            'variant_name': cleanName,
+            'grade_or_formulation': product == 'Fertilizer' ? cleanName : null,
+            'base_unit': 'bag',
+            'is_active': true,
+          })
+          .select('id,variant_name,base_unit')
+          .single();
+      if (!mounted) return;
+      setState(() {
+        variants.add(Map<String, dynamic>.from(inserted));
+        variants.sort((a, b) => (a['variant_name'] as String).compareTo(b['variant_name'] as String));
+        selectedVariantId = inserted['id'] as String;
+        message = 'Added ' + cleanName + '.';
+      });
+    } catch (e) {
+      if (mounted) setState(() => message = 'Could not add this option. Only an authorised director can add product varieties/types. ' + e.toString());
+    }
+  }
+
+  Future<void> save() async {
+    final q = double.tryParse(qty.text);
+    final c = double.tryParse(cost.text);
+    if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null) {
+      setState(() => message = 'Choose a product option and enter a valid quantity and buying price.');
+      return;
+    }
+    setState(() { busy = true; message = ''; });
+    try {
+      final db = Supabase.instance.client;
+      final branch = await db.from('branches').select('id').eq('code', 'NTULELE').single();
+      await db.rpc('record_purchase', params: {
+        'p_payload': {
+          'branch_id': branch['id'],
+          'purchase_date': DateTime.now().toIso8601String().substring(0, 10),
+          'payer': payer,
+          'notes': notes.text,
+          'items': [
+            {
+              'product_variant_id': selectedVariantId,
+              'quantity': q,
+              'unit_cost': c,
+            }
+          ],
+        }
+      });
+      setState(() => message = 'Purchase saved. Stock is awaiting quality approval.');
+      qty.clear();
+      cost.clear();
+      supplier.clear();
+      notes.clear();
+    } catch (e) {
+      setState(() => message = 'Could not save purchase: ' + e.toString());
+    }
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) => FormPage(
+    title: 'Record purchase',
+    children: [
+      DropdownButtonFormField<String>(
+        value: product,
+        items: const ['Maize', 'Beans', 'Fertilizer']
+            .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+            .toList(),
+        onChanged: (v) {
+          if (v == null) return;
+          setState(() => product = v);
+          loadProductVariants();
+        },
+        decoration: const InputDecoration(labelText: 'Product'),
+      ),
+      if (loadingVariants) const LinearProgressIndicator(),
+      if (product != 'Maize') ...[
+        DropdownButtonFormField<String>(
+          value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
+          items: variants.map((v) => DropdownMenuItem<String>(
+            value: v['id'] as String,
+            child: Text(v['variant_name'] as String),
+          )).toList(),
+          onChanged: (v) => setState(() => selectedVariantId = v),
+          decoration: InputDecoration(labelText: product == 'Beans' ? 'Bean variety' : 'Fertilizer type'),
+        ),
+        TextButton.icon(
+          onPressed: loadingVariants ? null : addVariant,
+          icon: const Icon(Icons.add),
+          label: Text(product == 'Beans' ? 'Add bean variety' : 'Add fertilizer type'),
+        ),
+      ],
+      field(qty, 'Quantity (bags)', number: true),
+      field(cost, 'Buying price per bag (KES)', number: true),
+      field(supplier, 'Supplier name'),
+      DropdownButtonFormField<String>(
+        value: payer,
+        items: const ['Mercy', 'Edu']
+            .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+            .toList(),
+        onChanged: (v) => setState(() => payer = v ?? 'Mercy'),
+        decoration: const InputDecoration(labelText: 'Paid by'),
+      ),
+      field(notes, 'Notes / extra details'),
+      actionButton('Save purchase', busy || loadingVariants, save),
+      if (message.isNotEmpty) Text(message),
+      const Text(
+        'Maize has no variety. Beans and fertilizer use their own saved variety/type options.',
+        style: TextStyle(fontSize: 12, color: Colors.black54),
+      ),
+    ],
+  );
+}
+
+class SalePage extends StatefulWidget {
+  const SalePage({super.key});
+  @override
+  State<SalePage> createState() => _SalePageState();
+}
+
+class _SalePageState extends State<SalePage> {
+  final qty = TextEditingController();
+  final price = TextEditingController();
+  final address = TextEditingController();
+  final fee = TextEditingController();
+  final customer = TextEditingController();
+  final customerPhone = TextEditingController();
+  final paid = TextEditingController();
+  final reference = TextEditingController();
+
+  String product = 'Maize';
+  String mode = 'collection';
+  String method = 'cash';
+  String? productId;
+  String? selectedVariantId;
+  List<Map<String, dynamic>> variants = [];
+  bool busy = false;
+  bool loadingVariants = false;
+  String message = '';
+
+  @override
+  void initState() {
+    super.initState();
+    loadProductVariants();
+  }
+
+  @override
+  void dispose() {
+    qty.dispose();
+    price.dispose();
+    address.dispose();
+    fee.dispose();
+    customer.dispose();
+    customerPhone.dispose();
+    paid.dispose();
+    reference.dispose();
+    super.dispose();
+  }
+
+  Future<void> loadProductVariants() async {
+    setState(() {
+      loadingVariants = true;
+      variants = [];
+      selectedVariantId = null;
+      productId = null;
+      message = '';
+    });
+    try {
+      final db = Supabase.instance.client;
+      final category = await db
+          .from('product_categories')
+          .select('id')
+          .eq('code', product.toLowerCase())
+          .single();
+      final products = await db
+          .from('products')
+          .select('id,name')
+          .eq('category_id', category['id'])
+          .eq('is_active', true);
+      final productRows = List<Map<String, dynamic>>.from(products);
+      if (productRows.isEmpty) throw Exception('No active product is configured for ' + product + '.');
+      final row = productRows.firstWhere(
+        (item) => item['name'] == product,
+        orElse: () => productRows.first,
+      );
+      final loaded = await db
+          .from('product_variants')
+          .select('id,variant_name,base_unit')
+          .eq('product_id', row['id'])
+          .eq('is_active', true)
+          .order('variant_name');
+      final loadedRows = List<Map<String, dynamic>>.from(loaded);
+      if (!mounted) return;
+      setState(() {
+        productId = row['id'] as String;
+        variants = loadedRows;
+        selectedVariantId = loadedRows.isNotEmpty ? loadedRows.first['id'] as String : null;
+        if (loadedRows.isEmpty) message = 'No active stock option is configured for ' + product + '.';
+      });
+    } catch (e) {
+      if (mounted) setState(() => message = 'Could not load ' + product + ' options: ' + e.toString());
+    } finally {
+      if (mounted) setState(() => loadingVariants = false);
+    }
+  }
+
+  Future<void> addVariant() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(product == 'Beans' ? 'Add bean variety' : 'Add fertilizer type'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(
+            labelText: product == 'Beans' ? 'Variety name' : 'Fertilizer type',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Add')),
+        ],
+      ),
+    );
+    controller.dispose();
+    final cleanName = name?.trim() ?? '';
+    if (cleanName.isEmpty || productId == null) return;
+    try {
+      final inserted = await Supabase.instance.client
+          .from('product_variants')
+          .insert({
+            'product_id': productId,
+            'variant_name': cleanName,
+            'grade_or_formulation': product == 'Fertilizer' ? cleanName : null,
+            'base_unit': 'bag',
+            'is_active': true,
+          })
+          .select('id,variant_name,base_unit')
+          .single();
+      if (!mounted) return;
+      setState(() {
+        variants.add(Map<String, dynamic>.from(inserted));
+        variants.sort((a, b) => (a['variant_name'] as String).compareTo(b['variant_name'] as String));
+        selectedVariantId = inserted['id'] as String;
+        message = 'Added ' + cleanName + '.';
+      });
+    } catch (e) {
+      if (mounted) setState(() => message = 'Could not add this option. Only an authorised director can add product varieties/types. ' + e.toString());
+    }
+  }
+
+  Future<void> save() async {
+    final q = double.tryParse(qty.text);
+    final p = double.tryParse(price.text);
+    final amount = double.tryParse(paid.text) ?? 0;
+    final deliveryFee = double.tryParse(fee.text) ?? 0;
+    if (q == null || p == null || q <= 0 || p < 0 || selectedVariantId == null ||
+        customer.text.trim().isEmpty ||
+        (mode == 'delivery' && address.text.trim().isEmpty)) {
+      setState(() => message = 'Choose a product option and check the customer name, quantity, selling price and delivery address.');
+      return;
+    }
+    setState(() { busy = true; message = ''; });
+    try {
+      final db = Supabase.instance.client;
+      final branch = await db.from('branches').select('id').eq('code', 'NTULELE').single();
+      String? customerId;
+      final matches = await db
+          .from('customers')
+          .select('id')
+          .ilike('full_name', customer.text.trim())
+          .limit(1);
+      if (matches.isNotEmpty) customerId = matches.first['id'] as String;
+      if (customerId == null && customerPhone.text.trim().isEmpty) {
+        throw Exception('Enter the customer phone number for a new customer.');
+      }
+      final payload = <String, dynamic>{
+        'branch_id': branch['id'],
+        'customer_id': customerId,
+        'customer_name': customer.text.trim(),
+        'customer_phone': customerPhone.text.trim(),
+        'sale_date': DateTime.now().toIso8601String().substring(0, 10),
+        'fulfilment_mode': mode,
+        'delivery_address': address.text,
+        'delivery_fee': deliveryFee,
+        'items': [
+          {
+            'product_variant_id': selectedVariantId,
+            'quantity': q,
+            'unit_price': p,
+          }
+        ],
+      };
+      if (amount > 0) payload['payment'] = {'amount': amount, 'method': method, 'reference': reference.text};
+      final result = await db.rpc('record_sale', params: {'p_payload': payload});
+      setState(() => message = 'Sale saved. Reference: ' + result['sale_id'].toString() + '. Balance: KES ' + result['balance'].toString());
+      qty.clear();
+      price.clear();
+      paid.clear();
+      reference.clear();
+    } catch (e) {
+      setState(() => message = 'Could not save sale: ' + e.toString());
+    }
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) => FormPage(
+    title: 'Record sale / customer order',
+    children: [
+      DropdownButtonFormField<String>(
+        value: product,
+        items: const ['Maize', 'Beans', 'Fertilizer']
+            .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+            .toList(),
+        onChanged: (v) {
+          if (v == null) return;
+          setState(() => product = v);
+          loadProductVariants();
+        },
+        decoration: const InputDecoration(labelText: 'Product'),
+      ),
+      if (loadingVariants) const LinearProgressIndicator(),
+      if (product != 'Maize') ...[
+        DropdownButtonFormField<String>(
+          value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
+          items: variants.map((v) => DropdownMenuItem<String>(
+            value: v['id'] as String,
+            child: Text(v['variant_name'] as String),
+          )).toList(),
+          onChanged: (v) => setState(() => selectedVariantId = v),
+          decoration: InputDecoration(labelText: product == 'Beans' ? 'Bean variety' : 'Fertilizer type'),
+        ),
+        TextButton.icon(
+          onPressed: loadingVariants ? null : addVariant,
+          icon: const Icon(Icons.add),
+          label: Text(product == 'Beans' ? 'Add bean variety' : 'Add fertilizer type'),
+        ),
+      ],
+      field(qty, 'Quantity (bags)', number: true),
+      field(price, 'Selling price per bag (KES)', number: true),
+      field(customer, 'Customer name'),
+      field(customerPhone, 'Customer phone (required for a new customer)'),
+      DropdownButtonFormField<String>(
+        value: mode,
+        items: const [
+          DropdownMenuItem(value: 'collection', child: Text('Collect at Ntulele')),
+          DropdownMenuItem(value: 'delivery', child: Text('Deliver to customer')),
+        ],
+        onChanged: (v) => setState(() => mode = v ?? 'collection'),
+        decoration: const InputDecoration(labelText: 'Fulfilment'),
+      ),
+      if (mode == 'delivery') field(address, 'Delivery address'),
+      if (mode == 'delivery') field(fee, 'Delivery fee (KES)', number: true),
+      const Divider(),
+      const Text('Payment (optional)', style: TextStyle(fontWeight: FontWeight.bold)),
+      field(paid, 'Amount received (KES)', number: true),
+      DropdownButtonFormField<String>(
+        value: method,
+        items: const [
+          DropdownMenuItem(value: 'mpesa', child: Text('M-Pesa')),
+          DropdownMenuItem(value: 'cash', child: Text('Cash')),
+          DropdownMenuItem(value: 'bank_transfer', child: Text('Bank transfer')),
+          DropdownMenuItem(value: 'other', child: Text('Other')),
+        ],
+        onChanged: (v) => setState(() => method = v ?? 'cash'),
+        decoration: const InputDecoration(labelText: 'Payment method'),
+      ),
+      field(reference, 'Payment reference'),
+      actionButton('Save sale', busy || loadingVariants, save),
+      if (message.isNotEmpty) Text(message),
+      const Text(
+        'Maize has no variety. Beans and fertilizer use their own saved variety/type options.',
+        style: TextStyle(fontSize: 12, color: Colors.black54),
+      ),
+    ],
+  );
 }
 
 class StockPage extends StatefulWidget {const StockPage({super.key});@override State<StockPage> createState()=>_StockPageState();}
