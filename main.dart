@@ -218,16 +218,18 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
       if (createAccount) {
         if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
         if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
-        final response = await db.auth.signUp(
+        final response = await db.functions.invoke(
+          'tajir-customer-register',
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text},
+        );
+        if (response.status != 200) {
+          final data = response.data;
+          throw FormatException(data is Map ? (data['error']?.toString() ?? 'Customer registration failed.') : 'Customer registration failed.');
+        }
+        await db.auth.signInWithPassword(
           email: phoneLoginEmail(normalized),
           password: pin.text,
-          data: {'display_name': name.text.trim(), 'full_name': name.text.trim()},
         );
-        if (response.session == null) {
-          throw const FormatException(
-            'TAJIR account creation needs email confirmations disabled in Supabase Auth. No email or SMS should be sent. Please contact the administrator.',
-          );
-        }
         await db.rpc('register_customer_account', params: {
           'p_full_name': name.text.trim(), 'p_phone': normalized,
         });
