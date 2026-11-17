@@ -83,6 +83,7 @@ class LoginPage extends StatefulWidget {
 }
 
 String staffAuthPassword(String pin) => 'TAJIR-PIN-$pin-Account#2026';
+String tajirLoginEmail(String phone) => 'u${phone.replaceAll(RegExp(r'[^0-9]'), '')}@login.tajir.app';
 
 class _LoginPageState extends State<LoginPage> {
   final phone = TextEditingController();
@@ -122,7 +123,7 @@ class _LoginPageState extends State<LoginPage> {
           }
         }
         await db.auth.signInWithPassword(
-          phone: normalized,
+          email: tajirLoginEmail(normalized),
           password: staffAuthPassword(pin.text),
         );
       }
@@ -215,18 +216,20 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
       if (createAccount) {
         if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
         if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
-        final response = await db.auth.signUp(phone: normalized, password: pin.text);
-        if (response.session == null) {
-          throw const FormatException('Phone confirmation is still enabled in Supabase. TAJIR must disable phone confirmation before no-OTP registration can work. No customer record has been created yet.');
+        final response = await db.functions.invoke(
+          'tajir-customer-register',
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text},
+        );
+        if (response.status != 200 || response.data is! Map || response.data['success'] != true) {
+          final data = response.data;
+          throw FormatException(data is Map ? (data['error']?.toString() ?? 'Customer registration failed.') : 'Customer registration failed.');
         }
-        await db.rpc('register_customer_account', params: {
-          'p_full_name': name.text.trim(), 'p_phone': normalized,
-        });
+        await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const CustomerPendingPage()), (route) => false);
       } else {
-        await db.auth.signInWithPassword(phone: normalized, password: pin.text);
+        await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
         final result = await db.rpc('get_my_account_status');
         final rows = List<Map<String,dynamic>>.from(result);
         if (rows.isEmpty || rows.first['is_customer'] != true) {
