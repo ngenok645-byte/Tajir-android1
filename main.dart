@@ -220,8 +220,9 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
           'tajir-customer-register',
           body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text},
         );
-        if (response.status != 200 || response.data is! Map || response.data['success'] != true) {
-          final data = response.data;
+        final resultData = response.data;
+        if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
+          final data = resultData;
           throw FormatException(data is Map ? (data['error']?.toString() ?? 'Customer registration failed.') : 'Customer registration failed.');
         }
         await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
