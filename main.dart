@@ -1229,7 +1229,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     final customerName=selectedCustomer.isNotEmpty?selectedCustomer.first['full_name'].toString():farmer.text.trim();
     final customerPhone=selectedCustomer.isNotEmpty?(selectedCustomer.first['phone']??'').toString():phone.text.trim();
     if(branchId==null||selectedTractor==null||customerName.isEmpty||location.text.trim().isEmpty||unitRate==null||unitRate<0||duration==null||duration<=0||(acres.text.trim().isNotEmpty&&(area==null||area<=0))){
-      setState(()=>message='Choose a tractor and enter farmer, farm location, valid area (if applicable) and rate.');return;
+      setState(()=>message='Choose a tractor and enter farmer, farm location, valid area (if applicable), estimated duration and rate.');return;
     }
     final tractor=tractors.where((x)=>x['id'].toString()==selectedTractor).toList();
     if(tractor.isEmpty||['maintenance','inactive'].contains(tractor.first['status'])){setState(()=>message='This tractor is not available for booking.');return;}
@@ -1238,7 +1238,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       await db.from('tractor_service_jobs').insert({
         'job_number':'TRJ-'+DateTime.now().millisecondsSinceEpoch.toString(),'branch_id':branchId,'tractor_id':selectedTractor,
         'customer_id':selectedCustomerId,'farmer_name':customerName,'farmer_phone':customerPhone.isEmpty?null:customerPhone,
-        'service_type':service,'service_location':location.text.trim(),'area_acres':area,'booked_for':bookedFor.toIso8601String(),'estimated_hours':duration,
+        'service_type':service,'service_location':location.text.trim(),'area_acres':area,'booked_for':bookedFor.toUtc().toIso8601String(),'estimated_hours':duration,
         'operator_id':selectedOperatorId,'rate':unitRate,'total_charge':(area??1)*unitRate,'status':'booked',
         'notes':notes.text.trim().isEmpty?null:notes.text.trim(),'recorded_by':db.auth.currentUser!.id
       });
@@ -1265,11 +1265,11 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     if(selected.isEmpty)return;
     final job=selected.first;
     final update=<String,dynamic>{'status':nextStatus};
-    if(nextStatus=='in_progress')update['started_at']=DateTime.now().toIso8601String();
+    if(nextStatus=='in_progress')update['started_at']=DateTime.now().toUtc().toIso8601String();
     if(nextStatus=='completed'){
       final hours=double.tryParse(finishHours.text.trim());
       if(hours==null||hours<=0){setState(()=>message='Enter the actual hours worked before completing the job.');return;}
-      update['hours_worked']=hours;update['completed_at']=DateTime.now().toIso8601String();
+      update['hours_worked']=hours;update['completed_at']=DateTime.now().toUtc().toIso8601String();
     }
     setState(()=>saving=true);
     try{
@@ -1497,7 +1497,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     ...jobs.map((j)=>Card(child:ListTile(
       leading:const Icon(Icons.event_available,color:brandGreen),
       title:Text(j['job_number'].toString()+' • '+j['farmer_name'].toString()),
-      subtitle:Text(labelCase(j['service_type'].toString())+' • '+j['service_location'].toString()+' • '+dateTimeText(DateTime.tryParse((j['booked_for']??j['created_at']).toString())??DateTime.now())+' • '+numberOf(j,'estimated_hours').toStringAsFixed(1)+' hrs'),
+      subtitle:Text(labelCase(j['service_type'].toString())+' • '+j['service_location'].toString()+' • '+dateTimeText((DateTime.tryParse((j['booked_for']??j['created_at']).toString())??DateTime.now()).toLocal())+' • '+numberOf(j,'estimated_hours').toStringAsFixed(1)+' hrs'),
       trailing:Text(money(numberOf(j,'total_charge'))+'\n'+labelCase(j['status'].toString()),textAlign:TextAlign.end),
       onTap:()=>setState(()=>selectedJob=j['id'].toString())
     )))
