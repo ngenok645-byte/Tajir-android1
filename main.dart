@@ -205,6 +205,18 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
     name.dispose(); phone.dispose(); pin.dispose(); confirmPin.dispose(); super.dispose();
   }
 
+  Future<void> signInCustomerWithPin(SupabaseClient db, String normalizedPhone, String customerPin) async {
+    final response = await db.functions.invoke(
+      'tajir-customer-login',
+      body: {'phone': normalizedPhone, 'pin': customerPin},
+    );
+    final data = response.data;
+    if (response.status != 200 || data is! Map || data['success'] != true || data['token_hash'] == null) {
+      throw FormatException(data is Map ? (data['error']?.toString() ?? 'Customer sign-in failed.') : 'Customer sign-in failed.');
+    }
+    await db.auth.verifyOTP(tokenHash: data['token_hash'].toString(), type: OtpType.magiclink);
+  }
+
   Future<void> submit() async {
     setState(() { busy = true; message = null; });
     try {
@@ -223,12 +235,16 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
           final data = resultData;
           throw FormatException(data is Map ? (data['error']?.toString() ?? 'Customer registration failed.') : 'Customer registration failed.');
         }
-        await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
+        await signInCustomerWithPin(db, normalized, pin.text);
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
       } else {
-        await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
+        if (pin.text.length == 4) {
+          await signInCustomerWithPin(db, normalized, pin.text);
+        } else {
+          await db.auth.signInWithPassword(email: tajirLoginEmail(normalized), password: pin.text);
+        }
         final result = await db.rpc('get_my_account_status');
         final rows = List<Map<String,dynamic>>.from(result);
         if (rows.isEmpty || rows.first['is_customer'] != true) {
