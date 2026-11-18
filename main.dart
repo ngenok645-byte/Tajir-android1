@@ -1,4 +1,3 @@
-// TAJIR release build: customer access uses phone number and four-digit PIN.
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -2196,3 +2195,5 @@ class _PreviewHomeState extends State<PreviewHome> {
         ],
       ),
     );
+  }
+}
