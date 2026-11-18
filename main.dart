@@ -851,7 +851,6 @@ class _PurchasePageState extends State<PurchasePage> {
       field(loadingCost, 'Loading / offloading', number: true),
       field(labourCost, 'Labour', number: true),
       if (product == 'Maize') field(dryingCost, 'Drying', number: true),
-      field(otherCost, 'Other purchase costs', number: true),
       const SizedBox(height: 8),
       Row(children: [
         const Expanded(child: Text('Other costs (add as many as needed)', style: TextStyle(fontWeight: FontWeight.bold))),
