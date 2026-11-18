@@ -1026,7 +1026,8 @@ class _CustomersPageState extends State<CustomersPage> {
     final name=TextEditingController(text:row?['full_name']?.toString()??'');
     final phone=TextEditingController(text:row?['phone']?.toString()??'');
     final email=TextEditingController(text:row?['email']?.toString()??'');
-    bool canBuy=row?['marketplace_can_buy']==true:(row?['customer_type']?.toString()!='seller');\n    bool canSell=row?['marketplace_can_sell']==true:(row?['customer_type']?.toString()=='seller');
+    bool canBuy=row?['marketplace_can_buy']==true:(row?['customer_type']?.toString()!='seller');
+    bool canSell=row?['marketplace_can_sell']==true:(row?['customer_type']?.toString()=='seller');
     String? error;
     final result=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(context,refresh)=>AlertDialog(
       title:Text(row==null?'Add customer':'Edit customer'),
@@ -1034,13 +1035,16 @@ class _CustomersPageState extends State<CustomersPage> {
         TextField(controller:name,decoration:const InputDecoration(labelText:'Customer name')),
         TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
         TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
-        const Align(alignment:Alignment.centerLeft,child:Text('Marketplace permissions',style:TextStyle(fontWeight:FontWeight.bold))),\n        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Can buy'),value:canBuy,onChanged:(v)=>refresh(()=>canBuy=v??false)),\n        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Can sell'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
+        const Align(alignment:Alignment.centerLeft,child:Text('Marketplace permissions',style:TextStyle(fontWeight:FontWeight.bold))),
+        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Can buy'),value:canBuy,onChanged:(v)=>refresh(()=>canBuy=v??false)),
+        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Can sell'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
         if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
       ])),
       actions:[
         TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
         FilledButton(onPressed:()async{
-          if(name.text.trim().isEmpty||phone.text.trim().isEmpty){refresh(()=>error='Name and phone number are required.');return;}\n          if(!canBuy&&!canSell){refresh(()=>error='Enable buying, selling, or both.');return;}
+          if(name.text.trim().isEmpty||phone.text.trim().isEmpty){refresh(()=>error='Name and phone number are required.');return;}
+          if(!canBuy&&!canSell){refresh(()=>error='Enable buying, selling, or both.');return;}
           Navigator.pop(dialogContext,true);
         },child:const Text('Save')),
       ],
