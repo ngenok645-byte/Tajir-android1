@@ -200,7 +200,6 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   final pin = TextEditingController();
   final confirmPin = TextEditingController();
   bool createAccount = true, busy = false;
-  String customerType = 'buyer';
   String? message;
   @override void dispose() {
     name.dispose(); phone.dispose(); pin.dispose(); confirmPin.dispose(); super.dispose();
@@ -234,7 +233,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
         final response = await db.functions.invoke(
           'tajir-customer-register',
-          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'customer_type': customerType},
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'customer_type': 'buyer'},
         );
         final resultData = response.data;
         if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
@@ -279,15 +278,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             if (createAccount) TextField(controller: name, textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
             if (createAccount) const SizedBox(height: 12),
-            if (createAccount) DropdownButtonFormField<String>(
-              value: customerType,
-              decoration: const InputDecoration(labelText: 'Account type', border: OutlineInputBorder()),
-              items: const [
-                DropdownMenuItem(value: 'buyer', child: Text('Buyer – purchase farm products and services')),
-                DropdownMenuItem(value: 'seller', child: Text('Seller – list and sell farm products')),
-              ],
-              onChanged: busy ? null : (value) { if (value != null) setState(() => customerType = value); },
-            ),
+            if (createAccount) const Text('New accounts start with buyer access. The Director/admin can enable selling access or both dashboards later for this same account.'),
             if (createAccount) const SizedBox(height: 12),
             TextField(controller: phone, keyboardType: TextInputType.phone,
               decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
@@ -1117,7 +1108,7 @@ class _CustomersPageState extends State<CustomersPage> {
         TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
         TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
         DropdownButtonFormField<String>(value:type,decoration:const InputDecoration(labelText:'Customer type'),
-          items:const [DropdownMenuItem(value:'buyer',child:Text('Buyer')),DropdownMenuItem(value:'seller',child:Text('Seller'))],
+          items:const [DropdownMenuItem(value:'buyer',child:Text('Buyer only')),DropdownMenuItem(value:'seller',child:Text('Seller only')),DropdownMenuItem(value:'both',child:Text('Both buying and selling'))],
           onChanged:(v)=>refresh(()=>type=v??'buyer')),
         if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
       ])),
@@ -1298,7 +1289,7 @@ class _CustomersPageState extends State<CustomersPage> {
       if(busy)const Center(child:Padding(padding:EdgeInsets.all(20),child:CircularProgressIndicator())),
       if(!busy&&message.isEmpty&&filtered.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No customers found. Add your first customer.')),
       ...filtered.map((r)=>Card(child:ListTile(
-        leading:CircleAvatar(child:Icon(r['customer_type']=='seller'?Icons.store:Icons.person)),
+        leading:CircleAvatar(child:Icon(r['customer_type']=='seller'?Icons.store:(r['customer_type']=='both'?Icons.swap_horiz:Icons.person))),
         title:Text(r['full_name']?.toString()??''),
         subtitle:Text('${r['phone']??''} • ${r['customer_type']??''}${r['active']==false?' • Inactive':''}'),
         onTap:()=>showCustomer(r),
