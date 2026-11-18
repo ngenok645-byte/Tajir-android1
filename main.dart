@@ -763,7 +763,7 @@ class _PurchasePageState extends State<PurchasePage> {
         invalidCustomExpense = true;
         break;
       }
-      if (amount > 0) customExpenses.add({'cost_type': name, 'amount': amount});
+      if (amount > 0) customExpenses.add({'cost_type': 'other', 'description': name, 'amount': amount});
     }
     if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null || transport == null || loading == null || labour == null || drying == null || [transport,loading,labour,drying].any((v)=>v<0) || invalidCustomExpense) {
       setState(() => message = 'Choose a product option and enter a valid quantity and buying price.');
