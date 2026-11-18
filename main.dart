@@ -316,6 +316,67 @@ class CustomerPendingPage extends StatelessWidget {
   );
 }
 
+
+class BranchRequestPanel extends StatefulWidget {
+  const BranchRequestPanel({super.key});
+  @override State<BranchRequestPanel> createState() => _BranchRequestPanelState();
+}
+class _BranchRequestPanelState extends State<BranchRequestPanel> {
+  final db=Supabase.instance.client;
+  List<Map<String,dynamic>> branches=[],requests=[];
+  String? selected,error; bool loading=true,saving=false;
+  @override void initState(){super.initState();load();}
+  Future<void> load() async {
+    if(mounted)setState(()=>loading=true);
+    try {
+      final r=await Future.wait([
+        db.from('branches').select('id,code,name').eq('is_active',true).order('name'),
+        db.from('branch_requests').select('id,proposed_name,address,status,rejection_reason').order('created_at',ascending:false).limit(30),
+      ]);
+      branches=List<Map<String,dynamic>>.from(r[0]);requests=List<Map<String,dynamic>>.from(r[1]);
+      if(selected==null||!branches.any((b)=>b['id'].toString()==selected))selected=branches.isEmpty?null:branches.first['id'].toString();
+      error=null;
+    } catch(e){error=e.toString();}
+    if(mounted)setState(()=>loading=false);
+  }
+  Future<void> choose(String? v) async {
+    if(v==null)return;setState(()=>saving=true);
+    try {await db.rpc('set_my_default_branch',params:{'p_branch_id':v});selected=v;if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Branch selection saved.')));}
+    catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not save branch: '+e.toString())));}
+    if(mounted)setState(()=>saving=false);
+  }
+  Future<void> request() async {
+    final name=TextEditingController(),code=TextEditingController(),address=TextEditingController(),notes=TextEditingController();
+    final ok=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(title:const Text('Request a new branch'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+      TextField(controller:name,decoration:const InputDecoration(labelText:'Branch name *')),
+      TextField(controller:code,decoration:const InputDecoration(labelText:'Suggested code (optional)')),
+      TextField(controller:address,decoration:const InputDecoration(labelText:'Town / area / address')),
+      TextField(controller:notes,maxLines:2,decoration:const InputDecoration(labelText:'Additional details')),
+      const Text('A director must approve the request before the branch becomes selectable.',style:TextStyle(fontSize:12)),
+    ])),actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(d,true),child:const Text('Submit'))]));
+    if(ok==true){
+      try{
+        if(name.text.trim().length<2)throw const FormatException('Enter a branch name.');
+        await db.from('branch_requests').insert({'proposed_name':name.text.trim(),'proposed_code':code.text.trim().isEmpty?null:code.text.trim().toUpperCase(),'address':address.text.trim().isEmpty?null:address.text.trim(),'notes':notes.text.trim().isEmpty?null:notes.text.trim(),'submitted_by':db.auth.currentUser!.id});
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Branch request sent to the directors.')));
+        await load();
+      }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Request failed: '+e.toString())));}
+    }
+    name.dispose();code.dispose();address.dispose();notes.dispose();
+  }
+  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+    const Text('Your branch',style:TextStyle(fontSize:21,fontWeight:FontWeight.bold)),
+    const Text('Choose the approved branch where you operate.'),
+    if(loading)const LinearProgressIndicator(),
+    if(branches.isNotEmpty)DropdownButtonFormField<String>(value:selected,decoration:const InputDecoration(labelText:'Select branch',border:OutlineInputBorder()),items:branches.map((b)=>DropdownMenuItem(value:b['id'].toString(),child:Text(b['name'].toString()+' ('+b['code'].toString()+')'))).toList(),onChanged:saving?null:choose),
+    OutlinedButton.icon(onPressed:request,icon:const Icon(Icons.add_location_alt),label:const Text('Request a new branch')),
+    if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
+    const Divider(height:28),const Text('Your branch requests',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    if(!loading&&requests.isEmpty)const Text('No branch requests submitted.'),
+    ...requests.map((r)=>Card(child:ListTile(title:Text(r['proposed_name'].toString()),subtitle:Text((r['address']??'Address not provided').toString()+(r['rejection_reason']==null?'':' • '+r['rejection_reason'].toString())),trailing:Text(r['status'].toString().toUpperCase())))),
+  ]));
+}
+
 class CustomerPortalPage extends StatefulWidget {
  const CustomerPortalPage({super.key});
  @override State<CustomerPortalPage> createState()=>_CustomerPortalPageState();
@@ -324,7 +385,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
  Map<String,dynamic>? c;bool busy=true;String? error;
  @override void initState(){super.initState();load();}
  Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',db.auth.currentUser!.id).maybeSingle();if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');if(mounted)setState(()=>c=Map<String,dynamic>.from(r));}catch(e){if(mounted)setState(()=>error=e.toString());}if(mounted)setState(()=>busy=false);}
- @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;final tabs=<Widget>[],pages=<Widget>[];if(buy){tabs.add(const Tab(text:'Buy'));pages.add(CustomerMarketPage(customer:c!,mode:'buy'));}if(sell){tabs.add(const Tab(text:'Sell'));pages.add(CustomerMarketPage(customer:c!,mode:'sell'));}if(buy||sell){tabs.add(const Tab(text:'Requests'));pages.add(CustomerMarketPage(customer:c!,mode:'requests'));}tabs.add(const Tab(text:'Tractor'));pages.add(CustomerTractorPage());tabs.add(const Tab(text:'Bookings'));pages.add(CustomerTractorBookingsPage());return DefaultTabController(length:tabs.length,child:Scaffold(appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))],bottom:TabBar(isScrollable:true,tabs:tabs)),body:TabBarView(children:pages)));}
+ @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;final tabs=<Widget>[],pages=<Widget>[];if(buy){tabs.add(const Tab(text:'Buy'));pages.add(CustomerMarketPage(customer:c!,mode:'buy'));}if(sell){tabs.add(const Tab(text:'Sell'));pages.add(CustomerMarketPage(customer:c!,mode:'sell'));}if(buy||sell){tabs.add(const Tab(text:'Requests'));pages.add(CustomerMarketPage(customer:c!,mode:'requests'));}tabs.add(const Tab(text:'Tractor'));pages.add(CustomerTractorPage());tabs.add(const Tab(text:'Bookings'));pages.add(CustomerTractorBookingsPage());tabs.add(const Tab(text:'Branch'));pages.add(const BranchRequestPanel());return DefaultTabController(length:tabs.length,child:Scaffold(appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))],bottom:TabBar(isScrollable:true,tabs:tabs)),body:TabBarView(children:pages)));}
 }
 class CustomerMarketPage extends StatefulWidget{
  final Map<String,dynamic> customer;final String mode;
@@ -454,23 +515,35 @@ class DashboardPage extends StatefulWidget {
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
-  String role = 'Loading role…'; List<Map<String,dynamic>> stock = []; String? error;
+  String role = 'Loading role…'; List<Map<String,dynamic>> stock = [], branches = [], pendingRequests = []; String? error, selectedBranch; bool director = false;
   @override void initState() { super.initState(); load(); }
   Future<void> load() async {
     try {
       final db = Supabase.instance.client;
       final userId = db.auth.currentUser!.id;
       final p = await db.from('profiles').select('display_name').eq('id', userId).single();
-      final assigned = await db.from('user_role_assignments').select('app_roles(name,code)').eq('user_id', userId).eq('is_active', true).limit(1);
+      final assigned = await db.from('user_role_assignments').select('app_roles(name,code)').eq('user_id', userId).eq('is_active', true);
       final roleData = assigned.isNotEmpty ? assigned.first['app_roles'] : null;
       final roleName = roleData is Map ? (roleData['name'] ?? roleData['code'] ?? 'User').toString() : 'User';
-      final s = await db.rpc('get_stock_balances');
-      setState(() { role = '${p['display_name'] ?? 'User'} • $roleName'; stock = List<Map<String,dynamic>>.from(s); });
+      director = assigned.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='director');
+      final results = await Future.wait([db.rpc('get_stock_balances'),db.from('branches').select('id,code,name').eq('is_active',true).order('name')]);
+      final s=results[0]; branches=List<Map<String,dynamic>>.from(results[1]);
+      if(selectedBranch==null||!branches.any((b)=>b['id'].toString()==selectedBranch))selectedBranch=branches.isEmpty?null:branches.first['id'].toString();
+      if(director){final q=await db.from('branch_requests').select('id,proposed_name,proposed_code,address,notes').eq('status','pending').order('created_at');pendingRequests=List<Map<String,dynamic>>.from(q);}
+      if(mounted)setState(() { role = '${p['display_name'] ?? 'User'} • $roleName'; stock = List<Map<String,dynamic>>.from(s); });
     } catch(e) { setState(() => error = e.toString()); }
   }
   @override Widget build(BuildContext context) => RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.all(18), children: [
     const Text('Business overview', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
     Text(role, style: const TextStyle(color: Colors.black54)),
+    const SizedBox(height: 12),
+    if(branches.isNotEmpty) DropdownButtonFormField<String>(value:selectedBranch,decoration:const InputDecoration(labelText:'Dashboard branch',border:OutlineInputBorder()),items:branches.map((b)=>DropdownMenuItem(value:b['id'].toString(),child:Text(b['name'].toString()+' ('+b['code'].toString()+')'))).toList(),onChanged:(v)=>setState(()=>selectedBranch=v)),
+    OutlinedButton.icon(onPressed:()=>showDialog<void>(context:context,builder:(_)=>const Dialog(child:SizedBox(width:520,height:560,child:BranchRequestPanel()))),icon:const Icon(Icons.add_location_alt),label:const Text('Request a new branch')),
+    if(director) ...[
+      Text('Branch requests awaiting approval ('+pendingRequests.length.toString()+')',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+      if(pendingRequests.isEmpty)const Text('No pending branch requests.'),
+      ...pendingRequests.map((r)=>Card(child:ListTile(title:Text(r['proposed_name'].toString()),subtitle:Text((r['address']??'No address').toString()+' • Code: '+(r['proposed_code']??'Automatic').toString()),trailing:PopupMenuButton<String>(onSelected:(v)async{try{if(v=='approve')await Supabase.instance.client.rpc('approve_branch_request',params:{'p_request_id':r['id'],'p_code':r['proposed_code']});else await Supabase.instance.client.rpc('reject_branch_request',params:{'p_request_id':r['id'],'p_reason':'Rejected by director'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}},itemBuilder:(_)=>const [PopupMenuItem(value:'approve',child:Text('Approve branch')),PopupMenuItem(value:'reject',child:Text('Reject'))])))),
+    ],
     const SizedBox(height: 18),
     const Wrap(spacing: 12, runSpacing: 12, children: [
       MetricCard(title: 'Location', value: 'Ntulele', icon: Icons.location_on),
