@@ -1130,6 +1130,38 @@ class _CustomersPageState extends State<CustomersPage> {
     }
   }
 
+  Future<void> deleteCustomerAccount(Map<String,dynamic> customer) async {
+    final name=customer['full_name']?.toString()??'this customer';
+    final confirmed=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
+      title:const Text('Delete customer account?'),
+      content:Text('Permanently remove the login account for $name? The customer record, sales, payments and financial history will be retained. The customer will no longer be able to sign in. This cannot be undone.'),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+        FilledButton(
+          style:FilledButton.styleFrom(backgroundColor:Colors.red),
+          onPressed:()=>Navigator.pop(dialogContext,true),
+          child:const Text('Delete account'),
+        ),
+      ],
+    ));
+    if(confirmed!=true)return;
+    try{
+      final response=await Supabase.instance.client.functions.invoke(
+        'tajir-director-delete-customer-account',
+        body:{'customer_id':customer['id']},
+      );
+      final data=response.data;
+      if(response.status!=200||data is! Map||data['success']!=true){
+        throw FormatException(data is Map?(data['error']?.toString()??'Could not delete customer account.'):'Could not delete customer account.');
+      }
+      if(!mounted)return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer login account deleted. Financial history retained.')));
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not delete customer account: $e')));
+    }
+  }
+
   Future<void> setActive(Map<String,dynamic> row,bool active) async {
     try {
       final db = Supabase.instance.client;
@@ -1163,11 +1195,12 @@ class _CustomersPageState extends State<CustomersPage> {
         title:Text(r['full_name']?.toString()??''),
         subtitle:Text('${r['phone']??''} • ${r['customer_type']??''}${r['active']==false?' • Inactive':''}'),
         onTap:()=>showCustomer(r),
-        trailing:PopupMenuButton<String>(onSelected:(v){if(v=='edit')editCustomer(r);if(v=='deactivate')setActive(r,false);if(v=='activate')setActive(r,true);},
+        trailing:PopupMenuButton<String>(onSelected:(v){if(v=='edit')editCustomer(r);if(v=='deactivate')setActive(r,false);if(v=='activate')setActive(r,true);if(v=='delete')deleteCustomerAccount(r);},
           itemBuilder:(context)=>[
             const PopupMenuItem(value:'edit',child:Text('Edit details')),
             if(r['active']==true)const PopupMenuItem(value:'deactivate',child:Text('Deactivate')),
             if(r['active']==false)const PopupMenuItem(value:'activate',child:Text('Approve / activate account')),
+            const PopupMenuItem(value:'delete',child:Text('Delete account',style:TextStyle(color:Colors.red))),
           ]),
       ))),
       const Padding(padding:EdgeInsets.only(top:8),child:Text('Customer balances count verified payments only. Pending, rejected and reversed payments are not treated as money received.',style:TextStyle(fontSize:12,color:Colors.black54))),
