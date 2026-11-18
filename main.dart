@@ -566,6 +566,11 @@ class _PurchasePageState extends State<PurchasePage> {
   final cost = TextEditingController();
   final supplier = TextEditingController();
   final notes = TextEditingController();
+  final transportCost = TextEditingController();
+  final loadingCost = TextEditingController();
+  final labourCost = TextEditingController();
+  final dryingCost = TextEditingController();
+  final otherCost = TextEditingController();
 
   String product = 'Maize';
   String payer = 'Mercy';
@@ -588,6 +593,7 @@ class _PurchasePageState extends State<PurchasePage> {
     cost.dispose();
     supplier.dispose();
     notes.dispose();
+    transportCost.dispose(); loadingCost.dispose(); labourCost.dispose(); dryingCost.dispose(); otherCost.dispose();
     super.dispose();
   }
 
@@ -688,7 +694,12 @@ class _PurchasePageState extends State<PurchasePage> {
   Future<void> save() async {
     final q = double.tryParse(qty.text);
     final c = double.tryParse(cost.text);
-    if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null) {
+    final transport = double.tryParse(transportCost.text.trim().isEmpty ? '0' : transportCost.text.trim());
+    final loading = double.tryParse(loadingCost.text.trim().isEmpty ? '0' : loadingCost.text.trim());
+    final labour = double.tryParse(labourCost.text.trim().isEmpty ? '0' : labourCost.text.trim());
+    final drying = double.tryParse(dryingCost.text.trim().isEmpty ? '0' : dryingCost.text.trim());
+    final other = double.tryParse(otherCost.text.trim().isEmpty ? '0' : otherCost.text.trim());
+    if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null || transport == null || loading == null || labour == null || drying == null || other == null || [transport,loading,labour,drying,other].any((v)=>v<0)) {
       setState(() => message = 'Choose a product option and enter a valid quantity and buying price.');
       return;
     }
