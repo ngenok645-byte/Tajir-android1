@@ -718,6 +718,13 @@ class _PurchasePageState extends State<PurchasePage> {
               'product_variant_id': selectedVariantId,
               'quantity': q,
               'unit_cost': c,
+              'expenses': [
+                {'cost_type':'transport','amount':transport},
+                {'cost_type':'loading','amount':loading},
+                {'cost_type':'labour','amount':labour},
+                {'cost_type':'drying','amount':drying},
+                {'cost_type':'other','amount':other},
+              ].where((x)=>(x['amount'] as double)>0).toList(),
             }
           ],
         }
@@ -726,7 +733,7 @@ class _PurchasePageState extends State<PurchasePage> {
       qty.clear();
       cost.clear();
       supplier.clear();
-      notes.clear();
+      notes.clear(); transportCost.clear(); loadingCost.clear(); labourCost.clear(); dryingCost.clear(); otherCost.clear();
     } catch (e) {
       setState(() => message = 'Could not save purchase: ' + e.toString());
     }
@@ -769,6 +776,12 @@ class _PurchasePageState extends State<PurchasePage> {
         ),
       field(qty, 'Quantity (bags)', number: true),
       field(cost, 'Buying price per bag (KES)', number: true),
+      const Text('Additional costs for this purchase (KES)',style:TextStyle(fontWeight:FontWeight.bold)),
+      field(transportCost, 'Transport', number: true),
+      field(loadingCost, 'Loading / offloading', number: true),
+      field(labourCost, 'Labour', number: true),
+      if (product == 'Maize') field(dryingCost, 'Drying', number: true),
+      field(otherCost, 'Other purchase costs', number: true),
       field(supplier, 'Supplier name'),
       DropdownButtonFormField<String>(
         value: payer,
@@ -2166,8 +2179,8 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       const SizedBox(height:8),
       GridView.count(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisCount:MediaQuery.of(context).size.width>600?2:1,childAspectRatio:3.8,children:[
         metric('Sales revenue',revenue),metric('Cost of goods sold',costOfGoods),
-        metric('Gross trading profit',gross,highlight:true),metric('Approved operating expenses',expensesTotal),
-        metric('Net trading result',net,highlight:true),metric('Accepted purchases / stock cost',purchaseTotal),
+        metric('Trading profit (including landed stock cost)',gross,highlight:true),metric('Purchase-related expenses',purchaseCostsTotal),
+        metric('Net trading result before other overheads',net,highlight:true),metric('Accepted purchases / stock cost',purchaseTotal),
         metric('Verified customer receipts',customerReceipts),metric('Verified supplier payments',supplierPayments),
       ]),
       section('Sales records',salesRows,'sale_date','total_amount','sale_number'),
