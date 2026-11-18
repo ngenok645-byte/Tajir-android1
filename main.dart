@@ -1002,6 +1002,7 @@ class _CustomersPageState extends State<CustomersPage> {
   List<Map<String,dynamic>> rows=[];
   String message='';
   bool busy=false;
+  bool showDeleted=false;
   final search=TextEditingController();
 
   @override void initState(){ super.initState(); load(); }
@@ -1011,7 +1012,7 @@ class _CustomersPageState extends State<CustomersPage> {
     setState(() { busy=true; message=''; });
     try {
       final r=await Supabase.instance.client.from('customers')
-        .select('id,profile_id,customer_type,full_name,phone,email,default_branch_id,active,marketplace_can_buy,marketplace_can_sell,approved_at,approved_by,created_at')
+        .select('id,profile_id,customer_type,full_name,phone,email,default_branch_id,active,marketplace_can_buy,marketplace_can_sell,approved_at,approved_by,created_at,deleted_at')
         .order('full_name');
       if(!mounted)return;
       setState(()=>rows=List<Map<String,dynamic>>.from(r));
@@ -1180,8 +1181,11 @@ class _CustomersPageState extends State<CustomersPage> {
       if(response.status!=200||data is! Map||data['success']!=true){
         throw FormatException(data is Map?(data['error']?.toString()??'Could not delete customer account.'):'Could not delete customer account.');
       }
+      final db=Supabase.instance.client;
+      await db.from('customers').update({'deleted_at':DateTime.now().toUtc().toIso8601String(),'deleted_by':db.auth.currentUser?.id,'active':false}).eq('id',customer['id']);
       if(!mounted)return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer login account disabled. Financial history retained.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer account moved to Deleted Accounts. Financial history retained.')));
+      setState(()=>showDeleted=true);
       await load();
     }catch(e){
       if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not delete customer account: $e')));
@@ -1206,27 +1210,30 @@ class _CustomersPageState extends State<CustomersPage> {
 
   @override Widget build(BuildContext context) {
     final query=search.text.trim().toLowerCase();
-    final filtered=rows.where((r)=>(r['full_name']??'').toString().toLowerCase().contains(query)||(r['phone']??'').toString().toLowerCase().contains(query)).toList();
+    final deletedCount=rows.where((r)=>r['deleted_at']!=null).length;
+    final filtered=rows.where((r)=>(showDeleted?r['deleted_at']!=null:r['deleted_at']==null)&&((r['full_name']??'').toString().toLowerCase().contains(query)||(r['phone']??'').toString().toLowerCase().contains(query))).toList();
     return ListView(padding:const EdgeInsets.all(18),children:[
       Row(children:[const Expanded(child:Text('Customers',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold))),
         IconButton(onPressed:busy?null:load,icon:const Icon(Icons.refresh),tooltip:'Refresh'),
         FilledButton.icon(onPressed:()=>editCustomer(),icon:const Icon(Icons.person_add),label:const Text('Add'))]),
-      TextField(controller:search,onChanged:(_)=>setState((){}),decoration:const InputDecoration(prefixIcon:Icon(Icons.search),labelText:'Search by name or phone',border:OutlineInputBorder())),
+      Row(children:[Expanded(child:ChoiceChip(label:Text('Active customers (${rows.where((r)=>r['deleted_at']==null).length})'),selected:!showDeleted,onSelected:(_)=>setState(()=>showDeleted=false))),const SizedBox(width:8),Expanded(child:ChoiceChip(label:Text('Deleted accounts ($deletedCount)'),selected:showDeleted,onSelected:(_)=>setState(()=>showDeleted=true)))]),
+      const SizedBox(height:8),
+      TextField(controller:search,onChanged:(_)=>setState((){}),decoration:InputDecoration(prefixIcon:const Icon(Icons.search),labelText:showDeleted?'Search deleted accounts':'Search by name or phone',border:const OutlineInputBorder())),
       const SizedBox(height:10),
       if(message.isNotEmpty)Padding(padding:const EdgeInsets.all(12),child:Text(message,style:const TextStyle(color:Colors.red))),
       if(busy)const Center(child:Padding(padding:EdgeInsets.all(20),child:CircularProgressIndicator())),
-      if(!busy&&message.isEmpty&&filtered.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No customers found. Add your first customer.')),
+      if(!busy&&message.isEmpty&&filtered.isEmpty)Padding(padding:const EdgeInsets.all(20),child:Text(showDeleted?'No deleted accounts.':'No customers found. Add your first customer.')),
       ...filtered.map((r)=>Card(child:ListTile(
         leading:CircleAvatar(child:Icon(r['customer_type']=='seller'?Icons.store:Icons.person)),
         title:Text(r['full_name']?.toString()??''),
-        subtitle:Text('${r['phone']??''} • ${r['customer_type']??''}${r['active']==false?' • Inactive':''}'),
+        subtitle:Text('${r['phone']??''} • ${r['customer_type']??''}${r['deleted_at']!=null?' • Deleted':r['active']==false?' • Inactive':''}'),
         onTap:()=>showCustomer(r),
-        trailing:PopupMenuButton<String>(onSelected:(v){if(v=='edit')editCustomer(r);if(v=='deactivate')setActive(r,false);if(v=='activate')setActive(r,true);if(v=='delete')deleteCustomerAccount(r);},
+        trailing:showDeleted?const Icon(Icons.archive_outlined,color:Colors.grey):PopupMenuButton<String>(onSelected:(v){if(v=='edit')editCustomer(r);if(v=='deactivate')setActive(r,false);if(v=='activate')setActive(r,true);if(v=='delete')deleteCustomerAccount(r);},
           itemBuilder:(context)=>[
             const PopupMenuItem(value:'edit',child:Text('Edit details')),
             if(r['active']==true)const PopupMenuItem(value:'deactivate',child:Text('Deactivate')),
             if(r['active']==false)const PopupMenuItem(value:'activate',child:Text('Approve / activate account')),
-            const PopupMenuItem(value:'delete',child:Text('Delete account',style:TextStyle(color:Colors.red))),
+            const PopupMenuItem(value:'delete',child:Text('Move to Deleted Accounts',style:TextStyle(color:Colors.red))),
           ]),
       ))),
       const Padding(padding:EdgeInsets.only(top:8),child:Text('Customer balances count verified payments only. Pending, rejected and reversed payments are not treated as money received.',style:TextStyle(fontSize:12,color:Colors.black54))),
