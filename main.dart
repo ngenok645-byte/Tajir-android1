@@ -537,7 +537,7 @@ class _DashboardPageState extends State<DashboardPage> {
         const SizedBox(height: 18),
         const Text('WELCOME TO TAJIR', style: TextStyle(color: Colors.white70, fontSize: 11, letterSpacing: 1.6, fontWeight: FontWeight.w700)),
         const SizedBox(height: 5),
-        const Text('Growing trade.\\nConnecting farmers.', style: TextStyle(color: Colors.white, fontSize: 25, height: 1.15, fontWeight: FontWeight.bold)),
+        const Text('Growing trade.\nConnecting farmers.', style: TextStyle(color: Colors.white, fontSize: 25, height: 1.15, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
         Text(role, style: const TextStyle(color: Colors.white70, fontSize: 13)),
       ]),
