@@ -526,8 +526,9 @@ class _DashboardPageState extends State<DashboardPage> {
       final roleData = assigned.isNotEmpty ? assigned.first['app_roles'] : null;
       final roleName = roleData is Map ? (roleData['name'] ?? roleData['code'] ?? 'User').toString() : 'User';
       director = assigned.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='director');
-      final results = await Future.wait([db.rpc('get_stock_balances'),db.from('branches').select('id,code,name').eq('is_active',true).order('name')]);
-      final s=results[0]; branches=List<Map<String,dynamic>>.from(results[1]);
+      final s = await db.rpc('get_stock_balances');
+      final branchRows = await db.from('branches').select('id,code,name').eq('is_active',true).order('name');
+      branches=List<Map<String,dynamic>>.from(branchRows);
       if(selectedBranch==null||!branches.any((b)=>b['id'].toString()==selectedBranch))selectedBranch=branches.isEmpty?null:branches.first['id'].toString();
       if(director){final q=await db.from('branch_requests').select('id,proposed_name,proposed_code,address,notes').eq('status','pending').order('created_at');pendingRequests=List<Map<String,dynamic>>.from(q);}
       if(mounted)setState(() { role = '${p['display_name'] ?? 'User'} • $roleName'; stock = List<Map<String,dynamic>>.from(s); });
@@ -1501,14 +1502,16 @@ class _CustomersPageState extends State<CustomersPage> {
           if(v=='deactivate')setActive(r,false);
           if(v=='activate')setActive(r,true);
           if(v=='delete')deleteCustomerAccount(r);
-          if(v=='restore')restoreCustomerAccount(r);\n          if(v=='permanent')permanentlyDeleteCustomerAccount(r);
+          if(v=='restore')restoreCustomerAccount(r);
+          if(v=='permanent')permanentlyDeleteCustomerAccount(r);
         },
           itemBuilder:(context)=>[
             if(!showDeleted)const PopupMenuItem(value:'edit',child:Text('Edit details')),
             if(!showDeleted&&r['active']==true)const PopupMenuItem(value:'deactivate',child:Text('Deactivate')),
             if(!showDeleted&&r['active']==false)const PopupMenuItem(value:'activate',child:Text('Approve / activate account')),
             if(!showDeleted)const PopupMenuItem(value:'delete',child:Text('Move to Deleted Accounts',style:TextStyle(color:Colors.red))),
-            if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'restore',child:Text('Restore account')),\n            if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'permanent',child:Text('Permanently delete',style:TextStyle(color:Colors.red))),
+            if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'restore',child:Text('Restore account')),
+            if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'permanent',child:Text('Permanently delete',style:TextStyle(color:Colors.red))),
           ]),
       ))),
       const Padding(padding:EdgeInsets.only(top:8),child:Text('Customer balances count verified payments only. Pending, rejected and reversed payments are not treated as money received.',style:TextStyle(fontSize:12,color:Colors.black54))),
