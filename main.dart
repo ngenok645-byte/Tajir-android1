@@ -1487,8 +1487,9 @@ class _CustomersPageState extends State<CustomersPage> {
 
   @override Widget build(BuildContext context) {
     final query=search.text.trim().toLowerCase();
-    final deletedCount=rows.where((r)=>r['deleted_at']!=null).length;
-    final filtered=rows.where((r)=>(showDeleted?r['deleted_at']!=null:r['deleted_at']==null)&&((r['full_name']??'').toString().toLowerCase().contains(query)||(r['phone']??'').toString().toLowerCase().contains(query))).toList();
+    // Permanently deleted customers are removed from this list; anonymized transaction history remains in the database.
+    final deletedCount=rows.where((r)=>r['deleted_at']!=null&&r['permanently_deleted_at']==null).length;
+    final filtered=rows.where((r)=>(showDeleted?(r['deleted_at']!=null&&r['permanently_deleted_at']==null):r['deleted_at']==null)&&((r['full_name']??'').toString().toLowerCase().contains(query)||(r['phone']??'').toString().toLowerCase().contains(query))).toList();
     return ListView(padding:const EdgeInsets.all(18),children:[
       Row(children:[const Expanded(child:Text('Customers',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold))),
         IconButton(onPressed:busy?null:load,icon:const Icon(Icons.refresh),tooltip:'Refresh'),
