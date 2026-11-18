@@ -327,20 +327,115 @@ class CustomerPendingPage extends StatelessWidget {
   );
 }
 
-class CustomerPortalPage extends StatelessWidget {
+class CustomerPortalPage extends StatefulWidget {
   const CustomerPortalPage({super.key});
+  @override State<CustomerPortalPage> createState() => _CustomerPortalPageState();
+}
+class _CustomerPortalPageState extends State<CustomerPortalPage> {
+  final location = TextEditingController();
+  final acres = TextEditingController();
+  String service = 'ploughing';
+  String? tractorId;
+  DateTime? preferredDate;
+  bool busy = false;
+  String? message;
+  List<Map<String,dynamic>> tractors = [];
+  List<Map<String,dynamic>> bookings = [];
+  @override void initState() { super.initState(); load(); }
+  @override void dispose() { location.dispose(); acres.dispose(); super.dispose(); }
+
+  Future<void> load() async {
+    try {
+      final db = Supabase.instance.client;
+      final t = await db.rpc('customer_list_tractor_services');
+      final j = await db.rpc('customer_list_tractor_bookings');
+      if (!mounted) return;
+      setState(() {
+        tractors = List<Map<String,dynamic>>.from(t as List);
+        bookings = List<Map<String,dynamic>>.from(j as List);
+        if (tractors.isNotEmpty && !tractors.any((x) => x['tractor_id'].toString() == tractorId)) {
+          tractorId = tractors.first['tractor_id'].toString();
+        }
+      });
+    } catch (e) { if (mounted) setState(() => message = e.toString()); }
+  }
+
+  Future<void> book() async {
+    if (tractorId == null) { setState(() => message = 'No tractor is available at the moment.'); return; }
+    if (location.text.trim().length < 3) { setState(() => message = 'Enter the farm location.'); return; }
+    final area = acres.text.trim().isEmpty ? null : double.tryParse(acres.text.trim());
+    if (acres.text.trim().isNotEmpty && (area == null || area <= 0)) {
+      setState(() => message = 'Enter a valid farm size in acres.'); return;
+    }
+    setState(() { busy = true; message = null; });
+    try {
+      await Supabase.instance.client.rpc('customer_book_tractor_service', params: {
+        'p_tractor_id': tractorId, 'p_service_type': service,
+        'p_service_location': location.text.trim(), 'p_area_acres': area,
+        'p_booked_for': preferredDate?.toIso8601String(), 'p_notes': null,
+      });
+      location.clear(); acres.clear();
+      if (mounted) setState(() => message = 'Your tractor service request has been submitted.');
+      await load();
+    } catch (e) { if (mounted) setState(() => message = e.toString()); }
+    finally { if (mounted) setState(() => busy = false); }
+  }
+
   @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('TAJIR customer')),
-    body: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(
-      mainAxisSize: MainAxisSize.min, children: [
-        const BrandMark(), const SizedBox(height: 18),
-        const Text('Your customer account is active.', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+    appBar: AppBar(title: const Text('TAJIR customer services'), actions: [
+      IconButton(onPressed: load, icon: const Icon(Icons.refresh)),
+      IconButton(onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout)),
+    ]),
+    body: RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.all(16), children: [
+      const BrandMark(), const SizedBox(height: 16),
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Tractor services', style: Theme.of(context).textTheme.titleLarge),
+        const Text('Available to both buyers and sellers. Tractor identity and fleet records remain private.'),
         const SizedBox(height: 12),
-        const Text('Customer orders and account history will appear here as those features are connected.'),
-        const SizedBox(height: 16),
-        FilledButton(onPressed: () => Supabase.instance.client.auth.signOut(), child: const Text('Sign out')),
-      ],
-    ))),
+        if (tractors.isEmpty) const Text('No tractors are currently available.')
+        else DropdownButtonFormField<String>(
+          value: tractorId, decoration: const InputDecoration(labelText: 'Available tractor', border: OutlineInputBorder()),
+          items: tractors.map((x) => DropdownMenuItem<String>(value: x['tractor_id'].toString(), child: Text(x['selection_label'].toString()))).toList(),
+          onChanged: busy ? null : (v) => setState(() => tractorId = v),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          value: service, decoration: const InputDecoration(labelText: 'Service required', border: OutlineInputBorder()),
+          items: const [
+            DropdownMenuItem(value: 'ploughing', child: Text('Ploughing')),
+            DropdownMenuItem(value: 'planting', child: Text('Planting')),
+            DropdownMenuItem(value: 'harrowing', child: Text('Harrowing')),
+            DropdownMenuItem(value: 'transport', child: Text('Transport')),
+            DropdownMenuItem(value: 'other', child: Text('Other')),
+          ],
+          onChanged: busy ? null : (v) { if (v != null) setState(() => service = v); },
+        ),
+        const SizedBox(height: 12),
+        TextField(controller: location, decoration: const InputDecoration(labelText: 'Farm location / area', border: OutlineInputBorder())),
+        const SizedBox(height: 12),
+        TextField(controller: acres, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(labelText: 'Farm size in acres (optional)', border: OutlineInputBorder())),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(onPressed: busy ? null : () async {
+          final now = DateTime.now();
+          final picked = await showDatePicker(context: context, initialDate: now.add(const Duration(days: 1)), firstDate: now, lastDate: now.add(const Duration(days: 365)));
+          if (picked != null && mounted) setState(() => preferredDate = picked);
+        }, icon: const Icon(Icons.calendar_month), label: Text(preferredDate == null ? 'Preferred date (optional)' : preferredDate!.toLocal().toString().split(' ').first)),
+        if (message != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(message!, style: const TextStyle(color: Colors.red))),
+        const SizedBox(height: 10),
+        SizedBox(width: double.infinity, child: FilledButton(onPressed: busy || tractors.isEmpty ? null : book,
+          child: Text(busy ? 'Submitting…' : 'Request tractor service'))),
+      ]))),
+      const SizedBox(height: 12),
+      Text('My bookings', style: Theme.of(context).textTheme.titleLarge),
+      if (bookings.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('No bookings yet.')))
+      else ...bookings.map((x) => Card(child: ListTile(
+        leading: const Icon(Icons.agriculture),
+        title: Text(x['service_type'].toString() + ' • ' + x['job_number'].toString()),
+        subtitle: Text(x['service_location'].toString() + ' • ' + x['status'].toString()),
+        trailing: Text('KSh ' + (x['total_charge'] ?? 0).toString()),
+      ))),
+    ])),
   );
 }
 
