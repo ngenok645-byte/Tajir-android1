@@ -214,7 +214,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
     if (response.status != 200 || data is! Map || data['success'] != true || data['token_hash'] == null) {
       throw FormatException(data is Map ? (data['error']?.toString() ?? 'Customer sign-in failed.') : 'Customer sign-in failed.');
     }
-    await db.auth.verifyOTP(token: data['token_hash'].toString(), type: OtpType.magiclink);
+    await db.auth.verifyOTP(email: tajirLoginEmail(normalizedPhone), token: data['token_hash'].toString(), type: OtpType.magiclink);
   }
 
   Future<void> submit() async {
