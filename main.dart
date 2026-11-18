@@ -520,8 +520,38 @@ class _DashboardPageState extends State<DashboardPage> {
     } catch(e) { setState(() => error = e.toString()); }
   }
   @override Widget build(BuildContext context) => RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.all(18), children: [
-    const Text('Business overview', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-    Text(role, style: const TextStyle(color: Colors.black54)),
+    Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xFF0E5630), Color(0xFF269653)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [BoxShadow(color: brandGreen.withOpacity(.18), blurRadius: 16, offset: const Offset(0, 7))],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.white.withOpacity(.16), borderRadius: BorderRadius.circular(14)), child: const Icon(Icons.agriculture, color: Colors.white, size: 30)),
+          const Spacer(),
+          const Icon(Icons.wb_sunny_outlined, color: Colors.white70, size: 25),
+        ]),
+        const SizedBox(height: 18),
+        const Text('WELCOME TO TAJIR', style: TextStyle(color: Colors.white70, fontSize: 11, letterSpacing: 1.6, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 5),
+        const Text('Growing trade.\\nConnecting farmers.', style: TextStyle(color: Colors.white, fontSize: 25, height: 1.15, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 10),
+        Text(role, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+      ]),
+    ),
+    const SizedBox(height: 18),
+    const Text('Your business at a glance', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+    const SizedBox(height: 4),
+    const Text('A simple view of your products and daily operations', style: TextStyle(color: Colors.black54)),
+    const SizedBox(height: 12),
+    Wrap(spacing: 10, runSpacing: 10, children: [
+      MetricCard(title: 'Stock records', value: stock.length.toString(), icon: Icons.inventory_2),
+      const MetricCard(title: 'Product groups', value: '3', icon: Icons.category_outlined),
+      const MetricCard(title: 'Branches', value: 'Manage', icon: Icons.storefront),
+    ]),
     const SizedBox(height: 12),
     if(branches.isNotEmpty) DropdownButtonFormField<String>(value:selectedBranch,decoration:const InputDecoration(labelText:'Dashboard branch',border:OutlineInputBorder()),items:branches.map((b)=>DropdownMenuItem(value:b['id'].toString(),child:Text(b['name'].toString()+' ('+b['code'].toString()+')'))).toList(),onChanged:(v)=>setState(()=>selectedBranch=v)),
     OutlinedButton.icon(onPressed:()=>showDialog<void>(context:context,builder:(_)=>const Dialog(child:SizedBox(width:520,height:560,child:BranchRequestPanel()))),icon:const Icon(Icons.add_location_alt),label:const Text('Request a new branch')),
@@ -542,8 +572,16 @@ class _DashboardPageState extends State<DashboardPage> {
     if (stock.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('No stock balance available yet. Pull down to refresh.')),
     ...stock.map((r) => Card(child: ListTile(leading: const Icon(Icons.inventory), title: Text('${r['product_name'] ?? r['name'] ?? 'Product'}'), trailing: Text('${r['quantity_available'] ?? ''} ${r['unit'] ?? ''}')))),
     const SizedBox(height: 16),
-    const Text('Quick guide', style: TextStyle(fontWeight: FontWeight.bold)),
-    const Text('Record each delivery as a purchase. Record customer orders as sales. Stock is reduced automatically using FIFO batches. Financial details are restricted by the signed-in user role.'),
+    const SizedBox(height: 12),
+    Card(elevation: 0, color: const Color(0xFFEAF4EC), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: const Padding(padding: EdgeInsets.all(16), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(Icons.lightbulb_outline, color: brandGreen, size: 27), SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Quick guide', style: TextStyle(fontWeight: FontWeight.bold, color: brandGreen)), SizedBox(height: 5),
+          Text('Record every delivery under Purchases and customer orders under Sales. Stock updates through approved purchase batches. Financial details remain restricted by your account role.'),
+        ])),
+      ])),
+    ),
   ]));
 }
 class MetricCard extends StatelessWidget {
@@ -570,7 +608,7 @@ class _PurchasePageState extends State<PurchasePage> {
   final loadingCost = TextEditingController();
   final labourCost = TextEditingController();
   final dryingCost = TextEditingController();
-  final otherCost = TextEditingController();
+  final List<Map<String, TextEditingController>> otherExpenses = [];
 
   String product = 'Maize';
   String payer = 'Mercy';
@@ -584,7 +622,19 @@ class _PurchasePageState extends State<PurchasePage> {
   @override
   void initState() {
     super.initState();
+    addOtherExpense();
     loadProductVariants();
+  }
+
+  void addOtherExpense() {
+    otherExpenses.add({'name': TextEditingController(), 'amount': TextEditingController()});
+  }
+
+  void removeOtherExpense(int index) {
+    final item = otherExpenses.removeAt(index);
+    item['name']!.dispose();
+    item['amount']!.dispose();
+    setState(() {});
   }
 
   @override
@@ -593,7 +643,11 @@ class _PurchasePageState extends State<PurchasePage> {
     cost.dispose();
     supplier.dispose();
     notes.dispose();
-    transportCost.dispose(); loadingCost.dispose(); labourCost.dispose(); dryingCost.dispose(); otherCost.dispose();
+    transportCost.dispose(); loadingCost.dispose(); labourCost.dispose(); dryingCost.dispose();
+    for (final item in otherExpenses) {
+      item['name']!.dispose();
+      item['amount']!.dispose();
+    }
     super.dispose();
   }
 
@@ -698,8 +752,20 @@ class _PurchasePageState extends State<PurchasePage> {
     final loading = double.tryParse(loadingCost.text.trim().isEmpty ? '0' : loadingCost.text.trim());
     final labour = double.tryParse(labourCost.text.trim().isEmpty ? '0' : labourCost.text.trim());
     final drying = double.tryParse(dryingCost.text.trim().isEmpty ? '0' : dryingCost.text.trim());
-    final other = double.tryParse(otherCost.text.trim().isEmpty ? '0' : otherCost.text.trim());
-    if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null || transport == null || loading == null || labour == null || drying == null || other == null || [transport,loading,labour,drying,other].any((v)=>v<0)) {
+    final customExpenses = <Map<String, dynamic>>[];
+    var invalidCustomExpense = false;
+    for (final item in otherExpenses) {
+      final name = item['name']!.text.trim();
+      final rawAmount = item['amount']!.text.trim();
+      if (name.isEmpty && rawAmount.isEmpty) continue;
+      final amount = double.tryParse(rawAmount);
+      if (name.isEmpty || amount == null || amount < 0) {
+        invalidCustomExpense = true;
+        break;
+      }
+      if (amount > 0) customExpenses.add({'cost_type': name, 'amount': amount});
+    }
+    if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null || transport == null || loading == null || labour == null || drying == null || [transport,loading,labour,drying].any((v)=>v<0) || invalidCustomExpense) {
       setState(() => message = 'Choose a product option and enter a valid quantity and buying price.');
       return;
     }
@@ -723,8 +789,8 @@ class _PurchasePageState extends State<PurchasePage> {
                 {'cost_type':'loading','amount':loading},
                 {'cost_type':'labour','amount':labour},
                 {'cost_type':'drying','amount':drying},
-                {'cost_type':'other','amount':other},
-              ].where((x)=>(x['amount'] as double)>0).toList(),
+                ...customExpenses,
+              ].where((x)=>(x['amount'] as num)>0).toList(),
             }
           ],
         }
@@ -733,7 +799,11 @@ class _PurchasePageState extends State<PurchasePage> {
       qty.clear();
       cost.clear();
       supplier.clear();
-      notes.clear(); transportCost.clear(); loadingCost.clear(); labourCost.clear(); dryingCost.clear(); otherCost.clear();
+      notes.clear(); transportCost.clear(); loadingCost.clear(); labourCost.clear(); dryingCost.clear();
+      for (final item in otherExpenses) {
+        item['name']!.clear();
+        item['amount']!.clear();
+      }
     } catch (e) {
       setState(() => message = 'Could not save purchase: ' + e.toString());
     }
@@ -782,6 +852,25 @@ class _PurchasePageState extends State<PurchasePage> {
       field(labourCost, 'Labour', number: true),
       if (product == 'Maize') field(dryingCost, 'Drying', number: true),
       field(otherCost, 'Other purchase costs', number: true),
+      const SizedBox(height: 8),
+      Row(children: [
+        const Expanded(child: Text('Other costs (add as many as needed)', style: TextStyle(fontWeight: FontWeight.bold))),
+        IconButton(onPressed: () => setState(addOtherExpense), icon: const Icon(Icons.add_circle, color: brandGreen), tooltip: 'Add another cost'),
+      ]),
+      ...List.generate(otherExpenses.length, (i) {
+        final item = otherExpenses[i];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(children: [
+            Expanded(flex: 3, child: TextField(controller: item['name'], textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(labelText: 'Expense ${i + 1} (e.g. packaging)', border: const OutlineInputBorder()))),
+            const SizedBox(width: 8),
+            Expanded(flex: 2, child: TextField(controller: item['amount'], keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Price (KES)', border: OutlineInputBorder()))),
+            IconButton(onPressed: () => removeOtherExpense(i), icon: const Icon(Icons.delete_outline, color: Colors.red), tooltip: 'Remove cost'),
+          ]),
+        );
+      }),
       field(supplier, 'Supplier name'),
       DropdownButtonFormField<String>(
         value: payer,
