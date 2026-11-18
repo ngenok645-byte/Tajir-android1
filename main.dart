@@ -233,7 +233,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
         final response = await db.functions.invoke(
           'tajir-customer-register',
-          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text},
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'customer_type': 'buyer'},
         );
         final resultData = response.data;
         if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
@@ -278,6 +278,8 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             if (createAccount) TextField(controller: name, textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
             if (createAccount) const SizedBox(height: 12),
+            if (createAccount) const Text('New accounts start with buyer access. The Director/admin can enable selling access or both dashboards later for this same account.'),
+            if (createAccount) const SizedBox(height: 12),
             TextField(controller: phone, keyboardType: TextInputType.phone,
               decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
             const SizedBox(height: 12),
@@ -316,20 +318,115 @@ class CustomerPendingPage extends StatelessWidget {
   );
 }
 
-class CustomerPortalPage extends StatelessWidget {
+class CustomerPortalPage extends StatefulWidget {
   const CustomerPortalPage({super.key});
+  @override State<CustomerPortalPage> createState() => _CustomerPortalPageState();
+}
+class _CustomerPortalPageState extends State<CustomerPortalPage> {
+  final location = TextEditingController();
+  final acres = TextEditingController();
+  String service = 'ploughing';
+  String? tractorId;
+  DateTime? preferredDate;
+  bool busy = false;
+  String? message;
+  List<Map<String,dynamic>> tractors = [];
+  List<Map<String,dynamic>> bookings = [];
+  @override void initState() { super.initState(); load(); }
+  @override void dispose() { location.dispose(); acres.dispose(); super.dispose(); }
+
+  Future<void> load() async {
+    try {
+      final db = Supabase.instance.client;
+      final t = await db.rpc('customer_list_tractor_services');
+      final j = await db.rpc('customer_list_tractor_bookings');
+      if (!mounted) return;
+      setState(() {
+        tractors = List<Map<String,dynamic>>.from(t as List);
+        bookings = List<Map<String,dynamic>>.from(j as List);
+        if (tractors.isNotEmpty && !tractors.any((x) => x['tractor_id'].toString() == tractorId)) {
+          tractorId = tractors.first['tractor_id'].toString();
+        }
+      });
+    } catch (e) { if (mounted) setState(() => message = e.toString()); }
+  }
+
+  Future<void> book() async {
+    if (tractorId == null) { setState(() => message = 'No tractor is available at the moment.'); return; }
+    if (location.text.trim().length < 3) { setState(() => message = 'Enter the farm location.'); return; }
+    final area = acres.text.trim().isEmpty ? null : double.tryParse(acres.text.trim());
+    if (acres.text.trim().isNotEmpty && (area == null || area <= 0)) {
+      setState(() => message = 'Enter a valid farm size in acres.'); return;
+    }
+    setState(() { busy = true; message = null; });
+    try {
+      await Supabase.instance.client.rpc('customer_book_tractor_service', params: {
+        'p_tractor_id': tractorId, 'p_service_type': service,
+        'p_service_location': location.text.trim(), 'p_area_acres': area,
+        'p_booked_for': preferredDate?.toIso8601String(), 'p_notes': null,
+      });
+      location.clear(); acres.clear();
+      if (mounted) setState(() => message = 'Your tractor service request has been submitted.');
+      await load();
+    } catch (e) { if (mounted) setState(() => message = e.toString()); }
+    finally { if (mounted) setState(() => busy = false); }
+  }
+
   @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('TAJIR customer')),
-    body: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(
-      mainAxisSize: MainAxisSize.min, children: [
-        const BrandMark(), const SizedBox(height: 18),
-        const Text('Your customer account is active.', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+    appBar: AppBar(title: const Text('TAJIR customer services'), actions: [
+      IconButton(onPressed: load, icon: const Icon(Icons.refresh)),
+      IconButton(onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout)),
+    ]),
+    body: RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.all(16), children: [
+      const BrandMark(), const SizedBox(height: 16),
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Tractor services', style: Theme.of(context).textTheme.titleLarge),
+        const Text('Available to both buyers and sellers. Tractor identity and fleet records remain private.'),
         const SizedBox(height: 12),
-        const Text('Customer orders and account history will appear here as those features are connected.'),
-        const SizedBox(height: 16),
-        FilledButton(onPressed: () => Supabase.instance.client.auth.signOut(), child: const Text('Sign out')),
-      ],
-    ))),
+        if (tractors.isEmpty) const Text('No tractors are currently available.')
+        else DropdownButtonFormField<String>(
+          value: tractorId, decoration: const InputDecoration(labelText: 'Available tractor', border: OutlineInputBorder()),
+          items: tractors.map((x) => DropdownMenuItem<String>(value: x['tractor_id'].toString(), child: Text(x['selection_label'].toString()))).toList(),
+          onChanged: busy ? null : (v) => setState(() => tractorId = v),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          value: service, decoration: const InputDecoration(labelText: 'Service required', border: OutlineInputBorder()),
+          items: const [
+            DropdownMenuItem(value: 'ploughing', child: Text('Ploughing')),
+            DropdownMenuItem(value: 'planting', child: Text('Planting')),
+            DropdownMenuItem(value: 'harrowing', child: Text('Harrowing')),
+            DropdownMenuItem(value: 'transport', child: Text('Transport')),
+            DropdownMenuItem(value: 'other', child: Text('Other')),
+          ],
+          onChanged: busy ? null : (v) { if (v != null) setState(() => service = v); },
+        ),
+        const SizedBox(height: 12),
+        TextField(controller: location, decoration: const InputDecoration(labelText: 'Farm location / area', border: OutlineInputBorder())),
+        const SizedBox(height: 12),
+        TextField(controller: acres, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(labelText: 'Farm size in acres (optional)', border: OutlineInputBorder())),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(onPressed: busy ? null : () async {
+          final now = DateTime.now();
+          final picked = await showDatePicker(context: context, initialDate: now.add(const Duration(days: 1)), firstDate: now, lastDate: now.add(const Duration(days: 365)));
+          if (picked != null && mounted) setState(() => preferredDate = picked);
+        }, icon: const Icon(Icons.calendar_month), label: Text(preferredDate == null ? 'Preferred date (optional)' : preferredDate!.toLocal().toString().split(' ').first)),
+        if (message != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(message!, style: const TextStyle(color: Colors.red))),
+        const SizedBox(height: 10),
+        SizedBox(width: double.infinity, child: FilledButton(onPressed: busy || tractors.isEmpty ? null : book,
+          child: Text(busy ? 'Submitting…' : 'Request tractor service'))),
+      ]))),
+      const SizedBox(height: 12),
+      Text('My bookings', style: Theme.of(context).textTheme.titleLarge),
+      if (bookings.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('No bookings yet.')))
+      else ...bookings.map((x) => Card(child: ListTile(
+        leading: const Icon(Icons.agriculture),
+        title: Text(x['service_type'].toString() + ' • ' + x['job_number'].toString()),
+        subtitle: Text(x['service_location'].toString() + ' • ' + x['status'].toString()),
+        trailing: Text('KSh ' + (x['total_charge'] ?? 0).toString()),
+      ))),
+    ])),
   );
 }
 
@@ -1011,7 +1108,7 @@ class _CustomersPageState extends State<CustomersPage> {
         TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
         TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
         DropdownButtonFormField<String>(value:type,decoration:const InputDecoration(labelText:'Customer type'),
-          items:const [DropdownMenuItem(value:'buyer',child:Text('Buyer')),DropdownMenuItem(value:'seller',child:Text('Seller'))],
+          items:const [DropdownMenuItem(value:'buyer',child:Text('Buyer only')),DropdownMenuItem(value:'seller',child:Text('Seller only')),DropdownMenuItem(value:'both',child:Text('Both buying and selling'))],
           onChanged:(v)=>refresh(()=>type=v??'buyer')),
         if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
       ])),
@@ -1134,7 +1231,7 @@ class _CustomersPageState extends State<CustomersPage> {
     final name=customer['full_name']?.toString()??'this customer';
     final confirmed=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
       title:const Text('Delete customer account?'),
-      content:Text('Disable the login account for $name? The customer record, sales, payments and financial history will be retained. The customer will no longer be able to sign in.'),
+      content:Text('Deactivate $name? If a login is linked, it will be disabled. If no login is linked, the customer record will be deactivated. Sales, payments and financial history will be retained.'),
       actions:[
         TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
         FilledButton(
@@ -1155,7 +1252,8 @@ class _CustomersPageState extends State<CustomersPage> {
         throw FormatException(data is Map?(data['error']?.toString()??'Could not delete customer account.'):'Could not delete customer account.');
       }
       if(!mounted)return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer login account disabled. Financial history retained.')));
+      final resultMessage = data['account_disabled'] == true ? 'Customer login disabled. Financial history retained.' : 'Customer record deactivated (no linked login). Financial history retained.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(resultMessage)));
       await load();
     }catch(e){
       if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not delete customer account: $e')));
@@ -1191,7 +1289,7 @@ class _CustomersPageState extends State<CustomersPage> {
       if(busy)const Center(child:Padding(padding:EdgeInsets.all(20),child:CircularProgressIndicator())),
       if(!busy&&message.isEmpty&&filtered.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No customers found. Add your first customer.')),
       ...filtered.map((r)=>Card(child:ListTile(
-        leading:CircleAvatar(child:Icon(r['customer_type']=='seller'?Icons.store:Icons.person)),
+        leading:CircleAvatar(child:Icon(r['customer_type']=='seller'?Icons.store:(r['customer_type']=='both'?Icons.swap_horiz:Icons.person))),
         title:Text(r['full_name']?.toString()??''),
         subtitle:Text('${r['phone']??''} • ${r['customer_type']??''}${r['active']==false?' • Inactive':''}'),
         onTap:()=>showCustomer(r),
