@@ -2085,8 +2085,8 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   bool loading = false;
   String error = '';
   String period = 'This month';
-  double revenue = 0, costOfGoods = 0, expensesTotal = 0, purchaseTotal = 0, customerReceipts = 0, supplierPayments = 0;
-  List<Map<String,dynamic>> salesRows = [], expenseRows = [], purchaseRows = [], customerPaymentRows = [], supplierPaymentRows = [];
+  double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, supplierPayments = 0;
+  List<Map<String,dynamic>> salesRows = [], purchaseCostRows = [], purchaseRows = [], customerPaymentRows = [], supplierPaymentRows = [];
   double numVal(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
   DateTime? get startDate {
     final now = DateTime.now();
@@ -2111,13 +2111,13 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       if (!isDirector) throw Exception('This financial report is available to Director accounts only.');
       final data = await Future.wait([
         db.from('sales').select('id,sale_number,sale_date,total_amount,sale_items(line_cost)').order('sale_date',ascending:false),
-        db.from('expenses').select('id,expense_number,expense_date,category,description,amount,status').order('expense_date',ascending:false),
+        db.from('purchase_costs').select('id,purchase_id,purchase_item_id,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
         db.from('purchases').select('id,purchase_number,purchase_date,status,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
         db.from('customer_payments').select('payment_number,amount,status,method,received_at').order('received_at',ascending:false),
         db.from('supplier_payments').select('amount,status,method,payment_date,transaction_reference').order('payment_date',ascending:false),
       ]);
       final sr = List<Map<String,dynamic>>.from(data[0]).where((r)=>within(r['sale_date'])).toList();
-      final er = List<Map<String,dynamic>>.from(data[1]).where((r)=>within(r['expense_date']) && r['status']=='approved').toList();
+      final pcr = List<Map<String,dynamic>>.from(data[1]).where((r)=>within(r['incurred_at'])).toList();
       final pr = List<Map<String,dynamic>>.from(data[2]).where((r)=>within(r['purchase_date']) && r['status']=='accepted').toList();
       final cr = List<Map<String,dynamic>>.from(data[3]).where((r)=>within(r['received_at']) && r['status']=='verified').toList();
       final spr = List<Map<String,dynamic>>.from(data[4]).where((r)=>within(r['payment_date']) && r['status']=='verified').toList();
@@ -2133,8 +2133,8 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       }
       if(!mounted)return;
       setState(() {
-        salesRows=sr; expenseRows=er; purchaseRows=pr; customerPaymentRows=cr; supplierPaymentRows=spr;
-        revenue=rev; costOfGoods=cogs; expensesTotal=er.fold(0.0,(v,r)=>v+numVal(r['amount']));
+        salesRows=sr; purchaseCostRows=pcr; purchaseRows=pr; customerPaymentRows=cr; supplierPaymentRows=spr;
+        revenue=rev; costOfGoods=cogs; purchaseCostsTotal=pcr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         purchaseTotal=buy; customerReceipts=cr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         supplierPayments=spr.fold(0.0,(v,r)=>v+numVal(r['amount']));
       });
@@ -2153,7 +2153,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   ]);
   @override Widget build(BuildContext context) {
     final gross = revenue-costOfGoods;
-    final net = gross-expensesTotal;
+    final net = gross;
     return RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
       const Text('Financial Records & Profit',style:TextStyle(fontSize:23,fontWeight:FontWeight.bold)),
       const Text('Director reports • amounts in Kenya shillings'),
@@ -2171,11 +2171,11 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         metric('Verified customer receipts',customerReceipts),metric('Verified supplier payments',supplierPayments),
       ]),
       section('Sales records',salesRows,'sale_date','total_amount','sale_number'),
-      section('Approved expenses',expenseRows,'expense_date','amount','category'),
+      section('Expenses attached to purchases',purchaseCostRows,'incurred_at','amount','cost_type'),
       section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number'),
       section('Verified customer payments',customerPaymentRows,'received_at','amount','payment_number'),
       section('Verified supplier payments',supplierPaymentRows,'payment_date','amount','transaction_reference'),
-      const Padding(padding:EdgeInsets.only(top:14),child:Text('Profit method: gross trading profit = recorded sales revenue less the cost of goods sold attached to sale items. Net trading result deducts approved expenses. Purchases, customer receipts and supplier payments are shown separately as stock and cash-flow records; they are not added again to profit. Figures depend on complete and correctly approved records.',style:TextStyle(fontSize:12,color:Colors.black54))),
+      const Padding(padding:EdgeInsets.only(top:14),child:Text('Profit method: trading profit = recorded sales revenue less the cost of goods sold. Purchase-related costs such as transport, loading, labour and drying are attached to each purchase and included in landed stock cost, so they are not deducted a second time. This is trading profit before any separate business overheads. Figures depend on complete and correctly approved records.',style:TextStyle(fontSize:12,color:Colors.black54))),
       Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:loading?null:load,icon:const Icon(Icons.refresh),label:const Text('Refresh'))),
     ]));
   }
