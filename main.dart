@@ -451,53 +451,38 @@ class HomeShell extends StatefulWidget {
 }
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
-  final pages = const [DashboardPage(), PurchasePage(), SalePage(), StockPage(), CustomersPage(), TractorServicesPage()];
-  final labels = const ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services'];
-  final icons = const [Icons.dashboard, Icons.add_shopping_cart, Icons.point_of_sale, Icons.inventory_2, Icons.people, Icons.agriculture];
-  void openMoreMenu() {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        ListTile(
-          leading: const Icon(Icons.people),
-          title: const Text('Customers'),
-          selected: index == 4,
-          onTap: () { Navigator.pop(sheetContext); setState(() => index = 4); },
-        ),
-        ListTile(
-          leading: const Icon(Icons.agriculture),
-          title: const Text('Tractor Services'),
-          selected: index == 5,
-          onTap: () { Navigator.pop(sheetContext); setState(() => index = 5); },
-        ),
-        const SizedBox(height: 8),
-      ])),
-    );
+  bool director = false;
+  List<Widget> get pages => [const DashboardPage(), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance];
+  @override void initState() { super.initState(); loadAccess(); }
+  Future<void> loadAccess() async {
+    try {
+      final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
+      final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
+      if (mounted) setState(() { director = allowed; if (!allowed && index == 6) index = 0; });
+    } catch (_) { if (mounted) setState(() => director = false); }
   }
-
+  void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
+  void openMoreMenu() {
+    showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
+      ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
+      if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
+      const SizedBox(height: 8),
+    ])));
+  }
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR'), actions: [
-        IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))
-      ]),
+      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
       body: Row(children: [
-        if (wide) NavigationRail(
-          selectedIndex: index, onDestinationSelected: (v) => setState(() => index = v),
-          labelType: NavigationRailLabelType.all,
-          destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i]))),
-        ),
+        if (wide) NavigationRail(selectedIndex: index, onDestinationSelected: selectPage, labelType: NavigationRailLabelType.all, destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i])))),
         Expanded(child: IndexedStack(index: index, children: pages)),
       ]),
       bottomNavigationBar: wide ? null : NavigationBar(
         selectedIndex: index < 4 ? index : 4,
-        onDestinationSelected: (v) {
-          if (v == 4) {
-            openMoreMenu();
-          } else {
-            setState(() => index = v);
-          }
-        },
+        onDestinationSelected: (v) { if (v == 4) { openMoreMenu(); } else { selectPage(v); } },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
           NavigationDestination(icon: Icon(Icons.add_shopping_cart), label: 'Purchases'),
@@ -2079,6 +2064,111 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
   ]);
 }
 
+
+
+class FinancialRecordsPage extends StatefulWidget {
+  const FinancialRecordsPage({super.key});
+  @override State<FinancialRecordsPage> createState() => _FinancialRecordsPageState();
+}
+class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
+  bool loading = false;
+  String error = '';
+  String period = 'This month';
+  double revenue = 0, costOfGoods = 0, expensesTotal = 0, purchaseTotal = 0, customerReceipts = 0, supplierPayments = 0;
+  List<Map<String,dynamic>> salesRows = [], expenseRows = [], purchaseRows = [], customerPaymentRows = [], supplierPaymentRows = [];
+  double numVal(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
+  DateTime? get startDate {
+    final now = DateTime.now();
+    if (period == 'Today') return DateTime(now.year,now.month,now.day);
+    if (period == 'This week') return DateTime(now.year,now.month,now.day).subtract(Duration(days:now.weekday-1));
+    if (period == 'This month') return DateTime(now.year,now.month,1);
+    if (period == 'This year') return DateTime(now.year,1,1);
+    return null;
+  }
+  bool within(dynamic raw) {
+    if (startDate == null || raw == null) return true;
+    final date = DateTime.tryParse(raw.toString());
+    return date != null && !date.isBefore(startDate!);
+  }
+  @override void initState() { super.initState(); load(); }
+  Future<void> load() async {
+    setState(() { loading = true; error = ''; });
+    try {
+      final db = Supabase.instance.client;
+      final roles = await db.from('user_role_assignments').select('app_roles(code)').eq('user_id', db.auth.currentUser!.id).eq('is_active', true);
+      final isDirector = roles.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
+      if (!isDirector) throw Exception('This financial report is available to Director accounts only.');
+      final data = await Future.wait([
+        db.from('sales').select('id,sale_number,sale_date,total_amount,sale_items(line_cost)').order('sale_date',ascending:false),
+        db.from('expenses').select('id,expense_number,expense_date,category,description,amount,status').order('expense_date',ascending:false),
+        db.from('purchases').select('id,purchase_number,purchase_date,status,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
+        db.from('customer_payments').select('payment_number,amount,status,method,received_at').order('received_at',ascending:false),
+        db.from('supplier_payments').select('amount,status,method,payment_date,transaction_reference').order('payment_date',ascending:false),
+      ]);
+      final sr = List<Map<String,dynamic>>.from(data[0]).where((r)=>within(r['sale_date'])).toList();
+      final er = List<Map<String,dynamic>>.from(data[1]).where((r)=>within(r['expense_date']) && r['status']=='approved').toList();
+      final pr = List<Map<String,dynamic>>.from(data[2]).where((r)=>within(r['purchase_date']) && r['status']=='accepted').toList();
+      final cr = List<Map<String,dynamic>>.from(data[3]).where((r)=>within(r['received_at']) && r['status']=='verified').toList();
+      final spr = List<Map<String,dynamic>>.from(data[4]).where((r)=>within(r['payment_date']) && r['status']=='verified').toList();
+      double rev=0,cogs=0,buy=0;
+      for(final row in sr) {
+        rev += numVal(row['total_amount']);
+        for(final item in List<dynamic>.from(row['sale_items'] ?? const [])) { if(item is Map) cogs += numVal(item['line_cost']); }
+      }
+      for(final row in pr) {
+        for(final item in List<dynamic>.from(row['purchase_items'] ?? const [])) {
+          if(item is Map) buy += numVal(item['quantity_accepted'] ?? item['quantity']) * numVal(item['buying_price_per_unit']);
+        }
+      }
+      if(!mounted)return;
+      setState(() {
+        salesRows=sr; expenseRows=er; purchaseRows=pr; customerPaymentRows=cr; supplierPaymentRows=spr;
+        revenue=rev; costOfGoods=cogs; expensesTotal=er.fold(0.0,(v,r)=>v+numVal(r['amount']));
+        purchaseTotal=buy; customerReceipts=cr.fold(0.0,(v,r)=>v+numVal(r['amount']));
+        supplierPayments=spr.fold(0.0,(v,r)=>v+numVal(r['amount']));
+      });
+    } catch(e) { if(mounted)setState(()=>error=e.toString()); }
+    finally { if(mounted)setState(()=>loading=false); }
+  }
+  String cash(double v) => 'KSh ' + v.toStringAsFixed(2);
+  Widget metric(String title,double value,{bool highlight=false}) => Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    Text(title,style:const TextStyle(fontSize:13,color:Colors.black54)),const SizedBox(height:5),
+    Text(cash(value),style:TextStyle(fontSize:19,fontWeight:FontWeight.bold,color:highlight?Colors.green: null)),
+  ])));
+  Widget section(String title,List<Map<String,dynamic>> rows,String dateField,String amountField,String nameField) => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Divider(height:24),Text(title,style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    if(rows.isEmpty) const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No records for this period.')),
+    ...rows.take(40).map((r)=>ListTile(dense:true,title:Text((r[nameField]??title).toString()),subtitle:Text((r[dateField]??'').toString()),trailing:Text(cash(numVal(r[amountField]))))),
+  ]);
+  @override Widget build(BuildContext context) {
+    final gross = revenue-costOfGoods;
+    final net = gross-expensesTotal;
+    return RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+      const Text('Financial Records & Profit',style:TextStyle(fontSize:23,fontWeight:FontWeight.bold)),
+      const Text('Director reports • amounts in Kenya shillings'),
+      const SizedBox(height:12),
+      DropdownButtonFormField<String>(value:period,decoration:const InputDecoration(labelText:'Reporting period',border:OutlineInputBorder()),
+        items:const ['Today','This week','This month','This year','All time'].map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),
+        onChanged:(v){if(v!=null){setState(()=>period=v);load();}}),
+      if(loading) const LinearProgressIndicator(),
+      if(error.isNotEmpty) Padding(padding:const EdgeInsets.all(10),child:Text('Unable to load records: '+error,style:const TextStyle(color:Colors.red))),
+      const SizedBox(height:8),
+      GridView.count(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisCount:MediaQuery.of(context).size.width>600?2:1,childAspectRatio:3.8,children:[
+        metric('Sales revenue',revenue),metric('Cost of goods sold',costOfGoods),
+        metric('Gross trading profit',gross,highlight:true),metric('Approved operating expenses',expensesTotal),
+        metric('Net trading result',net,highlight:true),metric('Accepted purchases / stock cost',purchaseTotal),
+        metric('Verified customer receipts',customerReceipts),metric('Verified supplier payments',supplierPayments),
+      ]),
+      section('Sales records',salesRows,'sale_date','total_amount','sale_number'),
+      section('Approved expenses',expenseRows,'expense_date','amount','category'),
+      section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number'),
+      section('Verified customer payments',customerPaymentRows,'received_at','amount','payment_number'),
+      section('Verified supplier payments',supplierPaymentRows,'payment_date','amount','transaction_reference'),
+      const Padding(padding:EdgeInsets.only(top:14),child:Text('Profit method: gross trading profit = recorded sales revenue less the cost of goods sold attached to sale items. Net trading result deducts approved expenses. Purchases, customer receipts and supplier payments are shown separately as stock and cash-flow records; they are not added again to profit. Figures depend on complete and correctly approved records.',style:TextStyle(fontSize:12,color:Colors.black54))),
+      Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:loading?null:load,icon:const Icon(Icons.refresh),label:const Text('Refresh'))),
+    ]));
+  }
+}
 
 class FormPage extends StatelessWidget {
   final String title; final List<Widget> children;
