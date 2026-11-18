@@ -200,6 +200,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   final pin = TextEditingController();
   final confirmPin = TextEditingController();
   bool createAccount = true, busy = false;
+  String customerType = 'buyer';
   String? message;
   @override void dispose() {
     name.dispose(); phone.dispose(); pin.dispose(); confirmPin.dispose(); super.dispose();
@@ -233,7 +234,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
         final response = await db.functions.invoke(
           'tajir-customer-register',
-          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text},
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'customer_type': customerType},
         );
         final resultData = response.data;
         if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
@@ -277,6 +278,16 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             const SizedBox(height: 16),
             if (createAccount) TextField(controller: name, textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
+            if (createAccount) const SizedBox(height: 12),
+            if (createAccount) DropdownButtonFormField<String>(
+              value: customerType,
+              decoration: const InputDecoration(labelText: 'Account type', border: OutlineInputBorder()),
+              items: const [
+                DropdownMenuItem(value: 'buyer', child: Text('Buyer – purchase farm products and services')),
+                DropdownMenuItem(value: 'seller', child: Text('Seller – list and sell farm products')),
+              ],
+              onChanged: busy ? null : (value) { if (value != null) setState(() => customerType = value); },
+            ),
             if (createAccount) const SizedBox(height: 12),
             TextField(controller: phone, keyboardType: TextInputType.phone,
               decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
