@@ -446,9 +446,13 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> load() async {
     try {
       final db = Supabase.instance.client;
-      final p = await db.from('profiles').select('full_name,role').eq('id', db.auth.currentUser!.id).single();
+      final userId = db.auth.currentUser!.id;
+      final p = await db.from('profiles').select('display_name').eq('id', userId).single();
+      final assigned = await db.from('user_role_assignments').select('app_roles(name,code)').eq('user_id', userId).eq('is_active', true).limit(1);
+      final roleData = assigned.isNotEmpty ? assigned.first['app_roles'] : null;
+      final roleName = roleData is Map ? (roleData['name'] ?? roleData['code'] ?? 'User').toString() : 'User';
       final s = await db.rpc('get_stock_balances');
-      setState(() { role = '${p['full_name']} • ${p['role']}'; stock = List<Map<String,dynamic>>.from(s); });
+      setState(() { role = '${p['display_name'] ?? 'User'} • $roleName'; stock = List<Map<String,dynamic>>.from(s); });
     } catch(e) { setState(() => error = e.toString()); }
   }
   @override Widget build(BuildContext context) => RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.all(18), children: [
