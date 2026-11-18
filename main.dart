@@ -1181,14 +1181,41 @@ class _CustomersPageState extends State<CustomersPage> {
       if(response.status!=200||data is! Map||data['success']!=true){
         throw FormatException(data is Map?(data['error']?.toString()??'Could not delete customer account.'):'Could not delete customer account.');
       }
-      final db=Supabase.instance.client;
-      await db.from('customers').update({'deleted_at':DateTime.now().toUtc().toIso8601String(),'deleted_by':db.auth.currentUser?.id,'active':false}).eq('id',customer['id']);
       if(!mounted)return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer account moved to Deleted Accounts. Financial history retained.')));
       setState(()=>showDeleted=true);
       await load();
     }catch(e){
       if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not delete customer account: $e')));
+    }
+  }
+
+  Future<void> restoreCustomerAccount(Map<String,dynamic> customer) async {
+    final name=customer['full_name']?.toString()??'this customer';
+    final confirmed=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
+      title:const Text('Restore customer account?'),
+      content:Text('Restore $name to the active customer list? This re-enables the linked login and keeps all previous sales, orders, payments and audit history.'),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Restore account')),
+      ],
+    ));
+    if(confirmed!=true)return;
+    try{
+      final response=await Supabase.instance.client.functions.invoke(
+        'tajir-director-restore-customer-account',
+        body:{'customer_id':customer['id']},
+      );
+      final data=response.data;
+      if(response.status!=200||data is! Map||data['success']!=true){
+        throw FormatException(data is Map?(data['error']?.toString()??'Could not restore customer account.'):'Could not restore customer account.');
+      }
+      if(!mounted)return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer account restored. Login access is re-enabled.')));
+      setState(()=>showDeleted=false);
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not restore customer account: $e')));
     }
   }
 
@@ -1228,12 +1255,19 @@ class _CustomersPageState extends State<CustomersPage> {
         title:Text(r['full_name']?.toString()??''),
         subtitle:Text('${r['phone']??''} • ${r['customer_type']??''}${r['deleted_at']!=null?' • Deleted':r['active']==false?' • Inactive':''}'),
         onTap:()=>showCustomer(r),
-        trailing:showDeleted?const Icon(Icons.archive_outlined,color:Colors.grey):PopupMenuButton<String>(onSelected:(v){if(v=='edit')editCustomer(r);if(v=='deactivate')setActive(r,false);if(v=='activate')setActive(r,true);if(v=='delete')deleteCustomerAccount(r);},
+        trailing:PopupMenuButton<String>(onSelected:(v){
+          if(v=='edit')editCustomer(r);
+          if(v=='deactivate')setActive(r,false);
+          if(v=='activate')setActive(r,true);
+          if(v=='delete')deleteCustomerAccount(r);
+          if(v=='restore')restoreCustomerAccount(r);
+        },
           itemBuilder:(context)=>[
-            const PopupMenuItem(value:'edit',child:Text('Edit details')),
-            if(r['active']==true)const PopupMenuItem(value:'deactivate',child:Text('Deactivate')),
-            if(r['active']==false)const PopupMenuItem(value:'activate',child:Text('Approve / activate account')),
-            const PopupMenuItem(value:'delete',child:Text('Move to Deleted Accounts',style:TextStyle(color:Colors.red))),
+            if(!showDeleted)const PopupMenuItem(value:'edit',child:Text('Edit details')),
+            if(!showDeleted&&r['active']==true)const PopupMenuItem(value:'deactivate',child:Text('Deactivate')),
+            if(!showDeleted&&r['active']==false)const PopupMenuItem(value:'activate',child:Text('Approve / activate account')),
+            if(!showDeleted)const PopupMenuItem(value:'delete',child:Text('Move to Deleted Accounts',style:TextStyle(color:Colors.red))),
+            if(showDeleted)const PopupMenuItem(value:'restore',child:Text('Restore account')),
           ]),
       ))),
       const Padding(padding:EdgeInsets.only(top:8),child:Text('Customer balances count verified payments only. Pending, rejected and reversed payments are not treated as money received.',style:TextStyle(fontSize:12,color:Colors.black54))),
