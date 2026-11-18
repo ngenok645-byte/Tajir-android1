@@ -1012,7 +1012,7 @@ class _CustomersPageState extends State<CustomersPage> {
     setState(() { busy=true; message=''; });
     try {
       final r=await Supabase.instance.client.from('customers')
-        .select('id,profile_id,customer_type,full_name,phone,email,default_branch_id,active,marketplace_can_buy,marketplace_can_sell,approved_at,approved_by,created_at,deleted_at')
+        .select('id,profile_id,customer_type,full_name,phone,email,default_branch_id,active,marketplace_can_buy,marketplace_can_sell,approved_at,approved_by,created_at,deleted_at,permanently_deleted_at')
         .order('full_name');
       if(!mounted)return;
       setState(()=>rows=List<Map<String,dynamic>>.from(r));
@@ -1219,6 +1219,38 @@ class _CustomersPageState extends State<CustomersPage> {
     }
   }
 
+  Future<void> permanentlyDeleteCustomerAccount(Map<String,dynamic> customer) async {
+    final name=customer['full_name']?.toString()??'this customer';
+    final confirmed=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
+      title:const Text('Permanently delete customer?'),
+      content:Text('This action cannot be undone. It will permanently remove $name\'s login and personal contact details. The customer history record will remain as an anonymized reference so sales, orders, payments and audit history are preserved.'),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+        FilledButton(
+          style:FilledButton.styleFrom(backgroundColor:Colors.red),
+          onPressed:()=>Navigator.pop(dialogContext,true),
+          child:const Text('Permanently delete'),
+        ),
+      ],
+    ));
+    if(confirmed!=true)return;
+    try{
+      final response=await Supabase.instance.client.functions.invoke(
+        'tajir-director-permanently-delete-customer',
+        body:{'customer_id':customer['id'],'confirm_permanent_delete':true},
+      );
+      final data=response.data;
+      if(response.status!=200||data is! Map||data['success']!=true){
+        throw FormatException(data is Map?(data['error']?.toString()??'Could not permanently delete customer.'):'Could not permanently delete customer.');
+      }
+      if(!mounted)return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personal details permanently removed. Financial and transaction history retained.')));
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not permanently delete customer: $e')));
+    }
+  }
+
   Future<void> setActive(Map<String,dynamic> row,bool active) async {
     try {
       final db = Supabase.instance.client;
@@ -1253,21 +1285,21 @@ class _CustomersPageState extends State<CustomersPage> {
       ...filtered.map((r)=>Card(child:ListTile(
         leading:CircleAvatar(child:Icon(r['customer_type']=='seller'?Icons.store:Icons.person)),
         title:Text(r['full_name']?.toString()??''),
-        subtitle:Text('${r['phone']??''} • ${r['customer_type']??''}${r['deleted_at']!=null?' • Deleted':r['active']==false?' • Inactive':''}'),
+        subtitle:Text('${r['phone']??''} • ${r['customer_type']??''}${r['permanently_deleted_at']!=null?' • Permanently deleted (anonymized)':r['deleted_at']!=null?' • Archived':r['active']==false?' • Inactive':''}'),
         onTap:()=>showCustomer(r),
         trailing:PopupMenuButton<String>(onSelected:(v){
           if(v=='edit')editCustomer(r);
           if(v=='deactivate')setActive(r,false);
           if(v=='activate')setActive(r,true);
           if(v=='delete')deleteCustomerAccount(r);
-          if(v=='restore')restoreCustomerAccount(r);
+          if(v=='restore')restoreCustomerAccount(r);\n          if(v=='permanent')permanentlyDeleteCustomerAccount(r);
         },
           itemBuilder:(context)=>[
             if(!showDeleted)const PopupMenuItem(value:'edit',child:Text('Edit details')),
             if(!showDeleted&&r['active']==true)const PopupMenuItem(value:'deactivate',child:Text('Deactivate')),
             if(!showDeleted&&r['active']==false)const PopupMenuItem(value:'activate',child:Text('Approve / activate account')),
             if(!showDeleted)const PopupMenuItem(value:'delete',child:Text('Move to Deleted Accounts',style:TextStyle(color:Colors.red))),
-            if(showDeleted)const PopupMenuItem(value:'restore',child:Text('Restore account')),
+            if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'restore',child:Text('Restore account')),\n            if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'permanent',child:Text('Permanently delete',style:TextStyle(color:Colors.red))),
           ]),
       ))),
       const Padding(padding:EdgeInsets.only(top:8),child:Text('Customer balances count verified payments only. Pending, rejected and reversed payments are not treated as money received.',style:TextStyle(fontSize:12,color:Colors.black54))),
