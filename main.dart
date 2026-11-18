@@ -987,15 +987,151 @@ class _SalePageState extends State<SalePage> {
 
 class StockPage extends StatefulWidget {const StockPage({super.key});@override State<StockPage> createState()=>_StockPageState();}
 class _StockPageState extends State<StockPage>{
-  List<dynamic> products=[];String message='';
-  Future<void> load()async{try{final r=await Supabase.instance.client.rpc('get_stock_balances');setState(()=>products=List<dynamic>.from(r));}catch(e){setState(()=>message=e.toString());}}
+  List<dynamic> products=[];
+  List<dynamic> pending=[];
+  final Map<String,TextEditingController> acceptedControllers={};
+  String message='';
+  bool loading=false;
+  bool reviewing=false;
+
+  Future<void> load()async{
+    if(mounted)setState(()=>loading=true);
+    try{
+      final db=Supabase.instance.client;
+      final results=await Future.wait([
+        db.rpc('get_stock_balances'),
+        db.rpc('get_pending_purchase_quality'),
+      ]);
+      if(!mounted)return;
+      final pendingRows=List<dynamic>.from(results[1] as List);
+      final validIds=<String>{};
+      for(final purchase in pendingRows){
+        if(purchase is! Map)continue;
+        final items=List<dynamic>.from(purchase['items']??const []);
+        for(final item in items){
+          if(item is! Map)continue;
+          final id=item['purchase_item_id']?.toString();
+          if(id==null)continue;
+          validIds.add(id);
+          acceptedControllers.putIfAbsent(id,()=>TextEditingController());
+        }
+      }
+      for(final id in acceptedControllers.keys.toList()){
+        if(!validIds.contains(id)){
+          acceptedControllers.remove(id)?.dispose();
+        }
+      }
+      setState((){
+        products=List<dynamic>.from(results[0] as List);
+        pending=pendingRows;
+        message='';
+      });
+    }catch(e){
+      if(mounted)setState(()=>message='Could not load stock or pending approvals. Sign in with an active Director or Branch Manager account. Details: $e');
+    }finally{
+      if(mounted)setState(()=>loading=false);
+    }
+  }
+
+  Future<void> approvePurchase(Map purchase)async{
+    if(reviewing)return;
+    final items=List<dynamic>.from(purchase['items']??const []);
+    final accepted=<Map<String,dynamic>>[];
+    for(final item in items){
+      final id=item['purchase_item_id']?.toString();
+      final raw=id==null?null:acceptedControllers[id]?.text.trim();
+      final qty=raw==null?null:double.tryParse(raw);
+      final received=(item['quantity'] as num?)?.toDouble();
+      if(qty==null||qty<0||received==null||qty>received){
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid accepted quantity for every item. Use 0 for a fully rejected item.')));
+        return;
+      }
+      accepted.add({'purchase_item_id':id,'accepted_quantity':qty});
+    }
+    final confirm=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+      title:const Text('Confirm stock approval'),
+      content:const Text('Only the quantities you entered will be added to available stock. Remaining quantities will be rejected. Continue?'),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Approve stock')),
+      ],
+    ));
+    if(confirm!=true)return;
+    setState(()=>reviewing=true);
+    try{
+      await Supabase.instance.client.rpc('approve_purchase_quality',params:{
+        'p_purchase_id':purchase['purchase_id'],
+        'p_accepted':accepted,
+      });
+      if(!mounted)return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Stock review completed. Approved quantities are now in stock.')));
+      for(final item in items){
+        final id=item['purchase_item_id']?.toString();
+        if(id!=null)acceptedControllers[id]?.clear();
+      }
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Stock approval failed: $e')));
+    }finally{
+      if(mounted)setState(()=>reviewing=false);
+    }
+  }
+
   @override void initState(){super.initState();load();}
-  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(18),children:[
-    const Text('Stock balances',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),
-    Align(alignment:Alignment.centerLeft,child:OutlinedButton.icon(onPressed:load,icon:const Icon(Icons.refresh),label:const Text('Refresh'))),
-    if(message.isNotEmpty)Text(message),
-    ...products.map((p)=>Card(child:ListTile(leading:const Icon(Icons.inventory_2,color:brandGreen),title:Text('${p['product_name']??p['name']??'Product'}'),subtitle:Text('Branch: ${p['branch_name']??'Ntulele'}'),trailing:Text('${p['quantity_available']??''} ${p['unit']??''}')))),
-  ]);
+  @override void dispose(){for(final c in acceptedControllers.values){c.dispose();}super.dispose();}
+
+  @override Widget build(BuildContext context)=>RefreshIndicator(
+    onRefresh:load,
+    child:ListView(padding:const EdgeInsets.all(18),children:[
+      const Text('Stock balances',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),
+      Align(alignment:Alignment.centerLeft,child:OutlinedButton.icon(onPressed:loading?null:load,icon:const Icon(Icons.refresh),label:const Text('Refresh'))),
+      if(message.isNotEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(message,style:const TextStyle(color:Colors.red))),
+      if(loading)const LinearProgressIndicator(),
+      const SizedBox(height:12),
+      const Text('Stock awaiting approval',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+      const Text('Review received quantities below. Enter the quantity accepted for each item, then approve. Enter 0 if the whole item is rejected.'),
+      if(pending.isEmpty&&!loading)const Card(child:Padding(padding:EdgeInsets.all(14),child:Text('No stock is waiting for approval.'))),
+      ...pending.whereType<Map>().map((purchase){
+        final items=List<dynamic>.from(purchase['items']??const []);
+        final total=items.fold<double>(0,(sum,item)=>sum+((item['quantity'] as num?)?.toDouble()??0));
+        return Card(margin:const EdgeInsets.symmetric(vertical:7),child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Text('Purchase ${purchase['purchase_number']??'—'}',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:16)),
+          Text('Received quantity: ${total.toStringAsFixed(2)}'),
+          const Divider(),
+          ...items.whereType<Map>().map((item){
+            final id=item['purchase_item_id']?.toString()??'';
+            final qty=(item['quantity'] as num?)?.toDouble()??0;
+            return Padding(padding:const EdgeInsets.symmetric(vertical:6),child:Row(children:[
+              Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+                Text('Received: ${qty.toStringAsFixed(2)} ${item['unit']??''}'),
+                Text('Item ID: ${id.length>8?id.substring(0,8):id}',style:const TextStyle(fontSize:11,color:Colors.black54)),
+              ])),
+              SizedBox(width:118,child:TextField(
+                controller:acceptedControllers[id],
+                keyboardType:const TextInputType.numberWithOptions(decimal:true),
+                decoration:const InputDecoration(labelText:'Accepted qty',border:OutlineInputBorder(),isDense:true),
+              )),
+            ]));
+          }),
+          const SizedBox(height:8),
+          SizedBox(width:double.infinity,child:FilledButton.icon(
+            onPressed:reviewing?null:()=>approvePurchase(purchase),
+            icon:const Icon(Icons.verified),
+            label:Text(reviewing?'Please wait…':'Approve stock'),
+          )),
+        ])));
+      }),
+      const Divider(height:28),
+      const Text('Available stock',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+      if(products.isEmpty&&!loading)const Card(child:Padding(padding:EdgeInsets.all(14),child:Text('No approved stock balances yet.'))),
+      ...products.map((p)=>Card(child:ListTile(
+        leading:const Icon(Icons.inventory_2,color:brandGreen),
+        title:Text('${p['product_name']??p['name']??'Product'}'),
+        subtitle:Text('Branch: ${p['branch_name']??'Ntulele'}'),
+        trailing:Text('${p['quantity_available']??''} ${p['unit']??''}'),
+      ))),
+    ]),
+  );
 }
 class CustomersPage extends StatefulWidget { const CustomersPage({super.key}); @override State<CustomersPage> createState()=>_CustomersPageState(); }
 class _CustomersPageState extends State<CustomersPage> {
