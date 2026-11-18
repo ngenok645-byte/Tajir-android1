@@ -1134,7 +1134,7 @@ class _CustomersPageState extends State<CustomersPage> {
     final name=customer['full_name']?.toString()??'this customer';
     final confirmed=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
       title:const Text('Delete customer account?'),
-      content:Text('Permanently remove the login account for $name? The customer record, sales, payments and financial history will be retained. The customer will no longer be able to sign in. This cannot be undone.'),
+      content:Text('Disable the login account for $name? The customer record, sales, payments and financial history will be retained. The customer will no longer be able to sign in.'),
       actions:[
         TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
         FilledButton(
@@ -1155,7 +1155,7 @@ class _CustomersPageState extends State<CustomersPage> {
         throw FormatException(data is Map?(data['error']?.toString()??'Could not delete customer account.'):'Could not delete customer account.');
       }
       if(!mounted)return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer login account deleted. Financial history retained.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer login account disabled. Financial history retained.')));
       await load();
     }catch(e){
       if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not delete customer account: $e')));
