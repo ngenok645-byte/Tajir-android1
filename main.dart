@@ -634,7 +634,7 @@ class _PurchasePageState extends State<PurchasePage> {
       );
       final loaded = await db
           .from('product_variants')
-          .select('id,variant_name,base_unit')
+          .select('id,variant_name,base_unit,sku')
           .eq('product_id', row['id'])
           .eq('is_active', true)
           .order('variant_name');
@@ -686,7 +686,7 @@ class _PurchasePageState extends State<PurchasePage> {
             'base_unit': 'bag',
             'is_active': true,
           })
-          .select('id,variant_name,base_unit')
+          .select('id,variant_name,base_unit,sku')
           .single();
       if (!mounted) return;
       setState(() {
@@ -754,22 +754,23 @@ class _PurchasePageState extends State<PurchasePage> {
         decoration: const InputDecoration(labelText: 'Product'),
       ),
       if (loadingVariants) const LinearProgressIndicator(),
-      if (product != 'Maize') ...[
-        DropdownButtonFormField<String>(
-          value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
-          items: variants.map((v) => DropdownMenuItem<String>(
-            value: v['id'] as String,
-            child: Text(v['variant_name'] as String),
-          )).toList(),
-          onChanged: (v) => setState(() => selectedVariantId = v),
-          decoration: InputDecoration(labelText: product == 'Beans' ? 'Bean variety' : 'Fertilizer type'),
+      DropdownButtonFormField<String>(
+        value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
+        items: variants.map((v) => DropdownMenuItem<String>(
+          value: v['id'] as String,
+          child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'),
+        )).toList(),
+        onChanged: (v) => setState(() => selectedVariantId = v),
+        decoration: InputDecoration(
+          labelText: product == 'Maize' ? 'Maize product ID' : (product == 'Beans' ? 'Bean variety and ID' : 'Fertilizer type and ID'),
         ),
+      ),
+      if (product != 'Maize')
         TextButton.icon(
           onPressed: loadingVariants ? null : addVariant,
           icon: const Icon(Icons.add),
           label: Text(product == 'Beans' ? 'Add bean variety' : 'Add fertilizer type'),
         ),
-      ],
       field(qty, 'Quantity (bags)', number: true),
       field(cost, 'Buying price per bag (KES)', number: true),
       field(supplier, 'Supplier name'),
@@ -865,7 +866,7 @@ class _SalePageState extends State<SalePage> {
       );
       final loaded = await db
           .from('product_variants')
-          .select('id,variant_name,base_unit')
+          .select('id,variant_name,base_unit,sku')
           .eq('product_id', row['id'])
           .eq('is_active', true)
           .order('variant_name');
@@ -917,7 +918,7 @@ class _SalePageState extends State<SalePage> {
             'base_unit': 'bag',
             'is_active': true,
           })
-          .select('id,variant_name,base_unit')
+          .select('id,variant_name,base_unit,sku')
           .single();
       if (!mounted) return;
       setState(() {
@@ -1003,22 +1004,23 @@ class _SalePageState extends State<SalePage> {
         decoration: const InputDecoration(labelText: 'Product'),
       ),
       if (loadingVariants) const LinearProgressIndicator(),
-      if (product != 'Maize') ...[
-        DropdownButtonFormField<String>(
-          value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
-          items: variants.map((v) => DropdownMenuItem<String>(
-            value: v['id'] as String,
-            child: Text(v['variant_name'] as String),
-          )).toList(),
-          onChanged: (v) => setState(() => selectedVariantId = v),
-          decoration: InputDecoration(labelText: product == 'Beans' ? 'Bean variety' : 'Fertilizer type'),
+      DropdownButtonFormField<String>(
+        value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
+        items: variants.map((v) => DropdownMenuItem<String>(
+          value: v['id'] as String,
+          child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'),
+        )).toList(),
+        onChanged: (v) => setState(() => selectedVariantId = v),
+        decoration: InputDecoration(
+          labelText: product == 'Maize' ? 'Maize product ID' : (product == 'Beans' ? 'Bean variety and ID' : 'Fertilizer type and ID'),
         ),
+      ),
+      if (product != 'Maize')
         TextButton.icon(
           onPressed: loadingVariants ? null : addVariant,
           icon: const Icon(Icons.add),
           label: Text(product == 'Beans' ? 'Add bean variety' : 'Add fertilizer type'),
         ),
-      ],
       field(qty, 'Quantity (bags)', number: true),
       field(price, 'Selling price per bag (KES)', number: true),
       field(customer, 'Customer name'),
@@ -1445,8 +1447,14 @@ class _CustomersPageState extends State<CustomersPage> {
     ));
     if(confirmed!=true)return;
     try{
+      final session=Supabase.instance.client.auth.currentSession;
+      final accessToken=session?.accessToken;
+      if(accessToken==null||accessToken.isEmpty){
+        throw Exception('Your Director session is missing or expired. Sign out and sign in again, then retry.');
+      }
       final response=await Supabase.instance.client.functions.invoke(
         'tajir-director-permanently-delete-customer',
+        headers:{'Authorization':'Bearer $accessToken'},
         body:{'customer_id':customer['id'],'confirm_permanent_delete':true},
       );
       final data=response.data;
