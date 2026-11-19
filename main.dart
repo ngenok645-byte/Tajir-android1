@@ -8,6 +8,32 @@ const int tajirBuildNumber = 1;
 const String tajirVersionName = '1.0.0';
 const MethodChannel _tajirUpdateChannel = MethodChannel('tajir/update');
 
+// Kept only in memory while the Director temporarily accesses another account.
+String? _directorRestoreRefreshToken;
+String? _directorAccessingAccount;
+
+Future<void> returnToDirectorAccount(BuildContext context) async {
+  final refreshToken = _directorRestoreRefreshToken;
+  if (refreshToken == null || refreshToken.isEmpty) return;
+  try {
+    await Supabase.instance.client.auth.setSession(refreshToken);
+    _directorRestoreRefreshToken = null;
+    _directorAccessingAccount = null;
+    if (context.mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not restore Director access: ${friendlyError(e)}')),
+      );
+    }
+  }
+}
+
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
 
@@ -743,6 +769,8 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
  const tractorTabIndex=3;
  return DefaultTabController(length:tabs.length,child:Builder(builder:(tabContext)=>Scaffold(
   appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[
+   if (_directorRestoreRefreshToken != null)
+    IconButton(tooltip:'Return to Director account',onPressed:()=>returnToDirectorAccount(context),icon:const Icon(Icons.admin_panel_settings)),
    IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
    IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
   ],bottom:TabBar(isScrollable:true,tabs:tabs)),
@@ -1101,10 +1129,57 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
     return roles.contains(mapping[category]);
   }
 
-  void _preview(Map<String, dynamic> account) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => DirectorReadOnlyDashboardPage(account: account),
-    ));
+  Future<void> _preview(Map<String, dynamic> account) async {
+    final targetId = account['id']?.toString() ?? '';
+    if (targetId.isEmpty || targetId.startsWith('customer:')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This account does not have a linked login yet.')),
+      );
+      return;
+    }
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please sign in again as Director.')),
+      );
+      return;
+    }
+    try {
+      final response = await Supabase.instance.client.functions.invoke(
+        'tajir-director-assume-account',
+        body: {'target_user_id': targetId},
+      );
+      final data = response.data;
+      if (response.status != 200 || data is! Map ||
+          data['success'] != true || data['token_hash'] == null) {
+        throw FormatException(data is Map
+            ? (data['error'] ?? 'Could not open this account.').toString()
+            : 'Could not open this account.');
+      }
+      _directorRestoreRefreshToken = session.refreshToken;
+      _directorAccessingAccount = account['name']?.toString() ?? 'selected account';
+      try {
+        await Supabase.instance.client.auth.verifyOTP(
+          tokenHash: data['token_hash'].toString(),
+          type: OtpType.magiclink,
+        );
+      } catch (_) {
+        _directorRestoreRefreshToken = null;
+        _directorAccessingAccount = null;
+        rethrow;
+      }
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(friendlyError(e))),
+        );
+      }
+    }
   }
 
   @override Widget build(BuildContext context) {
@@ -1541,6 +1616,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           const Text('TAJIR'),
         ]),
         actions: [
+          if (_directorRestoreRefreshToken != null)
+            IconButton(
+              tooltip: 'Return to Director account',
+              onPressed: () => returnToDirectorAccount(context),
+              icon: const Icon(Icons.admin_panel_settings),
+            ),
           IconButton(
             tooltip: 'Account security',
             onPressed: () => Navigator.of(context).push(
