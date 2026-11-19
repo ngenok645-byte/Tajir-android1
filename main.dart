@@ -377,6 +377,71 @@ class _BranchRequestPanelState extends State<BranchRequestPanel> {
   ]));
 }
 
+class AccountSecurityPage extends StatefulWidget {
+  const AccountSecurityPage({super.key});
+  @override State<AccountSecurityPage> createState() => _AccountSecurityPageState();
+}
+class _AccountSecurityPageState extends State<AccountSecurityPage> {
+  final currentPin = TextEditingController(), newPin = TextEditingController(), confirmPin = TextEditingController();
+  bool isCustomer = false, loading = true, busy = false;
+  String? error;
+  @override void initState() { super.initState(); loadAccount(); }
+  @override void dispose() { currentPin.dispose(); newPin.dispose(); confirmPin.dispose(); super.dispose(); }
+  Future<void> loadAccount() async {
+    try {
+      final db = Supabase.instance.client;
+      final row = await db.from('customers').select('id').eq('profile_id', db.auth.currentUser!.id).maybeSingle();
+      if (mounted) setState(() { isCustomer = row != null; loading = false; });
+    } catch (e) { if (mounted) setState(() { error = e.toString(); loading = false; }); }
+  }
+  Future<void> savePin() async {
+    final oldPin = currentPin.text.trim(), nextPin = newPin.text.trim();
+    if (oldPin.length != 4 || int.tryParse(oldPin) == null || nextPin.length != 4 || int.tryParse(nextPin) == null) { setState(() => error = 'Enter your current PIN and a new four-digit PIN.'); return; }
+    if (nextPin != confirmPin.text.trim()) { setState(() => error = 'The new PIN entries do not match.'); return; }
+    if (oldPin == nextPin) { setState(() => error = 'Choose a different PIN from your current PIN.'); return; }
+    setState(() { busy = true; error = null; });
+    try {
+      final db = Supabase.instance.client;
+      if (isCustomer) {
+        final response = await db.functions.invoke('tajir-customer-change-pin', body: {'current_pin': oldPin, 'new_pin': nextPin});
+        final data = response.data;
+        if (response.status != 200 || data is! Map || data['success'] != true) throw FormatException(data is Map ? (data['error']?.toString() ?? 'PIN update failed.') : 'PIN update failed.');
+      } else {
+        await db.auth.updateUser(UserAttributes(password: staffAuthPassword(nextPin), currentPassword: staffAuthPassword(oldPin)));
+      }
+      if (!mounted) return;
+      currentPin.clear(); newPin.clear(); confirmPin.clear();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your PIN has been changed successfully.')));
+    } on AuthException catch (e) { if (mounted) setState(() => error = e.message); }
+      catch (e) { if (mounted) setState(() => error = e.toString().replaceFirst('FormatException: ', '')); }
+    if (mounted) setState(() => busy = false);
+  }
+  Future<void> forgotPin() async {
+    await showDialog<void>(context: context, builder: (d) => AlertDialog(
+      title: const Text('Forgot your PIN?'),
+      content: Text(isCustomer ? 'Contact the TAJIR Director to verify your identity and reset your customer PIN from Customers. Never share your old PIN.' : 'Contact the TAJIR Director or authorised account administrator for identity verification and a secure PIN reset. Do not share your current PIN.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('Close'))],
+    ));
+  }
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Account security')),
+    body: loading ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(20), children: [
+      const Icon(Icons.shield_outlined, size: 52, color: brandGreen),
+      const Text('Change your four-digit PIN', textAlign: TextAlign.center, style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
+      const Text('Your PIN is private. Do not share it with anyone.', textAlign: TextAlign.center),
+      const SizedBox(height: 20),
+      TextField(controller: currentPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Current PIN', border: OutlineInputBorder(), counterText: '')),
+      const SizedBox(height: 10),
+      TextField(controller: newPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'New four-digit PIN', border: OutlineInputBorder(), counterText: '')),
+      const SizedBox(height: 10),
+      TextField(controller: confirmPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Confirm new PIN', border: OutlineInputBorder(), counterText: '')),
+      if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
+      const SizedBox(height: 14),
+      FilledButton(onPressed: busy ? null : savePin, child: Text(busy ? 'Saving…' : 'Change PIN')),
+      TextButton(onPressed: busy ? null : forgotPin, child: const Text('Forgot PIN?')),
+    ]),
+  );
+}
 class CustomerPortalPage extends StatefulWidget {
  const CustomerPortalPage({super.key});
  @override State<CustomerPortalPage> createState()=>_CustomerPortalPageState();
@@ -385,7 +450,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
  Map<String,dynamic>? c;bool busy=true;String? error;
  @override void initState(){super.initState();load();}
  Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',db.auth.currentUser!.id).maybeSingle();if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');if(mounted)setState(()=>c=Map<String,dynamic>.from(r));}catch(e){if(mounted)setState(()=>error=e.toString());}if(mounted)setState(()=>busy=false);}
- @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;final tabs=<Widget>[],pages=<Widget>[];if(buy){tabs.add(const Tab(text:'Buy'));pages.add(CustomerMarketPage(customer:c!,mode:'buy'));}if(sell){tabs.add(const Tab(text:'Sell'));pages.add(CustomerMarketPage(customer:c!,mode:'sell'));}if(buy||sell){tabs.add(const Tab(text:'Requests'));pages.add(CustomerMarketPage(customer:c!,mode:'requests'));}tabs.add(const Tab(text:'Tractor'));pages.add(CustomerTractorPage());tabs.add(const Tab(text:'Bookings'));pages.add(CustomerTractorBookingsPage());tabs.add(const Tab(text:'Branch'));pages.add(const BranchRequestPanel());return DefaultTabController(length:tabs.length,child:Scaffold(appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))],bottom:TabBar(isScrollable:true,tabs:tabs)),body:TabBarView(children:pages)));}
+ @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;final tabs=<Widget>[],pages=<Widget>[];if(buy){tabs.add(const Tab(text:'Buy'));pages.add(CustomerMarketPage(customer:c!,mode:'buy'));}if(sell){tabs.add(const Tab(text:'Sell'));pages.add(CustomerMarketPage(customer:c!,mode:'sell'));}if(buy||sell){tabs.add(const Tab(text:'Requests'));pages.add(CustomerMarketPage(customer:c!,mode:'requests'));}tabs.add(const Tab(text:'Tractor'));pages.add(CustomerTractorPage());tabs.add(const Tab(text:'Bookings'));pages.add(CustomerTractorBookingsPage());tabs.add(const Tab(text:'Branch'));pages.add(const BranchRequestPanel());return DefaultTabController(length:tabs.length,child:Scaffold(appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))],bottom:TabBar(isScrollable:true,tabs:tabs)),body:TabBarView(children:pages)));}
 }
 class CustomerMarketPage extends StatefulWidget{
  final Map<String,dynamic> customer;final String mode;
@@ -475,7 +540,7 @@ class _HomeShellState extends State<HomeShell> {
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
       body: Row(children: [
         if (wide) NavigationRail(selectedIndex: index, onDestinationSelected: selectPage, labelType: NavigationRailLabelType.all, destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i])))),
         Expanded(child: IndexedStack(index: index, children: pages)),
