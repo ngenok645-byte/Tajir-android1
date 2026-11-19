@@ -1,6 +1,7 @@
 # Rebuild after the live customer-profile trigger correction for customer registration.
 name: Build TAJIR Android APK
 # CI verification run for the phone-and-PIN authentication build.
+# Rebuild requested on 2026-11-19.
 
 'on':
   workflow_dispatch:
