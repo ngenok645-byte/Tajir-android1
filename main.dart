@@ -275,6 +275,14 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  Future<void> showForgotPinHelp() async {
+    await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Forgot your PIN?'),
+      content: const Text('For your security, a forgotten staff PIN must be reset by the TAJIR Director after checking your identity. Contact the Director or an authorised account administrator. Do not share your old PIN with anyone.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+    ));
+  }
+
   Future<void> submit() async {
     setState(() { busy = true; error = null; });
     try {
@@ -346,6 +354,8 @@ class _LoginPageState extends State<LoginPage> {
               onPressed: busy ? null : submit,
               child: Text(busy ? 'Please wait…' : setupDirector ? 'Set up and sign in' : 'Sign in'),
             )),
+            TextButton(onPressed: busy ? null : showForgotPinHelp,
+              child: const Text('Forgot PIN?')),
             TextButton(onPressed: busy ? null : () => setState(() { setupDirector = !setupDirector; error = null; }),
               child: Text(setupDirector ? 'I already set up my PIN — sign in' : 'First time? Set up director PIN')),
             TextButton(onPressed: () => Navigator.of(context).push(
@@ -378,6 +388,14 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   String? message;
   @override void dispose() {
     name.dispose(); phone.dispose(); pin.dispose(); confirmPin.dispose(); super.dispose();
+  }
+
+  Future<void> showForgotPinHelp() async {
+    await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Forgot your PIN?'),
+      content: const Text('Contact the TAJIR Director. The Director will confirm your identity and reset your customer PIN from the Customers section. Never share your old PIN.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+    ));
   }
 
   Future<void> signInCustomerWithPin(SupabaseClient db, String normalizedPhone, String customerPin) async {
@@ -469,6 +487,9 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             const SizedBox(height: 16),
             SizedBox(width: double.infinity, child: FilledButton(onPressed: busy ? null : submit,
               child: Text(busy ? 'Please wait…' : createAccount ? 'Create account' : 'Sign in'))),
+            if (!createAccount)
+              TextButton(onPressed: busy ? null : showForgotPinHelp,
+                child: const Text('Forgot PIN?')),
             TextButton(onPressed: busy ? null : () => setState(() { createAccount = !createAccount; message = null; }),
               child: Text(createAccount ? 'Already registered? Sign in' : 'New customer? Register')),
           ],
