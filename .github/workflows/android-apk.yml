@@ -83,20 +83,38 @@ jobs:
           manifest.write_text(source)
           print("Android network permissions verified.")
           PY
-          # Flutter's generated settings may resolve Kotlin plugin transitive artifacts
-          # only from the Gradle Plugin Portal. Add Google and Maven Central explicitly.
+          # Kotlin plugin artifacts are published on Maven Central. Ensure that
+          # repository is present specifically in pluginManagement (not merely in
+          # dependencyResolutionManagement), where Gradle resolves plugin classpaths.
           python - <<'PY'
           from pathlib import Path
+          import re
           p = Path("android/settings.gradle.kts")
           s = p.read_text()
-          if "pluginManagement" not in s:
-              raise SystemExit("pluginManagement block missing from Android settings")
-          if "mavenCentral()" not in s:
-              s = s.replace("repositories {", "repositories {\n        google()\n        mavenCentral()", 1)
-          elif "google()" not in s:
-              s = s.replace("repositories {", "repositories {\n        google()", 1)
+          match = re.search(r"pluginManagement\\s*\\{\\s*repositories\\s*\\{", s)
+          if not match:
+              raise SystemExit("pluginManagement repositories block missing")
+          start = match.end()
+          depth = 1
+          end = start
+          for i, ch in enumerate(s[start:], start):
+              if ch == "{":
+                  depth += 1
+              elif ch == "}":
+                  depth -= 1
+                  if depth == 0:
+                      end = i
+                      break
+          block = s[start:end]
+          additions = []
+          if "google()" not in block:
+              additions.append("        google()")
+          if "mavenCentral()" not in block:
+              additions.append("        mavenCentral()")
+          if additions:
+              s = s[:start] + "\\n" + "\\n".join(additions) + s[start:]
           p.write_text(s)
-          print("Android plugin repositories verified.")
+          print("pluginManagement repositories verified.")
           PY
           flutter pub get
           # Work around an Android Lint detector crash in the current toolchain.
