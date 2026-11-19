@@ -200,11 +200,30 @@ class MainActivity : FlutterActivity() {
           if close_brace is None:
               raise SystemExit("pluginManagement block is not closed")
           block = s[body_start:close_brace]
-          if "repositories {" not in block:
-              repositories = "\n    repositories {\n        google()\n        mavenCentral()\n        gradlePluginPortal()\n    }\n"
+          repo_match = re.search(r"repositories\\s*\\{", block)
+          if repo_match:
+              repo_start = body_start + repo_match.end()
+              repo_depth = 1
+              repo_close = None
+              for i, ch in enumerate(s[repo_start:], repo_start):
+                  if ch == "{":
+                      repo_depth += 1
+                  elif ch == "}":
+                      repo_depth -= 1
+                      if repo_depth == 0:
+                          repo_close = i
+                          break
+              if repo_close is None:
+                  raise SystemExit("pluginManagement repositories block is not closed")
+              repo_body = s[repo_start:repo_close]
+              missing = [name for name in ("google()", "mavenCentral()", "gradlePluginPortal()") if name not in repo_body]
+              if missing:
+                  s = s[:repo_close] + "".join("\\n        " + name for name in missing) + "\\n    " + s[repo_close:]
+          else:
+              repositories = "\\n    repositories {\\n        google()\\n        mavenCentral()\\n        gradlePluginPortal()\\n    }\\n"
               s = s[:body_start] + repositories + s[body_start:]
           p.write_text(s)
-          print("pluginManagement repositories configured.")
+          print("pluginManagement repositories verified: google, mavenCentral, gradlePluginPortal.")
           PY
           flutter pub get
           # Work around an Android Lint detector crash in the current toolchain.
