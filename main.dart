@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1381,7 +1382,7 @@ class _DirectorAppUpdatesPageState extends State<DirectorAppUpdatesPage> {
         'published_at': DateTime.now().toUtc().toIso8601String(),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
-      if (mounted) setState(() => message = 'Release published. Users will be notified at their next version check.');
+      if (mounted) setState(() => message = 'Release published. TAJIR checks automatically on app start, when reopened and every 5 minutes while open.');
     } catch (e) { if (mounted) setState(() => message = friendlyError(e)); }
     if (mounted) setState(() => busy = false);
   }
@@ -1405,7 +1406,11 @@ class _DirectorAppUpdatesPageState extends State<DirectorAppUpdatesPage> {
   );
 }
 
+int _tajirDismissedUpdateVersion = 0;
+bool _tajirUpdateDialogOpen = false;
+
 Future<void> checkForTajirUpdate(BuildContext context) async {
+  if (_tajirUpdateDialogOpen) return;
   try {
     final rows = await Supabase.instance.client.from('app_releases')
       .select('version_code,version_name,apk_url,release_notes,is_mandatory')
@@ -1413,22 +1418,30 @@ Future<void> checkForTajirUpdate(BuildContext context) async {
     if (rows.isEmpty || !context.mounted) return;
     final r = rows.first;
     final latest = int.tryParse(r['version_code'].toString()) ?? 0;
-    if (latest <= tajirBuildNumber) return;
+    if (latest <= tajirBuildNumber || latest == _tajirDismissedUpdateVersion) return;
     final required = r['is_mandatory'] == true;
-    await showDialog<void>(context: context, barrierDismissible: !required, builder: (dialogContext) => PopScope(
-      canPop: !required,
-      child: AlertDialog(
-        title: Text('TAJIR update ' + r['version_name'].toString() + ' available'),
-        content: Text((r['release_notes'] ?? 'A new version is available.').toString() + (required ? '\n\nThis update is required.' : '')),
-        actions: [
-          if (!required) TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Later')),
-          FilledButton(onPressed: () async {
-            Navigator.pop(dialogContext);
-            await downloadAndInstallTajirApk(context, r['apk_url'].toString());
-          }, child: const Text('Download update')),
-        ],
-      ),
-    ));
+    _tajirUpdateDialogOpen = true;
+    try {
+      await showDialog<void>(context: context, barrierDismissible: !required, builder: (dialogContext) => PopScope(
+        canPop: !required,
+        child: AlertDialog(
+          title: Text('TAJIR update ' + r['version_name'].toString() + ' available'),
+          content: Text((r['release_notes'] ?? 'A new version is available.').toString() + (required ? '\n\nThis update is required.' : '')),
+          actions: [
+            if (!required) TextButton(onPressed: () {
+              _tajirDismissedUpdateVersion = latest;
+              Navigator.pop(dialogContext);
+            }, child: const Text('Later')),
+            FilledButton(onPressed: () async {
+              Navigator.pop(dialogContext);
+              await downloadAndInstallTajirApk(context, r['apk_url'].toString());
+            }, child: const Text('Download update')),
+          ],
+        ),
+      ));
+    } finally {
+      _tajirUpdateDialogOpen = false;
+    }
   } catch (_) { /* Offline update checks must not block app access. */ }
 }
 
@@ -1454,13 +1467,40 @@ class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
 }
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int index = 0;
   bool director = false;
   List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage(), const DirectorAccountCentrePage(), const DirectorAppUpdatesPage()];
   List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Account Centre', if (director) 'App Updates'];
   List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.system_update];
-  @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) checkForTajirUpdate(context); }); }
+  Timer? _updateCheckTimer;
+
+  @override void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    loadAccess();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) checkForTajirUpdate(context);
+    });
+    // Check for newly published releases while the app remains open.
+    _updateCheckTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      if (mounted) checkForTajirUpdate(context);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      checkForTajirUpdate(context);
+    }
+  }
+
+  @override
+  void dispose() {
+    _updateCheckTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
   Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
