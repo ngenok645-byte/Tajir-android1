@@ -988,7 +988,8 @@ class _HomeShellState extends State<HomeShell> {
     showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
-      if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),\n      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Director Account Centre'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
+      if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
+      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Director Account Centre'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       const SizedBox(height: 8),
     ])));
   }
