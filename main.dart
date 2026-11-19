@@ -7,27 +7,27 @@ const brandGold = Color(0xFFD6A52D);
 /// Turns technical backend/network failures into clear messages for everyday users.
 /// Never display raw HTTP/database error codes in the app.
 String friendlyError(Object error) {
-  final raw = error.toString().replaceFirst(RegExp(r'^(Exception|FormatException|AuthException|PostgrestException|FunctionException):\\s*'), '').trim();
+  final raw = error.toString().replaceFirst(RegExp(r'^(Exception|FormatException|AuthException|PostgrestException|FunctionException):\s*'), '').trim();
   final value = raw.toLowerCase();
-  if (RegExp(r'\\b401\\b').hasMatch(value) || value.contains('unauthorized') || value.contains('jwt')) {
+  if (RegExp(r'\b401\b').hasMatch(value) || value.contains('unauthorized') || value.contains('jwt')) {
     return 'Your session has expired. Please sign in again and try once more.';
   }
-  if (RegExp(r'\\b403\\b').hasMatch(value) || value.contains('permission denied') || value.contains('not allowed')) {
+  if (RegExp(r'\b403\b').hasMatch(value) || value.contains('permission denied') || value.contains('not allowed')) {
     return 'You do not have permission to do this. Please contact the Director if you need access.';
   }
-  if (RegExp(r'\\b404\\b').hasMatch(value) || value.contains('not found')) {
+  if (RegExp(r'\b404\b').hasMatch(value) || value.contains('not found')) {
     return 'We could not find that record. Refresh the page and try again.';
   }
-  if (RegExp(r'\\b409\\b').hasMatch(value) || value.contains('duplicate') || value.contains('already exists') || value.contains('conflict')) {
+  if (RegExp(r'\b409\b').hasMatch(value) || value.contains('duplicate') || value.contains('already exists') || value.contains('conflict')) {
     return 'This information is already registered or has changed. Refresh and check the details.';
   }
-  if (RegExp(r'\\b429\\b').hasMatch(value) || value.contains('too many requests') || value.contains('rate limit')) {
+  if (RegExp(r'\b429\b').hasMatch(value) || value.contains('too many requests') || value.contains('rate limit')) {
     return 'Too many attempts were made. Please wait a little and try again.';
   }
-  if (RegExp(r'\\b400\\b').hasMatch(value) || value.contains('bad request')) {
+  if (RegExp(r'\b400\b').hasMatch(value) || value.contains('bad request')) {
     return 'Some details are missing or incorrect. Check the information and try again.';
   }
-  if (RegExp(r'\\b(500|502|503|504)\\b').hasMatch(value) || value.contains('server error')) {
+  if (RegExp(r'\b(500|502|503|504)\b').hasMatch(value) || value.contains('server error')) {
     return 'The service is temporarily unavailable. Please try again in a few minutes.';
   }
   if (value.contains('socketexception') || value.contains('failed host lookup') || value.contains('network is unreachable') || value.contains('connection refused')) {
@@ -36,7 +36,7 @@ String friendlyError(Object error) {
   if (value.contains('timed out') || value.contains('timeout')) {
     return 'The request took too long. Check your connection and try again.';
   }
-  if (raw.isEmpty || RegExp(r'\\b(code|status)\\s*[:=]?\\s*\\d{3}\\b', caseSensitive: false).hasMatch(raw)) {
+  if (raw.isEmpty || RegExp(r'\b(code|status)\s*[:=]?\s*\d{3}\b', caseSensitive: false).hasMatch(raw)) {
     return 'Something went wrong. Please try again. If the problem continues, contact the Director.';
   }
   return raw;
