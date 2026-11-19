@@ -1096,36 +1096,8 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
   }
 
   void _preview(Map<String, dynamic> account) {
-    final records = account['records'] as List<Map<String, dynamic>>;
-    showDialog<void>(context: context, builder: (ctx) => AlertDialog(
-      title: Text('${account['name']} • Dashboard preview'),
-      content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          Container(width: double.infinity, padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: brandGreen.withOpacity(.08), borderRadius: BorderRadius.circular(12)),
-            child: const Text('DIRECTOR READ-ONLY PREVIEW • No transactions or changes can be made here.',
-              style: TextStyle(fontWeight: FontWeight.w700, color: brandGreen))),
-          const SizedBox(height: 12),
-          Text('Account ID: ${account['id']}', style: const TextStyle(fontSize: 11)),
-          Text('Phone: ${(account['phone'] as String).isEmpty ? 'Not available' : account['phone']}'),
-          Text('Account status: ${account['status']}'),
-          const SizedBox(height: 8),
-          const Text('Assigned access', style: TextStyle(fontWeight: FontWeight.bold)),
-          Wrap(spacing: 6, children: (account['roles'] as Set<String>).map((r) => Chip(label: Text(r))).toList()),
-          const Divider(),
-          const Text('Dashboard records', style: TextStyle(fontWeight: FontWeight.bold)),
-          if (records.isEmpty) const Text('No linked dashboard records yet. This account will show an empty dashboard until its role profile is created.'),
-          ...records.map((record) => Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(record['title'].toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 5),
-              ...(record['details'] as Map<String, dynamic>).entries.map((e) =>
-                Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('${e.key}: ${e.value ?? '—'}'))),
-            ],
-          )))),
-        ],
-      ))),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close preview'))],
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => DirectorReadOnlyDashboardPage(account: account),
     ));
   }
 
@@ -1202,6 +1174,173 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
     if (roles.contains('Mechanic')) return Icons.build_outlined;
     if (roles.contains('Auto-spares owner')) return Icons.storefront_outlined;
     return Icons.person_outline;
+  }
+}
+
+class DirectorReadOnlyDashboardPage extends StatelessWidget {
+  final Map<String, dynamic> account;
+  const DirectorReadOnlyDashboardPage({super.key, required this.account});
+
+  IconData _roleIcon(String role) {
+    switch (role.toLowerCase()) {
+      case 'client': return Icons.storefront_outlined;
+      case 'worker': return Icons.badge_outlined;
+      case 'tractor owner': return Icons.agriculture;
+      case 'driver': return Icons.local_shipping_outlined;
+      case 'mechanic': return Icons.build_outlined;
+      case 'auto-spares owner': return Icons.handyman_outlined;
+      default: return Icons.dashboard_outlined;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final roles = (account['roles'] as Set<String>).toList()..sort();
+    final records = account['records'] as List<Map<String, dynamic>>;
+    final name = account['name'].toString();
+    final phone = (account['phone'] ?? '').toString();
+    final status = (account['status'] ?? 'unknown').toString();
+    final roleLabel = roles.isEmpty ? 'No active role' : roles.join(' • ');
+    final summary = <String, String>{
+      'Account roles': roles.length.toString(),
+      'Linked record groups': records.length.toString(),
+      'Account status': status,
+    };
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Dashboard inspection'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Icon(Icons.visibility_outlined, color: brandGreen),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0E5630), Color(0xFF269653)],
+                begin: Alignment.topLeft, end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(children: [
+                  Icon(Icons.visibility_outlined, color: Colors.white, size: 22),
+                  SizedBox(width: 8),
+                  Text('DIRECTOR • READ-ONLY MODE',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: .7)),
+                ]),
+                const SizedBox(height: 18),
+                Text(name, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 5),
+                Text(roleLabel, style: const TextStyle(color: Colors.white70)),
+                const SizedBox(height: 12),
+                Text(phone.isEmpty ? 'Phone not available' : phone,
+                  style: const TextStyle(color: Colors.white)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('Dashboard overview',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 9, runSpacing: 9,
+            children: summary.entries.map((e) => SizedBox(
+              width: (MediaQuery.of(context).size.width - 41) / 2,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(13),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(e.key, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                    const SizedBox(height: 6),
+                    Text(e.value, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                  ]),
+                ),
+              ),
+            )).toList(),
+          ),
+          const SizedBox(height: 12),
+          const Text('Role dashboards',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          ...roles.map((role) => Card(
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: brandGreen.withOpacity(.10),
+                child: Icon(_roleIcon(role), color: brandGreen),
+              ),
+              title: Text(role),
+              subtitle: const Text('Inspection view • No edit or transaction access'),
+              trailing: const Icon(Icons.visibility_outlined),
+            ),
+          )),
+          const SizedBox(height: 12),
+          const Text('Account information',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          Card(child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Account ID: ${account['id']}', style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 5),
+              Text('Status: $status'),
+              Text('Phone: ${phone.isEmpty ? 'Not available' : phone}'),
+            ]),
+          )),
+          const SizedBox(height: 12),
+          const Text('Available dashboard records',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          if (records.isEmpty)
+            const Card(child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No linked role records are available for this account yet.'),
+            )),
+          ...records.map((record) => Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(record['title'].toString(),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const Divider(),
+                ...(record['details'] as Map<String, dynamic>).entries.map((entry) =>
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Expanded(flex: 4, child: Text(entry.key,
+                        style: const TextStyle(color: Colors.black54))),
+                      Expanded(flex: 5, child: Text((entry.value ?? '—').toString())),
+                    ]),
+                  )),
+              ]),
+            ),
+          )),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: Colors.orange.withOpacity(.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.orange.withOpacity(.25)),
+            ),
+            child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(Icons.lock_outline, color: Colors.orange),
+              SizedBox(width: 10),
+              Expanded(child: Text(
+                'Read-only inspection. This screen does not provide controls to approve, edit, delete, purchase, sell, assign work or make payments.',
+              )),
+            ]),
+          ),
+        ],
+      ),
+    );
   }
 }
 
