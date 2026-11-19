@@ -7,8 +7,38 @@ const brandGold = Color(0xFFD6A52D);
 /// Turns technical backend/network failures into clear messages for everyday users.
 /// Never display raw HTTP/database error codes in the app.
 String friendlyError(Object error) {
-  final raw = error.toString().replaceFirst(RegExp(r'^(Exception|FormatException|AuthException|PostgrestException|FunctionException):\s*'), '').trim();
+  final raw = error.toString().replaceFirst(
+    RegExp(r'^(Exception|FormatException|AuthException|PostgrestException|FunctionException):\s*'),
+    '',
+  ).trim();
   final value = raw.toLowerCase();
+
+  // Give specific, helpful messages before checking general server codes.
+  if (value.contains('wrong pin') || value.contains('incorrect pin') ||
+      value.contains('invalid pin') || value.contains('pin does not match')) {
+    return 'Wrong PIN. Please check your PIN and try again.';
+  }
+  if (value.contains('invalid login credentials') || value.contains('invalid credentials')) {
+    return 'The phone number or PIN is incorrect. Please check and try again.';
+  }
+  if (value.contains('phone') && (value.contains('already registered') ||
+      value.contains('already exists') || value.contains('duplicate'))) {
+    return 'This phone number is already registered. Please sign in or use another number.';
+  }
+  if (value.contains('phone') && (value.contains('not found') ||
+      value.contains('not registered') || value.contains('no account'))) {
+    return 'We could not find an account with this phone number. Check the number or register first.';
+  }
+  if (value.contains('pin') && (value.contains('four') || value.contains('4 digit') ||
+      value.contains('4-digit') || value.contains('length'))) {
+    return 'Your PIN must contain exactly four digits.';
+  }
+  if (value.contains('pin') && value.contains('match')) {
+    return 'The PINs do not match. Enter the same PIN in both boxes.';
+  }
+  if (value.contains('session') && (value.contains('expired') || value.contains('missing'))) {
+    return 'Your session has expired. Please sign in again.';
+  }
   if (RegExp(r'\b401\b').hasMatch(value) || value.contains('unauthorized') || value.contains('jwt')) {
     return 'Your session has expired. Please sign in again and try once more.';
   }
@@ -30,7 +60,8 @@ String friendlyError(Object error) {
   if (RegExp(r'\b(500|502|503|504)\b').hasMatch(value) || value.contains('server error')) {
     return 'The service is temporarily unavailable. Please try again in a few minutes.';
   }
-  if (value.contains('socketexception') || value.contains('failed host lookup') || value.contains('network is unreachable') || value.contains('connection refused')) {
+  if (value.contains('socketexception') || value.contains('failed host lookup') ||
+      value.contains('network is unreachable') || value.contains('connection refused')) {
     return 'There is a connection problem. Check your internet and try again.';
   }
   if (value.contains('timed out') || value.contains('timeout')) {
