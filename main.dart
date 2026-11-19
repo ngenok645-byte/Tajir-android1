@@ -636,7 +636,9 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
-void _noDashboardAction() {}\n\nclass DashboardPage extends StatefulWidget {
+void _noDashboardAction() {}
+
+class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenTractor;
   const DashboardPage({super.key, this.onOpenTractor});
   @override State<DashboardPage> createState() => _DashboardPageState();
