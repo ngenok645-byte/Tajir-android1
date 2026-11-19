@@ -82,6 +82,21 @@ jobs:
           manifest.write_text(source)
           print("Android network permissions verified.")
           PY
+          # Flutter's generated settings may resolve Kotlin plugin transitive artifacts
+          # only from the Gradle Plugin Portal. Add Google and Maven Central explicitly.
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("android/settings.gradle.kts")
+          s = p.read_text()
+          if "pluginManagement" not in s:
+              raise SystemExit("pluginManagement block missing from Android settings")
+          if "mavenCentral()" not in s:
+              s = s.replace("repositories {", "repositories {\\n        google()\\n        mavenCentral()", 1)
+          elif "google()" not in s:
+              s = s.replace("repositories {", "repositories {\\n        google()", 1)
+          p.write_text(s)
+          print("Android plugin repositories verified.")
+          PY
           flutter pub get
           # Work around an Android Lint detector crash in the current toolchain.
           # This skips only the release lint analysis task; APK compilation remains enabled.
