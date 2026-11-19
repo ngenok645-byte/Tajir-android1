@@ -143,45 +143,19 @@ class TajirApp extends StatefulWidget {
   State<TajirApp> createState() => _TajirAppState();
 }
 
-class _TajirAppState extends State<TajirApp> with WidgetsBindingObserver {
+class _TajirAppState extends State<TajirApp> {
   bool _signingOutForBackground = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Log out when the app is sent to the background or closed.
-    // Ignore "inactive", which can occur briefly for system dialogs.
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _signOutWhenLeaving();
-    }
-  }
-
-  Future<void> _signOutWhenLeaving() async {
-    if (_signingOutForBackground) return;
-    _signingOutForBackground = true;
-    try {
-      if (Supabase.instance.client.auth.currentSession != null) {
-        await Supabase.instance.client.auth.signOut();
-      }
-    } catch (_) {
-      // The app may be terminated before the network request completes.
-      // Supabase's local session is cleared when signOut succeeds.
-    } finally {
-      _signingOutForBackground = false;
-    }
-  }
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -381,8 +355,6 @@ class _LoginPageState extends State<LoginPage> {
             )),
             TextButton(onPressed: busy ? null : showForgotPinHelp,
               child: const Text('Forgot PIN?')),
-            TextButton(onPressed: busy ? null : () => setState(() { setupDirector = !setupDirector; error = null; }),
-              child: Text(setupDirector ? 'I already set up my PIN — sign in' : 'First time? Set up director PIN')),
             TextButton(onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
               child: const Text('Are you a client, tractor owner or driver?')),
@@ -880,6 +852,97 @@ class BrandMark extends StatelessWidget {
   ]);
 }
 
+class DirectorAccountCentrePage extends StatefulWidget {
+  const DirectorAccountCentrePage({super.key});
+  @override State<DirectorAccountCentrePage> createState() => _DirectorAccountCentrePageState();
+}
+
+class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
+  bool busy = true;
+  String? error;
+  String filter = '';
+  List<Map<String,dynamic>> accounts = [];
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    setState(() { busy = true; error = null; });
+    try {
+      final db = Supabase.instance.client;
+      final uid = db.auth.currentUser?.id;
+      if (uid == null) throw const FormatException('Please sign in again.');
+      final ownRoles = await db.from('user_role_assignments')
+        .select('app_roles(code)').eq('user_id', uid).eq('is_active', true);
+      final isDirector = ownRoles.any((r) => r['app_roles'] is Map &&
+        (r['app_roles'] as Map)['code'] == 'director');
+      if (!isDirector) throw const FormatException('Director permission is required.');
+      final profileRows = await db.from('profiles')
+        .select('id,display_name').order('display_name');
+      final roleRows = await db.from('user_role_assignments')
+        .select('user_id,is_active,app_roles(name,code)').eq('is_active', true);
+      final byUser = <String,List<String>>{};
+      for (final row in roleRows) {
+        final role = row['app_roles'];
+        final id = row['user_id']?.toString();
+        if (id == null || role is! Map) continue;
+        byUser.putIfAbsent(id, () => <String>[]).add(
+          (role['name'] ?? role['code'] ?? 'Account').toString());
+      }
+      accounts = List<Map<String,dynamic>>.from(profileRows).map((p) {
+        final id = p['id'].toString();
+        return {'id': id, 'name': (p['display_name'] ?? 'Unnamed account').toString(),
+          'roles': byUser[id] ?? <String>[]};
+      }).toList();
+    } catch (e) {
+      error = friendlyError(e);
+    }
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override Widget build(BuildContext context) {
+    final q = filter.trim().toLowerCase();
+    final visible = accounts.where((a) =>
+      a['name'].toString().toLowerCase().contains(q) ||
+      (a['roles'] as List<String>).join(' ').toLowerCase().contains(q) ||
+      a['id'].toString().toLowerCase().contains(q)).toList();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Director • Account Centre'),
+        actions: [IconButton(onPressed: load, icon: const Icon(Icons.refresh))]),
+      body: Column(children: [
+        Container(width: double.infinity, padding: const EdgeInsets.all(14),
+          color: brandGreen.withOpacity(.08),
+          child: const Text('DIRECTOR ACCESS • ACCOUNT DIRECTORY',
+            style: TextStyle(fontWeight: FontWeight.bold, color: brandGreen))),
+        Padding(padding: const EdgeInsets.all(12), child: TextField(
+          onChanged: (v) => setState(() => filter = v),
+          decoration: const InputDecoration(prefixIcon: Icon(Icons.search),
+            hintText: 'Search name, role or account ID', border: OutlineInputBorder()))),
+        if (busy) const LinearProgressIndicator(),
+        if (error != null) Padding(padding: const EdgeInsets.all(16),
+          child: Text(error!, style: const TextStyle(color: Colors.red))),
+        Expanded(child: RefreshIndicator(onRefresh: load, child: ListView(
+          children: [
+            if (!busy && error == null) Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Text('${visible.length} accounts', style: const TextStyle(fontWeight: FontWeight.w600))),
+            ...visible.map((a) => Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              child: ListTile(leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+                title: Text(a['name'].toString()),
+                subtitle: Text((a['roles'] as List<String>).isEmpty
+                  ? 'No active role assigned' : (a['roles'] as List<String>).join(' • ')),
+                trailing: const Icon(Icons.verified_user_outlined),
+                onTap: () => showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+                  title: Text(a['name'].toString()),
+                  content: SelectableText('Account ID: ${a['id']}\\nActive roles: ${(a['roles'] as List<String>).isEmpty ? 'None' : (a['roles'] as List<String>).join(', ')}\\n\\nThis directory provides account and role visibility. It does not sign you in as another person or permit actions using their identity.'),
+                  actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))])))),
+            if (!busy && error == null && visible.isEmpty)
+              const Padding(padding: EdgeInsets.all(24), child: Text('No matching accounts found.'))
+          ],
+        ))),
+      ]),
+    );
+  }
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
@@ -887,15 +950,15 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage(), const DirectorAccountCentrePage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Account Centre'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts];
   @override void initState() { super.initState(); loadAccess(); }
   Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
       final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
-      if (mounted) setState(() { director = allowed; if (!allowed && index == 6) index = 0; });
+      if (mounted) setState(() { director = allowed; if (!allowed && index >= 6) index = 0; });
     } catch (_) { if (mounted) setState(() => director = false); }
   }
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
@@ -903,7 +966,7 @@ class _HomeShellState extends State<HomeShell> {
     showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
-      if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
+      if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),\n      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Director Account Centre'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       const SizedBox(height: 8),
     ])));
   }
