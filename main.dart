@@ -655,7 +655,7 @@ class CustomerPortalPage extends StatefulWidget {
 }
 class _CustomerPortalPageState extends State<CustomerPortalPage>{
  Map<String,dynamic>? c;bool busy=true;String? error;
- @override void initState(){super.initState();load();}
+ @override void initState(){super.initState();load();WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) checkForTajirUpdate(context); });}
  Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',db.auth.currentUser!.id).maybeSingle();if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');if(mounted)setState(()=>c=Map<String,dynamic>.from(r));}catch(e){if(mounted)setState(()=>error=friendlyError(e));}if(mounted)setState(()=>busy=false);}
  @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;
  final tabs=<Widget>[
