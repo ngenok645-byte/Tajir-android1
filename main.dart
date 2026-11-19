@@ -872,12 +872,15 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
   bool busy = true;
   String? error;
   String filter = '';
-  List<Map<String,dynamic>> accounts = [];
+  String category = 'All';
+  List<Map<String, dynamic>> accounts = [];
+
+  static const categories = ['All', 'Clients', 'Workers', 'Tractor owners', 'Drivers', 'Mechanics', 'Auto-spares'];
 
   @override void initState() { super.initState(); load(); }
 
   Future<void> load() async {
-    setState(() { busy = true; error = null; });
+    if (mounted) setState(() { busy = true; error = null; });
     try {
       final db = Supabase.instance.client;
       final uid = db.auth.currentUser?.id;
@@ -887,95 +890,260 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
       final isDirector = ownRoles.any((r) => r['app_roles'] is Map &&
         (r['app_roles'] as Map)['code'] == 'director');
       if (!isDirector) throw const FormatException('Director permission is required.');
-      final profileRows = await db.from('profiles')
-        .select('id,display_name').order('display_name');
-      final roleRows = await db.from('user_role_assignments')
-        .select('user_id,is_active,app_roles(name,code)').eq('is_active', true);
-      final byUser = <String,List<String>>{};
-      for (final row in roleRows) {
-        final role = row['app_roles'];
-        final id = row['user_id']?.toString();
-        if (id == null || role is! Map) continue;
-        byUser.putIfAbsent(id, () => <String>[]).add(
-          (role['name'] ?? role['code'] ?? 'Account').toString());
+
+      // Fetch each account source separately so unlinked customer and provider
+      // applications are not hidden by an inner join to profiles.
+      final results = await Future.wait([
+        db.from('profiles').select('id,display_name,phone,status,created_at').order('display_name'),
+        db.from('user_role_assignments').select('user_id,is_active,app_roles(name,code)').eq('is_active', true),
+        db.from('customers').select('id,profile_id,customer_type,full_name,phone,active,approved_at,marketplace_can_buy,marketplace_can_sell,default_branch_id,deleted_at,permanently_deleted_at'),
+        db.from('tractor_owner_profiles').select('id,profile_id,full_name,phone,company_name,status,operating_mode,default_branch_id'),
+        db.from('mechanic_profiles').select('id,profile_id,business_name,phone,location,services,status'),
+        db.from('auto_spares_profiles').select('id,profile_id,shop_name,phone,location,status'),
+        db.from('provider_verification_applications').select('id,profile_id,account_type,applicant_name,phone,business_name,business_location,status,review_notes,created_at'),
+        db.from('vehicles').select('id,driver_id,registration_number,make,model,active,branch_id'),
+      ]);
+
+      final byId = <String, Map<String, dynamic>>{};
+      Map<String, dynamic> ensure(String id, String name, String phone, String status) {
+        return byId.putIfAbsent(id, () => {
+          'id': id, 'name': name.isEmpty ? 'Unnamed account' : name,
+          'phone': phone, 'status': status, 'roles': <String>{},
+          'records': <Map<String, dynamic>>[],
+        });
       }
-      accounts = List<Map<String,dynamic>>.from(profileRows).map((p) {
-        final id = p['id'].toString();
-        return {'id': id, 'name': (p['display_name'] ?? 'Unnamed account').toString(),
-          'roles': byUser[id] ?? <String>[]};
-      }).toList();
+      void addRole(Map<String, dynamic> account, String role) {
+        (account['roles'] as Set<String>).add(role);
+      }
+      void addRecord(Map<String, dynamic> account, String title, Map<String, dynamic> details) {
+        (account['records'] as List<Map<String, dynamic>>).add({'title': title, 'details': details});
+      }
+
+      final profiles = List<Map<String, dynamic>>.from(results[0] as List);
+      final roleRows = List<Map<String, dynamic>>.from(results[1] as List);
+      for (final p in profiles) {
+        ensure(p['id'].toString(), (p['display_name'] ?? '').toString(),
+          (p['phone'] ?? '').toString(), (p['status'] ?? 'unknown').toString());
+      }
+      for (final row in roleRows) {
+        final id = row['user_id']?.toString();
+        final role = row['app_roles'];
+        if (id == null || role is! Map) continue;
+        final account = byId[id];
+        if (account != null) addRole(account, (role['name'] ?? role['code'] ?? 'Account').toString());
+      }
+
+      for (final c in List<Map<String, dynamic>>.from(results[2] as List)) {
+        final profileId = c['profile_id']?.toString();
+        final id = (profileId == null || profileId.isEmpty) ? 'customer:${c['id']}' : profileId;
+        final a = ensure(id, (c['full_name'] ?? '').toString(), (c['phone'] ?? '').toString(),
+          c['permanently_deleted_at'] != null ? 'permanently deleted' :
+          c['deleted_at'] != null ? 'deleted' : (c['active'] == true ? 'active' : 'inactive'));
+        addRole(a, 'Client');
+        addRecord(a, 'Client / marketplace access', {
+          'Customer record': c['id'], 'Customer type': c['customer_type'],
+          'Can buy': c['marketplace_can_buy'] == true ? 'Yes' : 'No',
+          'Can sell': c['marketplace_can_sell'] == true ? 'Yes' : 'No',
+          'Approved': c['approved_at'] == null ? 'Not approved' : 'Approved',
+          'Branch ID': c['default_branch_id'] ?? 'Not assigned',
+        });
+      }
+
+      for (final p in List<Map<String, dynamic>>.from(results[3] as List)) {
+        final a = ensure(p['profile_id'].toString(), (p['full_name'] ?? '').toString(),
+          (p['phone'] ?? '').toString(), (p['status'] ?? 'pending').toString());
+        addRole(a, 'Tractor owner');
+        addRecord(a, 'Tractor-owner profile', {
+          'Company': p['company_name'] ?? 'Individual owner',
+          'Operating mode': p['operating_mode'] ?? 'Not set',
+          'Provider status': p['status'] ?? 'pending',
+          'Branch ID': p['default_branch_id'] ?? 'Not assigned',
+        });
+      }
+
+      for (final p in List<Map<String, dynamic>>.from(results[4] as List)) {
+        final a = ensure(p['profile_id'].toString(), (p['business_name'] ?? '').toString(),
+          (p['phone'] ?? '').toString(), (p['status'] ?? 'pending').toString());
+        addRole(a, 'Mechanic');
+        addRecord(a, 'Mechanic service profile', {
+          'Business': p['business_name'], 'Location': p['location'],
+          'Services': (p['services'] as List?)?.join(', ') ?? '',
+          'Provider status': p['status'] ?? 'pending',
+        });
+      }
+
+      for (final p in List<Map<String, dynamic>>.from(results[5] as List)) {
+        final a = ensure(p['profile_id'].toString(), (p['shop_name'] ?? '').toString(),
+          (p['phone'] ?? '').toString(), (p['status'] ?? 'pending').toString());
+        addRole(a, 'Auto-spares owner');
+        addRecord(a, 'Auto-spares shop profile', {
+          'Shop': p['shop_name'], 'Location': p['location'],
+          'Provider status': p['status'] ?? 'pending',
+        });
+      }
+
+      for (final p in List<Map<String, dynamic>>.from(results[6] as List)) {
+        final id = p['profile_id'].toString();
+        final role = switch ((p['account_type'] ?? '').toString()) {
+          'tractor_owner' => 'Tractor owner',
+          'mechanic' => 'Mechanic',
+          'auto_spares' => 'Auto-spares owner',
+          _ => 'Service provider',
+        };
+        final a = ensure(id, (p['applicant_name'] ?? '').toString(),
+          (p['phone'] ?? '').toString(), (p['status'] ?? 'pending').toString());
+        addRole(a, role);
+        addRecord(a, 'Verification application', {
+          'Application ID': p['id'], 'Type': role,
+          'Business': p['business_name'] ?? 'Not provided',
+          'Location': p['business_location'] ?? 'Not provided',
+          'Verification': p['status'] ?? 'pending',
+          'Director notes': p['review_notes'] ?? 'No review notes',
+        });
+      }
+
+      for (final v in List<Map<String, dynamic>>.from(results[7] as List)) {
+        final driverId = v['driver_id']?.toString();
+        if (driverId == null || driverId.isEmpty) continue;
+        final a = ensure(driverId, 'Driver account', '', 'assigned to vehicle');
+        addRole(a, 'Driver');
+        addRecord(a, 'Assigned vehicle', {
+          'Registration': v['registration_number'] ?? 'Not provided',
+          'Vehicle': '${v['make'] ?? ''} ${v['model'] ?? ''}'.trim(),
+          'Vehicle status': v['active'] == true ? 'Active' : 'Inactive',
+          'Vehicle ID': v['id'],
+        });
+      }
+
+      if (mounted) setState(() {
+        accounts = byId.values.toList()
+          ..sort((a, b) => a['name'].toString().toLowerCase().compareTo(b['name'].toString().toLowerCase()));
+        busy = false;
+      });
     } catch (e) {
-      error = friendlyError(e);
+      if (mounted) setState(() { error = friendlyError(e); busy = false; });
     }
-    if (mounted) setState(() => busy = false);
+  }
+
+  bool _matchesCategory(Map<String, dynamic> a) {
+    if (category == 'All') return true;
+    final roles = a['roles'] as Set<String>;
+    const mapping = {
+      'Clients': 'Client', 'Workers': 'Worker', 'Tractor owners': 'Tractor owner',
+      'Drivers': 'Driver', 'Mechanics': 'Mechanic', 'Auto-spares': 'Auto-spares owner',
+    };
+    return roles.contains(mapping[category]);
+  }
+
+  void _preview(Map<String, dynamic> account) {
+    final records = account['records'] as List<Map<String, dynamic>>;
+    showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+      title: Text('${account['name']} • Dashboard preview'),
+      content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Container(width: double.infinity, padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: brandGreen.withOpacity(.08), borderRadius: BorderRadius.circular(12)),
+            child: const Text('DIRECTOR READ-ONLY PREVIEW • No transactions or changes can be made here.',
+              style: TextStyle(fontWeight: FontWeight.w700, color: brandGreen))),
+          const SizedBox(height: 12),
+          Text('Account ID: ${account['id']}', style: const TextStyle(fontSize: 11)),
+          Text('Phone: ${(account['phone'] as String).isEmpty ? 'Not available' : account['phone']}'),
+          Text('Account status: ${account['status']}'),
+          const SizedBox(height: 8),
+          const Text('Assigned access', style: TextStyle(fontWeight: FontWeight.bold)),
+          Wrap(spacing: 6, children: (account['roles'] as Set<String>).map((r) => Chip(label: Text(r))).toList()),
+          const Divider(),
+          const Text('Dashboard records', style: TextStyle(fontWeight: FontWeight.bold)),
+          if (records.isEmpty) const Text('No linked dashboard records yet. This account will show an empty dashboard until its role profile is created.'),
+          ...records.map((record) => Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(record['title'].toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 5),
+              ...(record['details'] as Map<String, dynamic>).entries.map((e) =>
+                Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('${e.key}: ${e.value ?? '—'}'))),
+            ],
+          )))),
+        ],
+      ))),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close preview'))],
+    ));
   }
 
   @override Widget build(BuildContext context) {
     final q = filter.trim().toLowerCase();
-    final visible = accounts.where((a) =>
-      a['name'].toString().toLowerCase().contains(q) ||
-      (a['roles'] as List<String>).join(' ').toLowerCase().contains(q) ||
-      a['id'].toString().toLowerCase().contains(q)).toList();
+    final visible = accounts.where((a) {
+      final roles = (a['roles'] as Set<String>).join(' ').toLowerCase();
+      return _matchesCategory(a) && (a['name'].toString().toLowerCase().contains(q) ||
+        roles.contains(q) || a['id'].toString().toLowerCase().contains(q) ||
+        a['phone'].toString().toLowerCase().contains(q));
+    }).toList();
+    final counts = <String, int>{for (final c in categories) c:
+      c == 'All' ? accounts.length : accounts.where((a) => _matchesFor(a, c)).length};
     return Scaffold(
       appBar: AppBar(title: const Text('Director • Account Centre'),
-        actions: [IconButton(onPressed: load, icon: const Icon(Icons.refresh))]),
+        actions: [IconButton(tooltip: 'Refresh accounts', onPressed: load, icon: const Icon(Icons.refresh))]),
       body: Column(children: [
         Container(width: double.infinity, padding: const EdgeInsets.all(14),
           color: brandGreen.withOpacity(.08),
-          child: const Text('DIRECTOR ACCESS • ACCOUNT DIRECTORY',
+          child: const Text('DIRECTOR CONTROL • ALL ACCOUNT TYPES',
             style: TextStyle(fontWeight: FontWeight.bold, color: brandGreen))),
-        Padding(padding: const EdgeInsets.all(12), child: TextField(
+        Padding(padding: const EdgeInsets.fromLTRB(12, 12, 12, 4), child: TextField(
           onChanged: (v) => setState(() => filter = v),
           decoration: const InputDecoration(prefixIcon: Icon(Icons.search),
-            hintText: 'Search name, role or account ID', border: OutlineInputBorder()))),
+            hintText: 'Search name, phone, role or account ID', border: OutlineInputBorder()))),
+        SizedBox(height: 52, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8),
+          children: categories.map((c) => Padding(padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 6),
+            child: ChoiceChip(label: Text('$c (${counts[c] ?? 0})'), selected: category == c,
+              onSelected: (_) => setState(() => category = c)))).toList())),
         if (busy) const LinearProgressIndicator(),
-        if (error != null) Padding(padding: const EdgeInsets.all(16),
-          child: Text(error!, style: const TextStyle(color: Colors.red))),
+        if (error != null) Padding(padding: const EdgeInsets.all(16), child: Text(error!, style: const TextStyle(color: Colors.red))),
         Expanded(child: RefreshIndicator(onRefresh: load, child: ListView(
           children: [
             if (!busy && error == null) Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Text('${visible.length} accounts', style: const TextStyle(fontWeight: FontWeight.w600))),
+              child: Text('${visible.length} accounts shown • Select an account to preview its dashboard',
+                style: const TextStyle(fontWeight: FontWeight.w600))),
             ...visible.map((a) {
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              final roles = (a['roles'] as Set<String>).toList()..sort();
+              return Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                 child: ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-                  title: Text(a['name'].toString()),
-                  subtitle: Text(
-                    (a['roles'] as List<String>).isEmpty
-                        ? 'No active role assigned'
-                        : (a['roles'] as List<String>).join(' • '),
-                  ),
-                  trailing: const Icon(Icons.verified_user_outlined),
-                  onTap: () => showDialog<void>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: Text(a['name'].toString()),
-                      content: SelectableText(
-                        'Account ID: ${a['id']}\n'
-                        'Active roles: ${(a['roles'] as List<String>).isEmpty ? 'None' : (a['roles'] as List<String>).join(', ')}\n\n'
-                        'This directory provides account and role visibility. It does not sign you in as another person or permit actions using their identity.',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Close'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
+                  leading: CircleAvatar(backgroundColor: brandGreen.withOpacity(.1),
+                    child: Icon(_iconForRoles(roles), color: brandGreen)),
+                  title: Text(a['name'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(roles.isEmpty ? 'No active role assigned' : roles.join(' • ')),
+                    Text('${a['phone'].toString().isEmpty ? 'Phone unavailable' : a['phone']}  •  ${a['status']}',
+                      style: const TextStyle(fontSize: 11)),
+                  ]),
+                  isThreeLine: true,
+                  trailing: const Icon(Icons.visibility_outlined),
+                  onTap: () => _preview(a),
+                ));
             }),
             if (!busy && error == null && visible.isEmpty)
-              const Padding(padding: EdgeInsets.all(24), child: Text('No matching accounts found.'))
+              const Padding(padding: EdgeInsets.all(24), child: Text('No accounts found in this category.')),
           ],
         ))),
       ]),
     );
   }
-}
 
+  bool _matchesFor(Map<String, dynamic> a, String c) {
+    const mapping = {
+      'Clients': 'Client', 'Workers': 'Worker', 'Tractor owners': 'Tractor owner',
+      'Drivers': 'Driver', 'Mechanics': 'Mechanic', 'Auto-spares': 'Auto-spares owner',
+    };
+    return (a['roles'] as Set<String>).contains(mapping[c]);
+  }
+
+  IconData _iconForRoles(List<String> roles) {
+    if (roles.contains('Worker')) return Icons.badge_outlined;
+    if (roles.contains('Tractor owner')) return Icons.agriculture;
+    if (roles.contains('Driver')) return Icons.local_shipping_outlined;
+    if (roles.contains('Mechanic')) return Icons.build_outlined;
+    if (roles.contains('Auto-spares owner')) return Icons.storefront_outlined;
+    return Icons.person_outline;
+  }
+}
 
 class DirectorAppUpdatesPage extends StatefulWidget {
   const DirectorAppUpdatesPage({super.key});
