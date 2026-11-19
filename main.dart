@@ -532,7 +532,7 @@ class _BranchRequestPanelState extends State<BranchRequestPanel> {
   final db=Supabase.instance.client;
   List<Map<String,dynamic>> branches=[],requests=[];
   String? selected,error; bool loading=true,saving=false;
-  @override void initState(){super.initState();load();}
+  @override void initState(){super.initState();load();WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) checkForTajirUpdate(context); });}
   Future<void> load() async {
     if(mounted)setState(()=>loading=true);
     try {
