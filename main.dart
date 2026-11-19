@@ -124,7 +124,7 @@ class SetupRequiredApp extends StatelessWidget {
     title: 'TAJIR', theme: appTheme,
     home: const Scaffold(body: Center(child: Padding(
       padding: EdgeInsets.all(28),
-      child: Text('TAJIR setup required\\n\\nBuild with SUPABASE_URL and SUPABASE_ANON_KEY. See README.md.',
+      child: Text('TAJIR setup required\n\nBuild with SUPABASE_URL and SUPABASE_ANON_KEY. See README.md.',
         textAlign: TextAlign.center, style: TextStyle(fontSize: 18)),
     ))),
   );
@@ -742,13 +742,13 @@ class _RepairMarketplacePageState extends State<RepairMarketplacePage> with Sing
     const Text('Choose a mechanic',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
     const Text('Browse approved mechanics and request help for your tractor.'),
     if(!busy&&mechanics.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No approved mechanics are listed yet.')),
-    ...mechanics.map((m)=>Card(child:ListTile(isThreeLine:true,leading:const CircleAvatar(child:Icon(Icons.handyman)),title:Text(m['business_name'].toString()),subtitle:Text('${m['location']} • ${m['phone']}\\n${(m['services'] as List).join(', ')}'),trailing:FilledButton(onPressed:()=>requestRepair(m),child:const Text('Choose')))))
+    ...mechanics.map((m)=>Card(child:ListTile(isThreeLine:true,leading:const CircleAvatar(child:Icon(Icons.handyman)),title:Text(m['business_name'].toString()),subtitle:Text('${m['location']} • ${m['phone']}\n${(m['services'] as List).join(', ')}'),trailing:FilledButton(onPressed:()=>requestRepair(m),child:const Text('Choose')))))
    ])),
    RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(12),children:[
     const Text('Available spare parts',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
     const Text('Parts listed by approved auto-spares shops.'),
     if(!busy&&parts.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No spare parts are listed yet.')),
-    ...parts.map((p){final shop=(p['auto_spares_profiles'] as Map?)?.cast<String,dynamic>()??{};return Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.settings)),title:Text(p['part_name'].toString()),subtitle:Text('${shop['shop_name']??'Auto spares'} • ${shop['location']??''}\\nRef: ${p['part_reference']??'Not supplied'} • Stock: ${p['quantity']} ${p['unit']}'),trailing:Text('KES ${p['price_kes']}',style:const TextStyle(fontWeight:FontWeight.bold))));})
+    ...parts.map((p){final shop=(p['auto_spares_profiles'] as Map?)?.cast<String,dynamic>()??{};return Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.settings)),title:Text(p['part_name'].toString()),subtitle:Text('${shop['shop_name']??'Auto spares'} • ${shop['location']??''}\nRef: ${p['part_reference']??'Not supplied'} • Stock: ${p['quantity']} ${p['unit']}'),trailing:Text('KES ${p['price_kes']}',style:const TextStyle(fontWeight:FontWeight.bold))));})
    ]))
   ]))
  ]);
@@ -941,8 +941,8 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
                     builder: (ctx) => AlertDialog(
                       title: Text(a['name'].toString()),
                       content: SelectableText(
-                        'Account ID: ${a['id']}\\n'
-                        'Active roles: ${(a['roles'] as List<String>).isEmpty ? 'None' : (a['roles'] as List<String>).join(', ')}\\n\\n'
+                        'Account ID: ${a['id']}\n'
+                        'Active roles: ${(a['roles'] as List<String>).isEmpty ? 'None' : (a['roles'] as List<String>).join(', ')}\n\n'
                         'This directory provides account and role visibility. It does not sign you in as another person or permit actions using their identity.',
                       ),
                       actions: [
