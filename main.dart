@@ -3,6 +3,45 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
+ 
+/// Turns technical backend/network failures into clear messages for everyday users.
+/// Never display raw HTTP/database error codes in the app.
+String friendlyError(Object error) {
+  final raw = error.toString().replaceFirst(RegExp(r'^(Exception|FormatException|AuthException|PostgrestException|FunctionException):\\s*'), '').trim();
+  final value = raw.toLowerCase();
+  if (RegExp(r'\\b401\\b').hasMatch(value) || value.contains('unauthorized') || value.contains('jwt')) {
+    return 'Your session has expired. Please sign in again and try once more.';
+  }
+  if (RegExp(r'\\b403\\b').hasMatch(value) || value.contains('permission denied') || value.contains('not allowed')) {
+    return 'You do not have permission to do this. Please contact the Director if you need access.';
+  }
+  if (RegExp(r'\\b404\\b').hasMatch(value) || value.contains('not found')) {
+    return 'We could not find that record. Refresh the page and try again.';
+  }
+  if (RegExp(r'\\b409\\b').hasMatch(value) || value.contains('duplicate') || value.contains('already exists') || value.contains('conflict')) {
+    return 'This information is already registered or has changed. Refresh and check the details.';
+  }
+  if (RegExp(r'\\b429\\b').hasMatch(value) || value.contains('too many requests') || value.contains('rate limit')) {
+    return 'Too many attempts were made. Please wait a little and try again.';
+  }
+  if (RegExp(r'\\b400\\b').hasMatch(value) || value.contains('bad request')) {
+    return 'Some details are missing or incorrect. Check the information and try again.';
+  }
+  if (RegExp(r'\\b(500|502|503|504)\\b').hasMatch(value) || value.contains('server error')) {
+    return 'The service is temporarily unavailable. Please try again in a few minutes.';
+  }
+  if (value.contains('socketexception') || value.contains('failed host lookup') || value.contains('network is unreachable') || value.contains('connection refused')) {
+    return 'There is a connection problem. Check your internet and try again.';
+  }
+  if (value.contains('timed out') || value.contains('timeout')) {
+    return 'The request took too long. Check your connection and try again.';
+  }
+  if (raw.isEmpty || RegExp(r'\\b(code|status)\\s*[:=]?\\s*\\d{3}\\b', caseSensitive: false).hasMatch(raw)) {
+    return 'Something went wrong. Please try again. If the problem continues, contact the Director.';
+  }
+  return raw;
+}
+
 const tajirBackendConfigured = String.fromEnvironment('SUPABASE_URL') != '' && String.fromEnvironment('SUPABASE_ANON_KEY') != '';
 
 Future<void> main() async {
@@ -119,7 +158,7 @@ class _LoginPageState extends State<LoginPage> {
           );
           if (response.status != 200) {
             final data = response.data;
-            throw FormatException(data is Map ? (data['error']?.toString() ?? 'Director setup failed.') : 'Director setup failed.');
+            throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'Director setup failed.') : 'Director setup failed.');
           }
         }
         await db.auth.signInWithPassword(
@@ -128,12 +167,12 @@ class _LoginPageState extends State<LoginPage> {
         );
       }
     } on AuthException catch (e) {
-      if (mounted) setState(() => error = e.message);
+      if (mounted) setState(() => error = friendlyError(e));
     } on FunctionException catch (e) {
       final details = e.details;
-      if (mounted) setState(() => error = details is Map ? (details['error']?.toString() ?? e.reasonPhrase ?? 'Director setup failed.') : (e.reasonPhrase ?? 'Director setup failed.'));
+      if (mounted) setState(() => error = details is Map ? (friendlyError(details['error'] ?? 'Something went wrong.') ?? e.reasonPhrase ?? 'Director setup failed.') : (e.reasonPhrase ?? 'Director setup failed.'));
     } catch (e) {
-      if (mounted) setState(() => error = e.toString().replaceFirst('FormatException: ', ''));
+      if (mounted) setState(() => error = friendlyError(e).replaceFirst('FormatException: ', ''));
     }
     if (mounted) setState(() => busy = false);
   }
@@ -212,7 +251,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
     );
     final data = response.data;
     if (response.status != 200 || data is! Map || data['success'] != true || data['token_hash'] == null) {
-      throw FormatException(data is Map ? (data['error']?.toString() ?? 'Customer sign-in failed.') : 'Customer sign-in failed.');
+      throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'Customer sign-in failed.') : 'Customer sign-in failed.');
     }
     await db.auth.verifyOTP(tokenHash: data['token_hash'].toString(), type: OtpType.magiclink);
   }
@@ -238,7 +277,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         final resultData = response.data;
         if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
           final data = resultData;
-          throw FormatException(data is Map ? (data['error']?.toString() ?? 'Customer registration failed.') : 'Customer registration failed.');
+          throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'Customer registration failed.') : 'Customer registration failed.');
         }
         await signInCustomerWithPin(db, normalized, pin.text);
         if (!mounted) return;
@@ -255,9 +294,9 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
       }
     } on AuthException catch (e) {
-      if (mounted) setState(() => message = e.message);
+      if (mounted) setState(() => message = friendlyError(e));
     } catch (e) {
-      if (mounted) setState(() => message = e.toString().replaceFirst('FormatException: ', ''));
+      if (mounted) setState(() => message = friendlyError(e).replaceFirst('FormatException: ', ''));
     }
     if (mounted) setState(() => busy = false);
   }
@@ -336,13 +375,13 @@ class _BranchRequestPanelState extends State<BranchRequestPanel> {
       branches=List<Map<String,dynamic>>.from(r[0]);requests=List<Map<String,dynamic>>.from(r[1]);
       if(selected==null||!branches.any((b)=>b['id'].toString()==selected))selected=branches.isEmpty?null:branches.first['id'].toString();
       error=null;
-    } catch(e){error=e.toString();}
+    } catch(e){error=friendlyError(e);}
     if(mounted)setState(()=>loading=false);
   }
   Future<void> choose(String? v) async {
     if(v==null)return;setState(()=>saving=true);
     try {await db.rpc('set_my_default_branch',params:{'p_branch_id':v});selected=v;if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Branch selection saved.')));}
-    catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not save branch: '+e.toString())));}
+    catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not save branch: '+friendlyError(e))));}
     if(mounted)setState(()=>saving=false);
   }
   Future<void> request() async {
@@ -360,7 +399,7 @@ class _BranchRequestPanelState extends State<BranchRequestPanel> {
         await db.from('branch_requests').insert({'proposed_name':name.text.trim(),'proposed_code':code.text.trim().isEmpty?null:code.text.trim().toUpperCase(),'address':address.text.trim().isEmpty?null:address.text.trim(),'notes':notes.text.trim().isEmpty?null:notes.text.trim(),'submitted_by':db.auth.currentUser!.id});
         if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Branch request sent to the directors.')));
         await load();
-      }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Request failed: '+e.toString())));}
+      }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Request failed: '+friendlyError(e))));}
     }
     name.dispose();code.dispose();address.dispose();notes.dispose();
   }
@@ -392,7 +431,7 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
       final db = Supabase.instance.client;
       final row = await db.from('customers').select('id').eq('profile_id', db.auth.currentUser!.id).maybeSingle();
       if (mounted) setState(() { isCustomer = row != null; loading = false; });
-    } catch (e) { if (mounted) setState(() { error = e.toString(); loading = false; }); }
+    } catch (e) { if (mounted) setState(() { error = friendlyError(e); loading = false; }); }
   }
   Future<void> savePin() async {
     final oldPin = currentPin.text.trim(), nextPin = newPin.text.trim();
@@ -405,15 +444,15 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
       if (isCustomer) {
         final response = await db.functions.invoke('tajir-customer-change-pin', body: {'current_pin': oldPin, 'new_pin': nextPin});
         final data = response.data;
-        if (response.status != 200 || data is! Map || data['success'] != true) throw FormatException(data is Map ? (data['error']?.toString() ?? 'PIN update failed.') : 'PIN update failed.');
+        if (response.status != 200 || data is! Map || data['success'] != true) throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'PIN update failed.') : 'PIN update failed.');
       } else {
         await db.auth.updateUser(UserAttributes(password: staffAuthPassword(nextPin), currentPassword: staffAuthPassword(oldPin)));
       }
       if (!mounted) return;
       currentPin.clear(); newPin.clear(); confirmPin.clear();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your PIN has been changed successfully.')));
-    } on AuthException catch (e) { if (mounted) setState(() => error = e.message); }
-      catch (e) { if (mounted) setState(() => error = e.toString().replaceFirst('FormatException: ', '')); }
+    } on AuthException catch (e) { if (mounted) setState(() => error = friendlyError(e)); }
+      catch (e) { if (mounted) setState(() => error = friendlyError(e).replaceFirst('FormatException: ', '')); }
     if (mounted) setState(() => busy = false);
   }
   Future<void> forgotPin() async {
@@ -449,7 +488,7 @@ class CustomerPortalPage extends StatefulWidget {
 class _CustomerPortalPageState extends State<CustomerPortalPage>{
  Map<String,dynamic>? c;bool busy=true;String? error;
  @override void initState(){super.initState();load();}
- Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',db.auth.currentUser!.id).maybeSingle();if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');if(mounted)setState(()=>c=Map<String,dynamic>.from(r));}catch(e){if(mounted)setState(()=>error=e.toString());}if(mounted)setState(()=>busy=false);}
+ Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',db.auth.currentUser!.id).maybeSingle();if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');if(mounted)setState(()=>c=Map<String,dynamic>.from(r));}catch(e){if(mounted)setState(()=>error=friendlyError(e));}if(mounted)setState(()=>busy=false);}
  @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;
  final tabs=<Widget>[
   const Tab(icon:Icon(Icons.shopping_basket_outlined),text:'Buy'),
@@ -536,10 +575,10 @@ class CustomerMarketPage extends StatefulWidget{
 class _CustomerMarketPageState extends State<CustomerMarketPage>{
  List<Map<String,dynamic>> rows=[];bool busy=true;String? error;
  @override void initState(){super.initState();load();}
- Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;dynamic r;if(widget.mode=='buy'){r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status').eq('status','active').order('created_at',ascending:false);}else if(widget.mode=='sell'){r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);}else{r=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);}if(mounted)setState(()=>rows=List<Map<String,dynamic>>.from(r));}catch(e){if(mounted)setState(()=>error=e.toString());}if(mounted)setState(()=>busy=false);}
- Future<void> createListing()async{final p=TextEditingController(),q=TextEditingController(),u=TextEditingController(text:'bag'),v=TextEditingController(),l=TextEditingController(),d=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:const Text('List product'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:p,decoration:const InputDecoration(labelText:'Product')),TextField(controller:d,decoration:const InputDecoration(labelText:'Description')),TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),TextField(controller:u,decoration:const InputDecoration(labelText:'Unit')),TextField(controller:v,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Price per unit KES')),TextField(controller:l,decoration:const InputDecoration(labelText:'Location'))])),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Publish'))]));if(ok==true){try{await Supabase.instance.client.from('marketplace_listings').insert({'seller_customer_id':widget.customer['id'],'product_name':p.text.trim(),'description':d.text.trim(),'quantity':double.parse(q.text),'unit':u.text.trim().isEmpty?'bag':u.text.trim(),'price_per_unit':double.parse(v.text),'location':l.text.trim(),'status':'active'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}p.dispose();q.dispose();u.dispose();v.dispose();l.dispose();d.dispose();}
- Future<void> requestBuy(Map<String,dynamic> item)async{final q=TextEditingController(text:'1');final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:Text('Buy '+item['product_name'].toString()),content:TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send request'))]));if(ok==true){try{final n=double.parse(q.text);if(n<=0||n>(item['quantity'] as num).toDouble())throw const FormatException('Quantity exceeds available stock.');await Supabase.instance.client.from('marketplace_purchase_requests').insert({'listing_id':item['id'],'buyer_customer_id':widget.customer['id'],'quantity':n});if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Purchase request sent.')));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}q.dispose();}
- Future<void> change(Map<String,dynamic> r,String value,bool listing)async{try{await Supabase.instance.client.from(listing?'marketplace_listings':'marketplace_purchase_requests').update({'status':value}).eq('id',r['id']);await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
+ Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;dynamic r;if(widget.mode=='buy'){r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status').eq('status','active').order('created_at',ascending:false);}else if(widget.mode=='sell'){r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);}else{r=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);}if(mounted)setState(()=>rows=List<Map<String,dynamic>>.from(r));}catch(e){if(mounted)setState(()=>error=friendlyError(e));}if(mounted)setState(()=>busy=false);}
+ Future<void> createListing()async{final p=TextEditingController(),q=TextEditingController(),u=TextEditingController(text:'bag'),v=TextEditingController(),l=TextEditingController(),d=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:const Text('List product'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:p,decoration:const InputDecoration(labelText:'Product')),TextField(controller:d,decoration:const InputDecoration(labelText:'Description')),TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),TextField(controller:u,decoration:const InputDecoration(labelText:'Unit')),TextField(controller:v,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Price per unit KES')),TextField(controller:l,decoration:const InputDecoration(labelText:'Location'))])),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Publish'))]));if(ok==true){try{await Supabase.instance.client.from('marketplace_listings').insert({'seller_customer_id':widget.customer['id'],'product_name':p.text.trim(),'description':d.text.trim(),'quantity':double.parse(q.text),'unit':u.text.trim().isEmpty?'bag':u.text.trim(),'price_per_unit':double.parse(v.text),'location':l.text.trim(),'status':'active'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}p.dispose();q.dispose();u.dispose();v.dispose();l.dispose();d.dispose();}
+ Future<void> requestBuy(Map<String,dynamic> item)async{final q=TextEditingController(text:'1');final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:Text('Buy '+item['product_name'].toString()),content:TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send request'))]));if(ok==true){try{final n=double.parse(q.text);if(n<=0||n>(item['quantity'] as num).toDouble())throw const FormatException('Quantity exceeds available stock.');await Supabase.instance.client.from('marketplace_purchase_requests').insert({'listing_id':item['id'],'buyer_customer_id':widget.customer['id'],'quantity':n});if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Purchase request sent.')));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}q.dispose();}
+ Future<void> change(Map<String,dynamic> r,String value,bool listing)async{try{await Supabase.instance.client.from(listing?'marketplace_listings':'marketplace_purchase_requests').update({'status':value}).eq('id',r['id']);await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[Row(children:[Expanded(child:Text(widget.mode=='buy'?'Products for sale':widget.mode=='sell'?'Your listings':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Add listing'))]),if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),if(!busy&&rows.isEmpty)const Text('No marketplace records yet.'),...rows.map((r){if(widget.mode=='requests'){final l=(r['listing'] as Map?)?.cast<String,dynamic>()??{};final seller=l['seller_customer_id']==widget.customer['id'];return Card(child:ListTile(title:Text((l['product_name']??'Purchase request').toString()),subtitle:Text(r['quantity'].toString()+' '+(l['unit']??'').toString()+' • '+r['status'].toString()),trailing:seller&&r['status']=='pending'?PopupMenuButton<String>(onSelected:(v)=>change(r,v,false),itemBuilder:(_)=>const [PopupMenuItem(value:'accepted',child:Text('Accept')),PopupMenuItem(value:'declined',child:Text('Decline'))]):seller&&r['status']=='accepted'?TextButton(onPressed:()=>change(r,'completed',false),child:const Text('Complete')):null));}return Card(child:ListTile(title:Text(r['product_name'].toString()),subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • KES '+r['price_per_unit'].toString()+' • '+r['location'].toString()),trailing:widget.mode=='buy'?FilledButton(onPressed:()=>requestBuy(r),child:const Text('Request')):PopupMenuButton<String>(onSelected:(v)=>change(r,v,true),itemBuilder:(_)=>const [PopupMenuItem(value:'active',child:Text('Active')),PopupMenuItem(value:'paused',child:Text('Pause')),PopupMenuItem(value:'sold',child:Text('Sold'))])));})]));
 }
 class CustomerTractorPage extends StatefulWidget{@override State<CustomerTractorPage> createState()=>_CustomerTractorPageState();}
@@ -547,15 +586,15 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
  List<Map<String,dynamic>> tractors=[];bool busy=true;String? tractor;String service='ploughing';final location=TextEditingController(),acres=TextEditingController();DateTime date=DateTime.now().add(const Duration(days:1));
  @override void initState(){super.initState();load();}
  @override void dispose(){location.dispose();acres.dispose();super.dispose();}
- Future<void> load()async{try{final r=await Supabase.instance.client.rpc('customer_list_tractor_services');tractors=List<Map<String,dynamic>>.from(r);tractor=tractors.isEmpty?null:tractors.first['tractor_id'].toString();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}if(mounted)setState(()=>busy=false);}
- Future<void> book()async{try{if(tractor==null)throw const FormatException('No tractor available.');if(location.text.trim().length<3)throw const FormatException('Enter farm location.');final r=await Supabase.instance.client.rpc('customer_book_tractor_service',params:{'p_tractor_id':tractor,'p_service_type':service,'p_service_location':location.text.trim(),'p_area_acres':acres.text.trim().isEmpty?null:double.parse(acres.text),'p_booked_for':date.toUtc().toIso8601String(),'p_notes':null});if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Booking submitted: '+(r as List).first['job_number'].toString())));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
+ Future<void> load()async{try{final r=await Supabase.instance.client.rpc('customer_list_tractor_services');tractors=List<Map<String,dynamic>>.from(r);tractor=tractors.isEmpty?null:tractors.first['tractor_id'].toString();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}if(mounted)setState(()=>busy=false);}
+ Future<void> book()async{try{if(tractor==null)throw const FormatException('No tractor available.');if(location.text.trim().length<3)throw const FormatException('Enter farm location.');final r=await Supabase.instance.client.rpc('customer_book_tractor_service',params:{'p_tractor_id':tractor,'p_service_type':service,'p_service_location':location.text.trim(),'p_area_acres':acres.text.trim().isEmpty?null:double.parse(acres.text),'p_booked_for':date.toUtc().toIso8601String(),'p_notes':null});if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Booking submitted: '+(r as List).first['job_number'].toString())));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(18),children:[const Text('Book tractor service',style:TextStyle(fontSize:21,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(tractors.isNotEmpty)DropdownButtonFormField<String>(value:tractor,items:tractors.map((t)=>DropdownMenuItem(value:t['tractor_id'].toString(),child:Text(t['selection_label'].toString()))).toList(),onChanged:(v)=>setState(()=>tractor=v),decoration:const InputDecoration(labelText:'Available tractor')),if(tractors.isEmpty&&!busy)const Text('No tractors available.'),DropdownButtonFormField<String>(value:service,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v)=>setState(()=>service=v??'ploughing'),decoration:const InputDecoration(labelText:'Service')),TextField(controller:location,decoration:const InputDecoration(labelText:'Farm location')),TextField(controller:acres,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Acres')),ListTile(title:Text('Booking date: '+date.toLocal().toString().split(' ')[0]),trailing:TextButton(onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)setState(()=>date=d);},child:const Text('Choose'))),FilledButton(onPressed:busy||tractors.isEmpty?null:book,child:const Text('Book service'))]);
 }
 class CustomerTractorBookingsPage extends StatefulWidget{@override State<CustomerTractorBookingsPage> createState()=>_CustomerTractorBookingsPageState();}
 class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPage>{
  List<Map<String,dynamic>> rows=[];bool busy=true;
  @override void initState(){super.initState();load();}
- Future<void> load()async{try{final r=await Supabase.instance.client.rpc('customer_list_tractor_bookings');if(mounted)setState(()=>rows=List<Map<String,dynamic>>.from(r));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}if(mounted)setState(()=>busy=false);}
+ Future<void> load()async{try{final r=await Supabase.instance.client.rpc('customer_list_tractor_bookings');if(mounted)setState(()=>rows=List<Map<String,dynamic>>.from(r));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}if(mounted)setState(()=>busy=false);}
  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[const Text('Tractor booking history',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(!busy&&rows.isEmpty)const Text('No bookings yet.'),...rows.map((r)=>Card(child:ListTile(title:Text(r['service_type'].toString()+' • '+r['job_number'].toString()),subtitle:Text(r['service_location'].toString()+' • '+r['status'].toString()),trailing:Text('KES '+r['total_charge'].toString()))))]));
 }
 
@@ -661,7 +700,7 @@ class _DashboardPageState extends State<DashboardPage> {
       if(selectedBranch==null||!branches.any((b)=>b['id'].toString()==selectedBranch))selectedBranch=branches.isEmpty?null:branches.first['id'].toString();
       if(director){final q=await db.from('branch_requests').select('id,proposed_name,proposed_code,address,notes').eq('status','pending').order('created_at');pendingRequests=List<Map<String,dynamic>>.from(q);}
       if(mounted)setState(() { role = '${p['display_name'] ?? 'User'} • $roleName'; stock = List<Map<String,dynamic>>.from(s); });
-    } catch(e) { setState(() => error = e.toString()); }
+    } catch(e) { setState(() => error = friendlyError(e)); }
   }
   @override Widget build(BuildContext context) => RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.all(18), children: [
     Container(
@@ -711,7 +750,7 @@ class _DashboardPageState extends State<DashboardPage> {
     if(director) ...[
       Text('Branch requests awaiting approval ('+pendingRequests.length.toString()+')',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
       if(pendingRequests.isEmpty)const Text('No pending branch requests.'),
-      ...pendingRequests.map((r)=>Card(child:ListTile(title:Text(r['proposed_name'].toString()),subtitle:Text((r['address']??'No address').toString()+' • Code: '+(r['proposed_code']??'Automatic').toString()),trailing:PopupMenuButton<String>(onSelected:(v)async{try{if(v=='approve')await Supabase.instance.client.rpc('approve_branch_request',params:{'p_request_id':r['id'],'p_code':r['proposed_code']});else await Supabase.instance.client.rpc('reject_branch_request',params:{'p_request_id':r['id'],'p_reason':'Rejected by director'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}},itemBuilder:(_)=>const [PopupMenuItem(value:'approve',child:Text('Approve branch')),PopupMenuItem(value:'reject',child:Text('Reject'))])))),
+      ...pendingRequests.map((r)=>Card(child:ListTile(title:Text(r['proposed_name'].toString()),subtitle:Text((r['address']??'No address').toString()+' • Code: '+(r['proposed_code']??'Automatic').toString()),trailing:PopupMenuButton<String>(onSelected:(v)async{try{if(v=='approve')await Supabase.instance.client.rpc('approve_branch_request',params:{'p_request_id':r['id'],'p_code':r['proposed_code']});else await Supabase.instance.client.rpc('reject_branch_request',params:{'p_request_id':r['id'],'p_reason':'Rejected by director'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}},itemBuilder:(_)=>const [PopupMenuItem(value:'approve',child:Text('Approve branch')),PopupMenuItem(value:'reject',child:Text('Reject'))])))),
     ],
     const SizedBox(height: 18),
     const Wrap(spacing: 12, runSpacing: 12, children: [
@@ -845,7 +884,7 @@ class _PurchasePageState extends State<PurchasePage> {
         if (loadedRows.isEmpty) message = 'No active stock option is configured for ' + product + '.';
       });
     } catch (e) {
-      if (mounted) setState(() => message = 'Could not load ' + product + ' options: ' + e.toString());
+      if (mounted) setState(() => message = 'Could not load ' + product + ' options: ' + friendlyError(e));
     } finally {
       if (mounted) setState(() => loadingVariants = false);
     }
@@ -894,7 +933,7 @@ class _PurchasePageState extends State<PurchasePage> {
         message = 'Added ' + cleanName + '.';
       });
     } catch (e) {
-      if (mounted) setState(() => message = 'Could not add this option. Only an authorised director can add product varieties/types. ' + e.toString());
+      if (mounted) setState(() => message = 'Could not add this option. Only an authorised director can add product varieties/types. ' + friendlyError(e));
     }
   }
 
@@ -958,7 +997,7 @@ class _PurchasePageState extends State<PurchasePage> {
         item['amount']!.clear();
       }
     } catch (e) {
-      setState(() => message = 'Could not save purchase: ' + e.toString());
+      setState(() => message = 'Could not save purchase: ' + friendlyError(e));
     }
     if (mounted) setState(() => busy = false);
   }
@@ -1129,7 +1168,7 @@ class _SalePageState extends State<SalePage> {
         if (loadedRows.isEmpty) message = 'No active stock option is configured for ' + product + '.';
       });
     } catch (e) {
-      if (mounted) setState(() => message = 'Could not load ' + product + ' options: ' + e.toString());
+      if (mounted) setState(() => message = 'Could not load ' + product + ' options: ' + friendlyError(e));
     } finally {
       if (mounted) setState(() => loadingVariants = false);
     }
@@ -1178,7 +1217,7 @@ class _SalePageState extends State<SalePage> {
         message = 'Added ' + cleanName + '.';
       });
     } catch (e) {
-      if (mounted) setState(() => message = 'Could not add this option. Only an authorised director can add product varieties/types. ' + e.toString());
+      if (mounted) setState(() => message = 'Could not add this option. Only an authorised director can add product varieties/types. ' + friendlyError(e));
     }
   }
 
@@ -1232,7 +1271,7 @@ class _SalePageState extends State<SalePage> {
       paid.clear();
       reference.clear();
     } catch (e) {
-      setState(() => message = 'Could not save sale: ' + e.toString());
+      setState(() => message = 'Could not save sale: ' + friendlyError(e));
     }
     if (mounted) setState(() => busy = false);
   }
@@ -1353,7 +1392,7 @@ class _StockPageState extends State<StockPage>{
         message='';
       });
     }catch(e){
-      if(mounted)setState(()=>message='Could not load stock or pending approvals. Sign in with an active Director or Branch Manager account. Details: $e');
+      if(mounted)setState(()=>message='Could not load stock or pending approvals. Sign in with an active Director or Branch Manager account. Details: ${friendlyError(e)}');
     }finally{
       if(mounted)setState(()=>loading=false);
     }
@@ -1397,7 +1436,7 @@ class _StockPageState extends State<StockPage>{
       }
       await load();
     }catch(e){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Stock approval failed: $e')));
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Stock approval failed: ${friendlyError(e)}')));
     }finally{
       if(mounted)setState(()=>reviewing=false);
     }
@@ -1480,7 +1519,7 @@ class _CustomersPageState extends State<CustomersPage> {
       setState(()=>rows=List<Map<String,dynamic>>.from(r));
     } catch(e) {
       if(!mounted)return;
-      setState(()=>message='Could not load customers. Customer access is limited to authorized director accounts. Details: $e');
+      setState(()=>message='Could not load customers. Customer access is limited to authorized director accounts. Details: ${friendlyError(e)}');
     }
     if(mounted)setState(()=>busy=false);
   }
@@ -1525,7 +1564,7 @@ class _CustomersPageState extends State<CustomersPage> {
           await db.from('customers').update(values).eq('id',row['id']);
         }
         await load();
-      } catch(e) { if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Customer could not be saved: $e'))); }
+      } catch(e) { if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Customer could not be saved: ${friendlyError(e)}'))); }
     }
     name.dispose();phone.dispose();email.dispose();
   }
@@ -1563,11 +1602,11 @@ class _CustomersPageState extends State<CustomersPage> {
         );
         final data=response.data;
         if(response.status!=200||data is! Map||data['success']!=true){
-          throw FormatException(data is Map?(data['error']?.toString()??'Could not set PIN.'):'Could not set PIN.');
+          throw FormatException(data is Map?(friendlyError(data['error'] ?? 'Something went wrong.')??'Could not set PIN.'):'Could not set PIN.');
         }
         if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer PIN updated successfully.')));
       }catch(e){
-        if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not set customer PIN: $e')));
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not set customer PIN: ${friendlyError(e)}')));
       }
     }
     pin.dispose();confirm.dispose();
@@ -1615,7 +1654,7 @@ class _CustomersPageState extends State<CustomersPage> {
         actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Close'))],
       ));
     } catch(e) {
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Customer financial history is not available for this account: $e')));
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Customer financial history is not available for this account: ${friendlyError(e)}')));
     }
   }
 
@@ -1641,14 +1680,14 @@ class _CustomersPageState extends State<CustomersPage> {
       );
       final data=response.data;
       if(response.status!=200||data is! Map||data['success']!=true){
-        throw FormatException(data is Map?(data['error']?.toString()??'Could not delete customer account.'):'Could not delete customer account.');
+        throw FormatException(data is Map?(friendlyError(data['error'] ?? 'Something went wrong.')??'Could not delete customer account.'):'Could not delete customer account.');
       }
       if(!mounted)return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer account moved to Deleted Accounts. Financial history retained.')));
       setState(()=>showDeleted=true);
       await load();
     }catch(e){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not delete customer account: $e')));
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not delete customer account: ${friendlyError(e)}')));
     }
   }
 
@@ -1670,14 +1709,14 @@ class _CustomersPageState extends State<CustomersPage> {
       );
       final data=response.data;
       if(response.status!=200||data is! Map||data['success']!=true){
-        throw FormatException(data is Map?(data['error']?.toString()??'Could not restore customer account.'):'Could not restore customer account.');
+        throw FormatException(data is Map?(friendlyError(data['error'] ?? 'Something went wrong.')??'Could not restore customer account.'):'Could not restore customer account.');
       }
       if(!mounted)return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer account restored. Login access is re-enabled.')));
       setState(()=>showDeleted=false);
       await load();
     }catch(e){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not restore customer account: $e')));
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not restore customer account: ${friendlyError(e)}')));
     }
   }
 
@@ -1709,13 +1748,13 @@ class _CustomersPageState extends State<CustomersPage> {
       );
       final data=response.data;
       if(response.status!=200||data is! Map||data['success']!=true){
-        throw FormatException(data is Map?(data['error']?.toString()??'Could not permanently delete customer.'):'Could not permanently delete customer.');
+        throw FormatException(data is Map?(friendlyError(data['error'] ?? 'Something went wrong.')??'Could not permanently delete customer.'):'Could not permanently delete customer.');
       }
       if(!mounted)return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personal details permanently removed. Financial and transaction history retained.')));
       await load();
     }catch(e){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not permanently delete customer: $e')));
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not permanently delete customer: ${friendlyError(e)}')));
     }
   }
 
@@ -1732,7 +1771,7 @@ class _CustomersPageState extends State<CustomersPage> {
         await db.from('profiles').update({'status': active ? 'active' : 'suspended'}).eq('id',profileId);
       }
       await load();
-    } catch(e){ if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not update customer: $e'))); }
+    } catch(e){ if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not update customer: ${friendlyError(e)}'))); }
   }
 
   @override Widget build(BuildContext context) {
@@ -1809,7 +1848,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
   }
 
   String dateText(DateTime d)=>d.year.toString()+'-'+d.month.toString().padLeft(2,'0')+'-'+d.day.toString().padLeft(2,'0');
-  String dateTimeText(DateTime d)=>dateText(d)+' '+d.hour.toString().padLeft(2,'0')+':'+d.minute.toString().padLeft(2,'0');
+  String dateTimeText(DateTime d)=>dateText(d)+' '+d.hour.toString().padLeft(2,'0')+':'+d.minutfriendlyError(e).padLeft(2,'0');
   double numberOf(Map<String,dynamic> row,String key)=>double.tryParse((row[key]??0).toString())??0;
   String money(double value)=>'KES '+value.toStringAsFixed(2);
   String operatorName(dynamic id){final found=operators.where((o)=>o['id'].toString()==(id??'').toString()).toList();return found.isEmpty?'Not assigned':found.first['display_name'].toString();}
@@ -1823,7 +1862,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       if(branches.isEmpty)throw Exception('No branch is available to this account. Check its branch assignment.');
       if(branchId==null||!branches.any((x)=>x['id'].toString()==branchId)){branchId=branches.first['id'].toString();}
       await loadBranchData();
-    }catch(e){if(mounted)setState((){loading=false;message='Could not load tractor services: '+e.toString();});}
+    }catch(e){if(mounted)setState((){loading=false;message='Could not load tractor services: '+friendlyError(e);});}
   }
 
   Future<void> loadBranchData() async {
@@ -1870,7 +1909,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       if(selectedOperatorId!=null&&!operators.any((x)=>x['id'].toString()==selectedOperatorId)){selectedOperatorId=null;}
       if(selectedCustomerId!=null&&!customers.any((x)=>x['id'].toString()==selectedCustomerId)){selectedCustomerId=null;}
       if(mounted)setState(()=>loading=false);
-    }catch(e){if(mounted)setState((){loading=false;message='Could not load this branch tractor records: '+e.toString();});}
+    }catch(e){if(mounted)setState((){loading=false;message='Could not load this branch tractor records: '+friendlyError(e);});}
   }
 
   Future<void> changeBranch(String? value) async {
@@ -1891,7 +1930,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       });
       code.clear();reg.clear();model.clear();owner.clear();assetHours.text='0';assetNotes.clear();
       setState(()=>message='Tractor registered successfully.');await loadBranchData();
-    }catch(e){setState(()=>message='Could not register tractor: '+e.toString());}
+    }catch(e){setState(()=>message='Could not register tractor: '+friendlyError(e));}
     if(mounted)setState(()=>saving=false);
   }
 
@@ -1903,7 +1942,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     try{
       await db.from('tractor_assets').update({'engine_hours':hours,'notes':assetNotes.text.trim().isEmpty?null:assetNotes.text.trim(),'status':tractorStatus}).eq('id',selectedTractor!);
       setState(()=>message='Tractor details updated.');await loadBranchData();
-    }catch(e){setState(()=>message='Could not update tractor: '+e.toString());}
+    }catch(e){setState(()=>message='Could not update tractor: '+friendlyError(e));}
     if(mounted)setState(()=>saving=false);
   }
 
@@ -1945,7 +1984,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       });
       farmer.clear();phone.clear();location.clear();acres.clear();rate.clear();notes.clear();estimatedHours.text='1';selectedCustomerId=null;selectedOperatorId=null;
       setState(()=>message='Booking saved. The job has been added to the schedule.');await loadBranchData();
-    }catch(e){setState(()=>message='Could not save booking: '+e.toString());}
+    }catch(e){setState(()=>message='Could not save booking: '+friendlyError(e));}
     if(mounted)setState(()=>saving=false);
   }
 
@@ -1981,7 +2020,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       }
       await refreshTractorStatus(job['tractor_id'].toString());
       setState(()=>message='Job status updated to '+labelCase(nextStatus)+'.');await loadBranchData();
-    }catch(e){setState(()=>message='Could not update job: '+e.toString());}
+    }catch(e){setState(()=>message='Could not update job: '+friendlyError(e));}
     if(mounted)setState(()=>saving=false);
   }
 
@@ -1994,7 +2033,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       pay.clear();reference.clear();
       setState(()=>message='Payment recorded: '+result['payment_number'].toString()+' • '+result['status'].toString()+'.');
       await loadBranchData();
-    }catch(e){setState(()=>message='Could not record payment: '+e.toString());}
+    }catch(e){setState(()=>message='Could not record payment: '+friendlyError(e));}
     if(mounted)setState(()=>saving=false);
   }
 
@@ -2024,7 +2063,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       });
       setState(()=>message='Payment '+result['payment_number'].toString()+' verified.');
       await loadBranchData();
-    }catch(e){setState(()=>message='Could not verify payment: '+e.toString());}
+    }catch(e){setState(()=>message='Could not verify payment: '+friendlyError(e));}
     referenceController.dispose();
     if(mounted)setState(()=>saving=false);
   }
@@ -2039,7 +2078,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
         'amount':amount,'paid_by_owner':payer,'recorded_by':db.auth.currentUser!.id
       });
       expense.clear();expenseNote.clear();setState(()=>message='Expense saved to this job.');await loadBranchData();
-    }catch(e){setState(()=>message='Could not save expense: '+e.toString());}
+    }catch(e){setState(()=>message='Could not save expense: '+friendlyError(e));}
     if(mounted)setState(()=>saving=false);
   }
 
@@ -2060,7 +2099,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       await db.from('tractor_assets').update({'status':'maintenance',if(hours!=null)'engine_hours':hours}).eq('id',selectedTractor!);
       maintenance.clear();maintenanceCost.clear();maintenanceHours.clear();nextServiceDate=null;
       setState(()=>message='Maintenance record saved. Tractor status set to maintenance until it is released.');await loadBranchData();
-    }catch(e){setState(()=>message='Could not save maintenance: '+e.toString());}
+    }catch(e){setState(()=>message='Could not save maintenance: '+friendlyError(e));}
     if(mounted)setState(()=>saving=false);
   }
 
@@ -2071,7 +2110,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
       await db.from('tractor_assets').update({'status':'available'}).eq('id',selectedTractor!).eq('status','maintenance');
       await refreshTractorStatus(selectedTractor!);
       setState(()=>message='Tractor released from maintenance.');await loadBranchData();
-    }catch(e){setState(()=>message='Could not release tractor: '+e.toString());}
+    }catch(e){setState(()=>message='Could not release tractor: '+friendlyError(e));}
     if(mounted)setState(()=>saving=false);
   }
 
@@ -2186,7 +2225,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     )),
     Row(children:[
       Expanded(child:TextButton.icon(onPressed:chooseBookingDate,icon:const Icon(Icons.calendar_month),label:Text(dateText(bookedFor)))),
-      Expanded(child:TextButton.icon(onPressed:chooseBookingTime,icon:const Icon(Icons.access_time),label:Text(bookedFor.hour.toString().padLeft(2,'0')+':'+bookedFor.minute.toString().padLeft(2,'0'))))
+      Expanded(child:TextButton.icon(onPressed:chooseBookingTime,icon:const Icon(Icons.access_time),label:Text(bookedFor.hour.toString().padLeft(2,'0')+':'+bookedFor.minutfriendlyError(e).padLeft(2,'0'))))
     ]),
     field(notes,'Booking notes / instructions',lines:2),
     if(double.tryParse(rate.text.trim())!=null)Padding(padding:const EdgeInsets.only(bottom:12),child:Text(
@@ -2392,7 +2431,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         purchaseTotal=buy; customerReceipts=cr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         supplierPayments=spr.fold(0.0,(v,r)=>v+numVal(r['amount']));
       });
-    } catch(e) { if(mounted)setState(()=>error=e.toString()); }
+    } catch(e) { if(mounted)setState(()=>error=friendlyError(e)); }
     finally { if(mounted)setState(()=>loading=false); }
   }
   String cash(double v) => 'KSh ' + v.toStringAsFixed(2);
