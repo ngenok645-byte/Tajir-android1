@@ -353,8 +353,11 @@ class _LoginPageState extends State<LoginPage> {
               onPressed: busy ? null : submit,
               child: Text(busy ? 'Please wait…' : setupDirector ? 'Set up and sign in' : 'Sign in'),
             )),
-            TextButton(onPressed: busy ? null : showForgotPinHelp,
-              child: const Text('Forgot PIN?')),
+            SizedBox(width: double.infinity, child: OutlinedButton.icon(
+              onPressed: busy ? null : showForgotPinHelp,
+              icon: const Icon(Icons.lock_reset),
+              label: const Text('FORGOT PIN? GET HELP'),
+            )),
             TextButton(onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
               child: const Text('Are you a client, tractor owner or driver?')),
@@ -484,9 +487,11 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             const SizedBox(height: 16),
             SizedBox(width: double.infinity, child: FilledButton(onPressed: busy ? null : submit,
               child: Text(busy ? 'Please wait…' : createAccount ? 'Create account' : 'Sign in'))),
-            if (!createAccount)
-              TextButton(onPressed: busy ? null : showForgotPinHelp,
-                child: const Text('Forgot PIN?')),
+            SizedBox(width: double.infinity, child: OutlinedButton.icon(
+              onPressed: busy ? null : showForgotPinHelp,
+              icon: const Icon(Icons.lock_reset),
+              label: const Text('FORGOT PIN? GET HELP'),
+            )),
             TextButton(onPressed: busy ? null : () => setState(() { createAccount = !createAccount; message = null; }),
               child: Text(createAccount ? 'Already registered? Sign in' : 'New customer? Register')),
           ],
