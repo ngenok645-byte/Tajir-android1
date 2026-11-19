@@ -636,7 +636,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
-class DashboardPage extends StatefulWidget {
+void _noDashboardAction() {}\n\nclass DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenTractor;
   const DashboardPage({super.key, this.onOpenTractor});
   @override State<DashboardPage> createState() => _DashboardPageState();
@@ -685,26 +685,13 @@ class _DashboardPageState extends State<DashboardPage> {
       ]),
     ),
     const SizedBox(height: 16),
-    Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: widget.onOpenTractor,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(children: [
-            Container(width: 54, height: 54, decoration: BoxDecoration(color: const Color(0xFFEAF4EC), borderRadius: BorderRadius.circular(14)), child: const Icon(Icons.agriculture, color: brandGreen, size: 32)),
-            const SizedBox(width: 13),
-            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('TRACTOR SERVICES', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7, color: brandGreen)),
-              SizedBox(height: 4),
-              Text('Manage the tractor fleet, bookings, operators, job progress and payments.', style: TextStyle(fontSize: 12, color: Colors.black87)),
-            ])),
-            const Icon(Icons.arrow_forward_ios, size: 17, color: brandGreen),
-          ]),
-        ),
-      ),
+    TajirImageTile(
+      title:'TRACTOR & MACHINERY SERVICES',
+      subtitle:'Manage machines, providers, bookings, operators and payments',
+      imageUrl:TajirPictures.tractor,
+      icon:Icons.agriculture,
+      large:true,
+      onTap:widget.onOpenTractor ?? _noDashboardAction,
     ),
     const SizedBox(height: 18),
     const Text('Your business at a glance', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
