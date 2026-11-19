@@ -145,6 +145,31 @@ jobs:
           p.write_text(s)
           print("pluginManagement repositories configured.")
           PY
+          # Flutter's Gradle plugin is an included build with its own settings.
+          # Its pluginManagement repositories are separate from the app's settings.
+          # Add Maven Central there so Kotlin DSL transitive artifacts (including
+          # kotlin-stdlib and the Kotlin Gradle plugin BOM) can be resolved.
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          p = Path(os.environ["FLUTTER_ROOT"]) / "packages/flutter_tools/gradle/settings.gradle.kts"
+          s = p.read_text()
+          if "pluginManagement" not in s:
+              block = """pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          """
+              s = block + s
+          else:
+              raise SystemExit("Flutter included-build pluginManagement already exists; inspect it before modifying.")
+          p.write_text(s)
+          print(f"Configured plugin repositories in Flutter included build: {p}")
+          PY
           flutter pub get
           # Work around an Android Lint detector crash in the current toolchain.
           # This skips only the release lint analysis task; APK compilation remains enabled.
