@@ -663,7 +663,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    ])),
    Expanded(child:TabBarView(children:pages))
   ])
- ))));
+ )));
 }
 }
 class TajirPictures {
@@ -1987,7 +1987,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
   }
 
   String dateText(DateTime d)=>d.year.toString()+'-'+d.month.toString().padLeft(2,'0')+'-'+d.day.toString().padLeft(2,'0');
-  String dateTimeText(DateTime d)=>dateText(d)+' '+d.hour.toString().padLeft(2,'0')+':'+d.minutfriendlyError(e).padLeft(2,'0');
+  String dateTimeText(DateTime d)=>dateText(d)+' '+d.hour.toString().padLeft(2,'0')+':'+d.minute.padLeft(2,'0');
   double numberOf(Map<String,dynamic> row,String key)=>double.tryParse((row[key]??0).toString())??0;
   String money(double value)=>'KES '+value.toStringAsFixed(2);
   String operatorName(dynamic id){final found=operators.where((o)=>o['id'].toString()==(id??'').toString()).toList();return found.isEmpty?'Not assigned':found.first['display_name'].toString();}
@@ -2364,7 +2364,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     )),
     Row(children:[
       Expanded(child:TextButton.icon(onPressed:chooseBookingDate,icon:const Icon(Icons.calendar_month),label:Text(dateText(bookedFor)))),
-      Expanded(child:TextButton.icon(onPressed:chooseBookingTime,icon:const Icon(Icons.access_time),label:Text(bookedFor.hour.toString().padLeft(2,'0')+':'+bookedFor.minutfriendlyError(e).padLeft(2,'0'))))
+      Expanded(child:TextButton.icon(onPressed:chooseBookingTime,icon:const Icon(Icons.access_time),label:Text(bookedFor.hour.toString().padLeft(2,'0')+':'+bookedFor.minute.padLeft(2,'0'))))
     ]),
     field(notes,'Booking notes / instructions',lines:2),
     if(double.tryParse(rate.text.trim())!=null)Padding(padding:const EdgeInsets.only(bottom:12),child:Text(
