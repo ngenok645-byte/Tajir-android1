@@ -924,16 +924,38 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
           children: [
             if (!busy && error == null) Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: Text('${visible.length} accounts', style: const TextStyle(fontWeight: FontWeight.w600))),
-            ...visible.map((a) => Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-              child: ListTile(leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-                title: Text(a['name'].toString()),
-                subtitle: Text((a['roles'] as List<String>).isEmpty
-                  ? 'No active role assigned' : (a['roles'] as List<String>).join(' • ')),
-                trailing: const Icon(Icons.verified_user_outlined),
-                onTap: () => showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+            ...visible.map((a) {
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                child: ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.person_outline)),
                   title: Text(a['name'].toString()),
-                  content: SelectableText('Account ID: ${a['id']}\\nActive roles: ${(a['roles'] as List<String>).isEmpty ? 'None' : (a['roles'] as List<String>).join(', ')}\\n\\nThis directory provides account and role visibility. It does not sign you in as another person or permit actions using their identity.'),
-                  actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))])))),
+                  subtitle: Text(
+                    (a['roles'] as List<String>).isEmpty
+                        ? 'No active role assigned'
+                        : (a['roles'] as List<String>).join(' • '),
+                  ),
+                  trailing: const Icon(Icons.verified_user_outlined),
+                  onTap: () => showDialog<void>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: Text(a['name'].toString()),
+                      content: SelectableText(
+                        'Account ID: ${a['id']}\\n'
+                        'Active roles: ${(a['roles'] as List<String>).isEmpty ? 'None' : (a['roles'] as List<String>).join(', ')}\\n\\n'
+                        'This directory provides account and role visibility. It does not sign you in as another person or permit actions using their identity.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Close'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
             if (!busy && error == null && visible.isEmpty)
               const Padding(padding: EdgeInsets.all(24), child: Text('No matching accounts found.'))
           ],
