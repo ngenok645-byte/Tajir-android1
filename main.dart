@@ -636,12 +636,14 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
   const Tab(icon:Icon(Icons.agriculture),text:'Tractor'),
   const Tab(icon:Icon(Icons.calendar_month_outlined),text:'Bookings'),
   const Tab(icon:Icon(Icons.location_on_outlined),text:'Branch'),
+  const Tab(icon:Icon(Icons.build_circle_outlined),text:'Repairs & Spares'),
  ];
  final pages=<Widget>[
   CustomerMarketPage(customer:c!,mode:'buy',fertilizerOnly:!buy),
   sell?CustomerMarketPage(customer:c!,mode:'sell'):const CustomerLockedPage(title:'Sell products',message:'The Director has not enabled selling on your account yet.',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined),
   CustomerMarketPage(customer:c!,mode:'requests'),
   CustomerTractorPage(),CustomerTractorBookingsPage(),const BranchRequestPanel(),
+  RepairMarketplacePage(),
  ];
  const tractorTabIndex=3;
  return DefaultTabController(length:tabs.length,child:Builder(builder:(tabContext)=>Scaffold(
@@ -666,6 +668,74 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
  )));
 }
 }
+
+class RepairMarketplacePage extends StatefulWidget {
+ const RepairMarketplacePage({super.key});
+ @override State<RepairMarketplacePage> createState()=>_RepairMarketplacePageState();
+}
+class _RepairMarketplacePageState extends State<RepairMarketplacePage> with SingleTickerProviderStateMixin {
+ late final TabController tabs=TabController(length:2,vsync:this);
+ final db=Supabase.instance.client;
+ List<Map<String,dynamic>> mechanics=[],parts=[];
+ bool busy=true;String? error;
+ @override void initState(){super.initState();load();}
+ @override void dispose(){tabs.dispose();super.dispose();}
+ Future<void> load() async {
+  setState(()=>busy=true);
+  try {
+   final results=await Future.wait([
+    db.from('mechanic_profiles').select('id,business_name,phone,location,services').eq('status','approved').order('business_name'),
+    db.from('auto_spares_inventory').select('id,shop_id,part_name,part_reference,description,quantity,unit,price_kes,auto_spares_profiles(shop_name,phone,location)').eq('status','active').gt('quantity',0).order('part_name')
+   ]);
+   mechanics=List<Map<String,dynamic>>.from(results[0]);
+   parts=List<Map<String,dynamic>>.from(results[1]);
+   error=null;
+  } catch(e){error=friendlyError(e);}
+  if(mounted)setState(()=>busy=false);
+ }
+ Future<void> requestRepair(Map<String,dynamic> mechanic) async {
+  final issue=TextEditingController(),place=TextEditingController();
+  final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
+   title:Text('Request \${mechanic['business_name']}'),
+   content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+    TextField(controller:issue,maxLines:3,decoration:const InputDecoration(labelText:'Describe the tractor problem')),
+    TextField(controller:place,decoration:const InputDecoration(labelText:'Tractor location'))
+   ])),
+   actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send request'))]
+  ));
+  if(ok==true) {
+   try {
+    final owner=await db.from('tractor_owner_profiles').select('id').eq('profile_id',db.auth.currentUser!.id).maybeSingle();
+    if(owner==null) throw const FormatException('This login is not registered as a tractor owner. Please register the tractor-owner profile first.');
+    if(issue.text.trim().isEmpty||place.text.trim().isEmpty) throw const FormatException('Enter the problem and tractor location.');
+    final job='TR-\${DateTime.now().millisecondsSinceEpoch}';
+    await db.from('tractor_repair_jobs').insert({'job_number':job,'owner_profile_id':owner['id'],'owner_user_id':db.auth.currentUser!.id,'mechanic_id':mechanic['id'],'issue_description':issue.text.trim(),'location':place.text.trim()});
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Repair request sent. Reference: $job')));
+   } catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+  }
+  issue.dispose();place.dispose();
+ }
+ @override Widget build(BuildContext context)=>Column(children:[
+  Material(color:Colors.white,child:TabBar(controller:tabs,labelColor:brandGreen,tabs:const [Tab(icon:Icon(Icons.build),text:'Find a mechanic'),Tab(icon:Icon(Icons.store),text:'Auto spares')])),
+  if(busy)const LinearProgressIndicator(),
+  if(error!=null)Padding(padding:const EdgeInsets.all(12),child:Text(error!,style:const TextStyle(color:Colors.red))),
+  Expanded(child:TabBarView(controller:tabs,children:[
+   RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(12),children:[
+    const Text('Choose a mechanic',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+    const Text('Browse approved mechanics and request help for your tractor.'),
+    if(!busy&&mechanics.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No approved mechanics are listed yet.')),
+    ...mechanics.map((m)=>Card(child:ListTile(isThreeLine:true,leading:const CircleAvatar(child:Icon(Icons.handyman)),title:Text(m['business_name'].toString()),subtitle:Text('\${m['location']} • \${m['phone']}\\n\${(m['services'] as List).join(', ')}'),trailing:FilledButton(onPressed:()=>requestRepair(m),child:const Text('Choose')))))
+   ])),
+   RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(12),children:[
+    const Text('Available spare parts',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+    const Text('Parts listed by approved auto-spares shops.'),
+    if(!busy&&parts.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No spare parts are listed yet.')),
+    ...parts.map((p){final shop=(p['auto_spares_profiles'] as Map?)?.cast<String,dynamic>()??{};return Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.settings)),title:Text(p['part_name'].toString()),subtitle:Text('\${shop['shop_name']??'Auto spares'} • \${shop['location']??''}\\nRef: \${p['part_reference']??'Not supplied'} • Stock: \${p['quantity']} \${p['unit']}'),trailing:Text('KES \${p['price_kes']}',style:const TextStyle(fontWeight:FontWeight.bold))));})
+   ]))
+  ]))
+ ]);
+}
+
 class TajirPictures {
  static const buy='https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=900&auto=format&fit=crop&q=75';
  static const sell='https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=900&auto=format&fit=crop&q=75';
