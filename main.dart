@@ -450,7 +450,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
  Map<String,dynamic>? c;bool busy=true;String? error;
  @override void initState(){super.initState();load();}
  Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',db.auth.currentUser!.id).maybeSingle();if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');if(mounted)setState(()=>c=Map<String,dynamic>.from(r));}catch(e){if(mounted)setState(()=>error=e.toString());}if(mounted)setState(()=>busy=false);}
- @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;final tabs=<Widget>[],pages=<Widget>[];if(buy){tabs.add(const Tab(text:'Buy'));pages.add(CustomerMarketPage(customer:c!,mode:'buy'));}if(sell){tabs.add(const Tab(text:'Sell'));pages.add(CustomerMarketPage(customer:c!,mode:'sell'));}if(buy||sell){tabs.add(const Tab(text:'Requests'));pages.add(CustomerMarketPage(customer:c!,mode:'requests'));}tabs.add(const Tab(text:'Tractor'));pages.add(CustomerTractorPage());tabs.add(const Tab(text:'Bookings'));pages.add(CustomerTractorBookingsPage());tabs.add(const Tab(text:'Branch'));pages.add(const BranchRequestPanel());return DefaultTabController(length:tabs.length,child:Scaffold(appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))],bottom:TabBar(isScrollable:true,tabs:tabs)),body:TabBarView(children:pages)));}
+ @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;final tabs=<Widget>[],pages=<Widget>[];if(buy){tabs.add(const Tab(text:'Buy'));pages.add(CustomerMarketPage(customer:c!,mode:'buy'));}if(sell){tabs.add(const Tab(text:'Sell'));pages.add(CustomerMarketPage(customer:c!,mode:'sell'));}if(buy||sell){tabs.add(const Tab(text:'Requests'));pages.add(CustomerMarketPage(customer:c!,mode:'requests'));}tabs.add(const Tab(text:'Tractor'));pages.add(CustomerTractorPage());tabs.add(const Tab(text:'Bookings'));pages.add(CustomerTractorBookingsPage());tabs.add(const Tab(text:'Branch'));pages.add(const BranchRequestPanel());final tractorTabIndex=(buy?1:0)+(sell?1:0)+((buy||sell)?1:0);return DefaultTabController(length:tabs.length,child:Builder(builder:(tabContext)=>Scaffold(appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))],bottom:TabBar(isScrollable:true,tabs:tabs)),body:Column(children:[Padding(padding:const EdgeInsets.fromLTRB(12,10,12,4),child:Card(color:const Color(0xFFEAF4EC),elevation:1,child:InkWell(borderRadius:BorderRadius.circular(14),onTap:()=>DefaultTabController.of(tabContext).animateTo(tractorTabIndex),child:const Padding(padding:EdgeInsets.all(13),child:Row(children:[Icon(Icons.agriculture,color:brandGreen,size:34),SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('TRACTOR SERVICES',style:TextStyle(fontWeight:FontWeight.w900,color:brandGreen,letterSpacing:.6)),SizedBox(height:3),Text('Find a tractor, request a farm job and track your bookings.',style:TextStyle(fontSize:12))])),Icon(Icons.arrow_forward_ios,size:16,color:brandGreen)]))))),Expanded(child:TabBarView(children:pages))]))));}
 }
 class CustomerMarketPage extends StatefulWidget{
  final Map<String,dynamic> customer;final String mode;
@@ -517,7 +517,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [const DashboardPage(), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage()];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage()];
   List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records'];
   List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance];
   @override void initState() { super.initState(); loadAccess(); }
@@ -561,7 +561,8 @@ class _HomeShellState extends State<HomeShell> {
 }
 
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  final VoidCallback? onOpenTractor;
+  const DashboardPage({super.key, this.onOpenTractor});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -606,6 +607,28 @@ class _DashboardPageState extends State<DashboardPage> {
         const SizedBox(height: 10),
         Text(role, style: const TextStyle(color: Colors.white70, fontSize: 13)),
       ]),
+    ),
+    const SizedBox(height: 16),
+    Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: widget.onOpenTractor,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(children: [
+            Container(width: 54, height: 54, decoration: BoxDecoration(color: const Color(0xFFEAF4EC), borderRadius: BorderRadius.circular(14)), child: const Icon(Icons.agriculture, color: brandGreen, size: 32)),
+            const SizedBox(width: 13),
+            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('TRACTOR SERVICES', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: .7, color: brandGreen)),
+              SizedBox(height: 4),
+              Text('Manage the tractor fleet, bookings, operators, job progress and payments.', style: TextStyle(fontSize: 12, color: Colors.black87)),
+            ])),
+            const Icon(Icons.arrow_forward_ios, size: 17, color: brandGreen),
+          ]),
+        ),
+      ),
     ),
     const SizedBox(height: 18),
     const Text('Your business at a glance', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
