@@ -1,5 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+const int tajirBuildNumber = 1;
+const String tajirVersionName = '1.0.0';
+const MethodChannel _tajirUpdateChannel = MethodChannel('tajir/update');
 
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
@@ -970,6 +976,113 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
   }
 }
 
+
+class DirectorAppUpdatesPage extends StatefulWidget {
+  const DirectorAppUpdatesPage({super.key});
+  @override State<DirectorAppUpdatesPage> createState() => _DirectorAppUpdatesPageState();
+}
+class _DirectorAppUpdatesPageState extends State<DirectorAppUpdatesPage> {
+  final code = TextEditingController(), name = TextEditingController(), url = TextEditingController(), notes = TextEditingController();
+  bool mandatory = false, busy = false, loading = true;
+  String? message;
+  @override void initState() { super.initState(); load(); }
+  @override void dispose() { code.dispose(); name.dispose(); url.dispose(); notes.dispose(); super.dispose(); }
+  Future<void> load() async {
+    try {
+      final rows = await Supabase.instance.client.from('app_releases').select().eq('id', 1).limit(1);
+      if (rows.isNotEmpty) {
+        final r = rows.first;
+        code.text = r['version_code'].toString(); name.text = r['version_name'].toString();
+        url.text = r['apk_url'].toString(); notes.text = (r['release_notes'] ?? '').toString();
+        mandatory = r['is_mandatory'] == true;
+      }
+    } catch (e) { message = friendlyError(e); }
+    if (mounted) setState(() => loading = false);
+  }
+  Future<void> publish() async {
+    final number = int.tryParse(code.text.trim());
+    final link = Uri.tryParse(url.text.trim());
+    if (number == null || number <= tajirBuildNumber) { setState(() => message = 'Version code must be greater than ' + tajirBuildNumber.toString() + '.'); return; }
+    if (name.text.trim().isEmpty || link == null || link.scheme != 'https' || link.host.isEmpty) { setState(() => message = 'Enter a version name and valid HTTPS APK link.'); return; }
+    setState(() { busy = true; message = null; });
+    try {
+      await Supabase.instance.client.from('app_releases').upsert({
+        'id': 1, 'version_code': number, 'version_name': name.text.trim(),
+        'apk_url': link.toString(), 'release_notes': notes.text.trim(),
+        'is_mandatory': mandatory, 'is_active': true,
+        'published_by': Supabase.instance.client.auth.currentUser?.id,
+        'published_at': DateTime.now().toUtc().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+      if (mounted) setState(() => message = 'Release published. Users will be notified at their next version check.');
+    } catch (e) { if (mounted) setState(() => message = friendlyError(e)); }
+    if (mounted) setState(() => busy = false);
+  }
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Director • App Updates'), actions: [IconButton(onPressed: load, icon: const Icon(Icons.refresh))]),
+    body: loading ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(16), children: [
+      const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('Publish a newer APK here. Users will be notified inside TAJIR and Android will ask them to approve installation.'))),
+      Text('Installed version: ' + tajirVersionName + ' (build ' + tajirBuildNumber.toString() + ')'),
+      const SizedBox(height: 12),
+      TextField(controller: name, decoration: const InputDecoration(labelText: 'New version name', border: OutlineInputBorder())),
+      const SizedBox(height: 10),
+      TextField(controller: code, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'New version code', border: OutlineInputBorder())),
+      const SizedBox(height: 10),
+      TextField(controller: url, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'HTTPS APK download link', border: OutlineInputBorder())),
+      const SizedBox(height: 10),
+      TextField(controller: notes, minLines: 3, maxLines: 5, decoration: const InputDecoration(labelText: 'Release notes', border: OutlineInputBorder())),
+      SwitchListTile(contentPadding: EdgeInsets.zero, value: mandatory, onChanged: (v) => setState(() => mandatory = v), title: const Text('Mandatory update'), subtitle: const Text('Require users to update before continuing.')),
+      if (message != null) Padding(padding: const EdgeInsets.all(8), child: Text(message!, style: const TextStyle(color: brandGreen))),
+      FilledButton.icon(onPressed: busy ? null : publish, icon: const Icon(Icons.publish), label: Text(busy ? 'Publishing…' : 'Publish update')),
+    ]),
+  );
+}
+
+Future<void> checkForTajirUpdate(BuildContext context) async {
+  try {
+    final rows = await Supabase.instance.client.from('app_releases')
+      .select('version_code,version_name,apk_url,release_notes,is_mandatory')
+      .eq('id', 1).eq('is_active', true).limit(1);
+    if (rows.isEmpty || !context.mounted) return;
+    final r = rows.first;
+    final latest = int.tryParse(r['version_code'].toString()) ?? 0;
+    if (latest <= tajirBuildNumber) return;
+    final required = r['is_mandatory'] == true;
+    await showDialog<void>(context: context, barrierDismissible: !required, builder: (dialogContext) => PopScope(
+      canPop: !required,
+      child: AlertDialog(
+        title: Text('TAJIR update ' + r['version_name'].toString() + ' available'),
+        content: Text((r['release_notes'] ?? 'A new version is available.').toString() + (required ? '\n\nThis update is required.' : '')),
+        actions: [
+          if (!required) TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Later')),
+          FilledButton(onPressed: () async {
+            Navigator.pop(dialogContext);
+            await downloadAndInstallTajirApk(context, r['apk_url'].toString());
+          }, child: const Text('Download update')),
+        ],
+      ),
+    ));
+  } catch (_) { /* Offline update checks must not block app access. */ }
+}
+
+Future<void> downloadAndInstallTajirApk(BuildContext context, String url) async {
+  try {
+    final uri = Uri.parse(url);
+    if (uri.scheme != 'https') throw const FormatException('Update link must use HTTPS.');
+    final client = HttpClient();
+    final response = await (await client.getUrl(uri)).close();
+    if (response.statusCode != 200) throw HttpException('APK download failed.');
+    final bytes = await response.fold<List<int>>(<int>[], (all, chunk) => all..addAll(chunk));
+    client.close();
+    if (bytes.length < 100000) throw const FormatException('Downloaded APK is incomplete.');
+    final file = File(Directory.systemTemp.path + '/tajir-update.apk');
+    await file.writeAsBytes(bytes, flush: true);
+    await _tajirUpdateChannel.invokeMethod<void>('installApk', {'path': file.path});
+  } catch (e) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Update failed: ' + friendlyError(e))));
+  }
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
@@ -977,10 +1090,10 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage(), const DirectorAccountCentrePage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Account Centre'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts];
-  @override void initState() { super.initState(); loadAccess(); }
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage(), const DirectorAccountCentrePage(), const DirectorAppUpdatesPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Account Centre', if (director) 'App Updates'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.system_update];
+  @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) checkForTajirUpdate(context); }); }
   Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
@@ -995,6 +1108,7 @@ class _HomeShellState extends State<HomeShell> {
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Director Account Centre'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
+      if (director) ListTile(leading: const Icon(Icons.system_update), title: const Text('App Updates'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       const SizedBox(height: 8),
     ])));
   }
