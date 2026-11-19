@@ -91,9 +91,9 @@ jobs:
           if "pluginManagement" not in s:
               raise SystemExit("pluginManagement block missing from Android settings")
           if "mavenCentral()" not in s:
-              s = s.replace("repositories {", "repositories {\\n        google()\\n        mavenCentral()", 1)
+              s = s.replace("repositories {", "repositories {\n        google()\n        mavenCentral()", 1)
           elif "google()" not in s:
-              s = s.replace("repositories {", "repositories {\\n        google()", 1)
+              s = s.replace("repositories {", "repositories {\n        google()", 1)
           p.write_text(s)
           print("Android plugin repositories verified.")
           PY
