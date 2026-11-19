@@ -768,7 +768,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
  ];
  const tractorTabIndex=3;
  return DefaultTabController(length:tabs.length,child:Builder(builder:(tabContext)=>Scaffold(
-  appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[
+  appBar:AppBar(title:Text(_directorAccessingAccount == null ? 'TAJIR - '+c!['full_name'].toString() : 'ADMIN ACCESS • '+_directorAccessingAccount!),actions:[
    if (_directorRestoreRefreshToken != null)
     IconButton(tooltip:'Return to Director account',onPressed:()=>returnToDirectorAccount(context),icon:const Icon(Icons.admin_panel_settings)),
    IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
@@ -1213,7 +1213,7 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
         Expanded(child: RefreshIndicator(onRefresh: load, child: ListView(
           children: [
             if (!busy && error == null) Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Text('${visible.length} accounts shown • Select an account to preview its dashboard',
+              child: Text('${visible.length} accounts shown • Select an account to open its dashboard',
                 style: const TextStyle(fontWeight: FontWeight.w600))),
             ...visible.map((a) {
               final roles = (a['roles'] as Set<String>).toList()..sort();
@@ -1228,7 +1228,7 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
                       style: const TextStyle(fontSize: 11)),
                   ]),
                   isThreeLine: true,
-                  trailing: const Icon(Icons.visibility_outlined),
+                  trailing: const Icon(Icons.login_rounded),
                   onTap: () => _preview(a),
                 ));
             }),
@@ -1613,7 +1613,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             child: const Icon(Icons.agriculture, color: Colors.white, size: 21),
           ),
           const SizedBox(width: 10),
-          const Text('TAJIR'),
+          Text(_directorAccessingAccount == null ? 'TAJIR' : 'ADMIN ACCESS • $_directorAccessingAccount'),
         ]),
         actions: [
           if (_directorRestoreRefreshToken != null)
