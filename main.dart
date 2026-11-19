@@ -450,7 +450,83 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
  Map<String,dynamic>? c;bool busy=true;String? error;
  @override void initState(){super.initState();load();}
  Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',db.auth.currentUser!.id).maybeSingle();if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');if(mounted)setState(()=>c=Map<String,dynamic>.from(r));}catch(e){if(mounted)setState(()=>error=e.toString());}if(mounted)setState(()=>busy=false);}
- @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;final tabs=<Widget>[],pages=<Widget>[];if(buy){tabs.add(const Tab(text:'Buy'));pages.add(CustomerMarketPage(customer:c!,mode:'buy'));}if(sell){tabs.add(const Tab(text:'Sell'));pages.add(CustomerMarketPage(customer:c!,mode:'sell'));}if(buy||sell){tabs.add(const Tab(text:'Requests'));pages.add(CustomerMarketPage(customer:c!,mode:'requests'));}tabs.add(const Tab(text:'Tractor'));pages.add(CustomerTractorPage());tabs.add(const Tab(text:'Bookings'));pages.add(CustomerTractorBookingsPage());tabs.add(const Tab(text:'Branch'));pages.add(const BranchRequestPanel());final tractorTabIndex=(buy?1:0)+(sell?1:0)+((buy||sell)?1:0);return DefaultTabController(length:tabs.length,child:Builder(builder:(tabContext)=>Scaffold(appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))],bottom:TabBar(isScrollable:true,tabs:tabs)),body:Column(children:[Padding(padding:const EdgeInsets.fromLTRB(12,10,12,4),child:Card(color:const Color(0xFFEAF4EC),elevation:1,child:InkWell(borderRadius:BorderRadius.circular(14),onTap:()=>DefaultTabController.of(tabContext).animateTo(tractorTabIndex),child:const Padding(padding:EdgeInsets.all(13),child:Row(children:[Icon(Icons.agriculture,color:brandGreen,size:34),SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('TRACTOR SERVICES',style:TextStyle(fontWeight:FontWeight.w900,color:brandGreen,letterSpacing:.6)),SizedBox(height:3),Text('Find a tractor, request a farm job and track your bookings.',style:TextStyle(fontSize:12))])),Icon(Icons.arrow_forward_ios,size:16,color:brandGreen)]))))),Expanded(child:TabBarView(children:pages))]))));}
+ @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;
+ final tabs=<Widget>[
+  const Tab(icon:Icon(Icons.shopping_basket_outlined),text:'Buy'),
+  const Tab(icon:Icon(Icons.storefront_outlined),text:'Sell'),
+  const Tab(icon:Icon(Icons.receipt_long_outlined),text:'Requests'),
+  const Tab(icon:Icon(Icons.agriculture),text:'Tractor'),
+  const Tab(icon:Icon(Icons.calendar_month_outlined),text:'Bookings'),
+  const Tab(icon:Icon(Icons.location_on_outlined),text:'Branch'),
+ ];
+ final pages=<Widget>[
+  buy?CustomerMarketPage(customer:c!,mode:'buy'):const CustomerLockedPage(title:'Buy products',message:'The Director has not enabled buying on your account yet.',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined),
+  sell?CustomerMarketPage(customer:c!,mode:'sell'):const CustomerLockedPage(title:'Sell products',message:'The Director has not enabled selling on your account yet.',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined),
+  (buy||sell)?CustomerMarketPage(customer:c!,mode:'requests'):const CustomerLockedPage(title:'My requests',message:'Buying or selling access is needed to use marketplace requests.',imageUrl:TajirPictures.orders,icon:Icons.receipt_long_outlined),
+  CustomerTractorPage(),CustomerTractorBookingsPage(),const BranchRequestPanel(),
+ ];
+ const tractorTabIndex=3;
+ return DefaultTabController(length:tabs.length,child:Builder(builder:(tabContext)=>Scaffold(
+  appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[
+   IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
+   IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
+  ],bottom:TabBar(isScrollable:true,tabs:tabs)),
+  body:Column(children:[
+   Padding(padding:const EdgeInsets.fromLTRB(12,10,12,4),child:Row(children:[
+    Expanded(child:TajirImageTile(title:'BUY',subtitle:buy?'Find farm products':'Access locked',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,locked:!buy,onTap:()=>DefaultTabController.of(tabContext).animateTo(0))),
+    const SizedBox(width:8),
+    Expanded(child:TajirImageTile(title:'SELL',subtitle:sell?'List your produce':'Access locked',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined,locked:!sell,onTap:()=>DefaultTabController.of(tabContext).animateTo(1))),
+   ])),
+   Padding(padding:const EdgeInsets.fromLTRB(12,4,12,8),child:TajirImageTile(title:'TRACTOR & MACHINERY SERVICES',subtitle:'Book ploughing, planting, harvesting and more',imageUrl:TajirPictures.tractor,icon:Icons.agriculture,large:true,onTap:()=>DefaultTabController.of(tabContext).animateTo(tractorTabIndex))),
+   Padding(padding:const EdgeInsets.fromLTRB(12,0,12,8),child:Row(children:[
+    Expanded(child:TajirImageTile(title:'MY BOOKINGS',subtitle:'Track farm jobs',imageUrl:TajirPictures.bookings,icon:Icons.calendar_month_outlined,onTap:()=>DefaultTabController.of(tabContext).animateTo(4))),
+    const SizedBox(width:8),
+    Expanded(child:TajirImageTile(title:'MY BRANCH',subtitle:'Choose your branch',imageUrl:TajirPictures.branch,icon:Icons.location_on_outlined,onTap:()=>DefaultTabController.of(tabContext).animateTo(5))),
+   ])),
+   Expanded(child:TabBarView(children:pages))
+  ])
+ ))));
+}
+}
+class TajirPictures {
+ static const buy='https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=900&auto=format&fit=crop&q=75';
+ static const sell='https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=900&auto=format&fit=crop&q=75';
+ static const tractor='https://images.unsplash.com/photo-1592982537447-6f2a6a0c6f6b?w=1200&auto=format&fit=crop&q=75';
+ static const bookings='https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=900&auto=format&fit=crop&q=75';
+ static const branch='https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=900&auto=format&fit=crop&q=75';
+ static const orders='https://images.unsplash.com/photo-1542838132-92c53300491e?w=900&auto=format&fit=crop&q=75';
+}
+class TajirImageTile extends StatelessWidget {
+ final String title,subtitle,imageUrl; final IconData icon; final VoidCallback onTap; final bool locked,large;
+ const TajirImageTile({super.key,required this.title,required this.subtitle,required this.imageUrl,required this.icon,required this.onTap,this.locked=false,this.large=false});
+ @override Widget build(BuildContext context)=>Material(
+  color:Colors.white,borderRadius:BorderRadius.circular(18),clipBehavior:Clip.antiAlias,
+  child:InkWell(onTap:onTap,child:Container(
+   height:large?132:112,
+   decoration:BoxDecoration(borderRadius:BorderRadius.circular(18),boxShadow:[BoxShadow(color:Colors.black.withOpacity(.08),blurRadius:8)]),
+   child:Stack(fit:StackFit.expand,children:[
+    Image.network(imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>Container(color:const Color(0xFFE4EEE5),child:Icon(icon,size:42,color:brandGreen))),
+    Container(decoration:BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.black.withOpacity(.08),Colors.black.withOpacity(.78)]))),
+    Positioned(left:12,right:10,bottom:10,child:Row(crossAxisAlignment:CrossAxisAlignment.end,children:[
+     Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
+      Text(title,style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:large?16:14,letterSpacing:.3)),
+      const SizedBox(height:3),Text(subtitle,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white,fontSize:11,fontWeight:FontWeight.w500))
+     ])),
+     if(locked)const Icon(Icons.lock,color:Colors.white,size:22) else const Icon(Icons.arrow_forward_rounded,color:Colors.white,size:22)
+    ])),
+   ])
+  ))
+ );
+}
+class CustomerLockedPage extends StatelessWidget {
+ final String title,message,imageUrl; final IconData icon;
+ const CustomerLockedPage({super.key,required this.title,required this.message,required this.imageUrl,required this.icon});
+ @override Widget build(BuildContext context)=>Center(child:SingleChildScrollView(padding:const EdgeInsets.all(24),child:Column(mainAxisSize:MainAxisSize.min,children:[
+  ClipRRect(borderRadius:BorderRadius.circular(22),child:Image.network(imageUrl,height:190,width:double.infinity,fit:BoxFit.cover,errorBuilder:(_,__,___)=>Container(height:190,color:const Color(0xFFEAF4EC),child:Icon(icon,size:64,color:brandGreen)))),
+  const SizedBox(height:20),Text(title,style:const TextStyle(fontSize:23,fontWeight:FontWeight.bold)),
+  const SizedBox(height:8),Text(message,textAlign:TextAlign.center,style:const TextStyle(fontSize:15,color:Colors.black54)),
+  const SizedBox(height:14),const Row(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(Icons.admin_panel_settings_outlined,color:brandGreen),SizedBox(width:7),Text('Please contact the TAJIR Director to request access.',textAlign:TextAlign.center,style:TextStyle(color:brandGreen,fontWeight:FontWeight.w600))])
+ ])));
 }
 class CustomerMarketPage extends StatefulWidget{
  final Map<String,dynamic> customer;final String mode;
