@@ -122,30 +122,28 @@ jobs:
           import re
           p = Path("android/settings.gradle.kts")
           s = p.read_text()
-          match = re.search(r"pluginManagement\s*\{[\s\S]*?repositories\s*\{", s)
+          match = re.search(r"pluginManagement\s*\{", s)
           if not match:
-              raise SystemExit("pluginManagement repositories block missing")
-          start = match.end()
+              raise SystemExit("pluginManagement block missing from generated Gradle settings")
+          body_start = match.end()
           depth = 1
-          end = start
-          for i, ch in enumerate(s[start:], start):
+          close_brace = None
+          for i, ch in enumerate(s[body_start:], body_start):
               if ch == "{":
                   depth += 1
               elif ch == "}":
                   depth -= 1
                   if depth == 0:
-                      end = i
+                      close_brace = i
                       break
-          block = s[start:end]
-          additions = []
-          if "google()" not in block:
-              additions.append("        google()")
-          if "mavenCentral()" not in block:
-              additions.append("        mavenCentral()")
-          if additions:
-              s = s[:start] + "\\n" + "\\n".join(additions) + s[start:]
+          if close_brace is None:
+              raise SystemExit("pluginManagement block is not closed")
+          block = s[body_start:close_brace]
+          if "repositories {" not in block:
+              repositories = "\n    repositories {\n        google()\n        mavenCentral()\n        gradlePluginPortal()\n    }\n"
+              s = s[:body_start] + repositories + s[body_start:]
           p.write_text(s)
-          print("pluginManagement repositories verified.")
+          print("pluginManagement repositories configured.")
           PY
           flutter pub get
           # Work around an Android Lint detector crash in the current toolchain.
