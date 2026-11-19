@@ -122,7 +122,7 @@ jobs:
           import re
           p = Path("android/settings.gradle.kts")
           s = p.read_text()
-          match = re.search(r"pluginManagement\\s*\\{\\s*repositories\\s*\\{", s)
+          match = re.search(r"pluginManagement\s*\{\s*repositories\s*\{", s)
           if not match:
               raise SystemExit("pluginManagement repositories block missing")
           start = match.end()
