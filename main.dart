@@ -696,7 +696,7 @@ class _RepairMarketplacePageState extends State<RepairMarketplacePage> with Sing
  Future<void> requestRepair(Map<String,dynamic> mechanic) async {
   final issue=TextEditingController(),place=TextEditingController();
   final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
-   title:Text('Request \${mechanic['business_name']}'),
+   title:Text("Request ${mechanic['business_name']}"),
    content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
     TextField(controller:issue,maxLines:3,decoration:const InputDecoration(labelText:'Describe the tractor problem')),
     TextField(controller:place,decoration:const InputDecoration(labelText:'Tractor location'))
@@ -708,7 +708,7 @@ class _RepairMarketplacePageState extends State<RepairMarketplacePage> with Sing
     final owner=await db.from('tractor_owner_profiles').select('id').eq('profile_id',db.auth.currentUser!.id).maybeSingle();
     if(owner==null) throw const FormatException('This login is not registered as a tractor owner. Please register the tractor-owner profile first.');
     if(issue.text.trim().isEmpty||place.text.trim().isEmpty) throw const FormatException('Enter the problem and tractor location.');
-    final job='TR-\${DateTime.now().millisecondsSinceEpoch}';
+    final job='TR-${DateTime.now().millisecondsSinceEpoch}';
     await db.from('tractor_repair_jobs').insert({'job_number':job,'owner_profile_id':owner['id'],'owner_user_id':db.auth.currentUser!.id,'mechanic_id':mechanic['id'],'issue_description':issue.text.trim(),'location':place.text.trim()});
     if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Repair request sent. Reference: $job')));
    } catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
@@ -724,13 +724,13 @@ class _RepairMarketplacePageState extends State<RepairMarketplacePage> with Sing
     const Text('Choose a mechanic',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
     const Text('Browse approved mechanics and request help for your tractor.'),
     if(!busy&&mechanics.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No approved mechanics are listed yet.')),
-    ...mechanics.map((m)=>Card(child:ListTile(isThreeLine:true,leading:const CircleAvatar(child:Icon(Icons.handyman)),title:Text(m['business_name'].toString()),subtitle:Text('\${m['location']} • \${m['phone']}\\n\${(m['services'] as List).join(', ')}'),trailing:FilledButton(onPressed:()=>requestRepair(m),child:const Text('Choose')))))
+    ...mechanics.map((m)=>Card(child:ListTile(isThreeLine:true,leading:const CircleAvatar(child:Icon(Icons.handyman)),title:Text(m['business_name'].toString()),subtitle:Text('${m['location']} • ${m['phone']}\\n${(m['services'] as List).join(', ')}'),trailing:FilledButton(onPressed:()=>requestRepair(m),child:const Text('Choose')))))
    ])),
    RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(12),children:[
     const Text('Available spare parts',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
     const Text('Parts listed by approved auto-spares shops.'),
     if(!busy&&parts.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No spare parts are listed yet.')),
-    ...parts.map((p){final shop=(p['auto_spares_profiles'] as Map?)?.cast<String,dynamic>()??{};return Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.settings)),title:Text(p['part_name'].toString()),subtitle:Text('\${shop['shop_name']??'Auto spares'} • \${shop['location']??''}\\nRef: \${p['part_reference']??'Not supplied'} • Stock: \${p['quantity']} \${p['unit']}'),trailing:Text('KES \${p['price_kes']}',style:const TextStyle(fontWeight:FontWeight.bold))));})
+    ...parts.map((p){final shop=(p['auto_spares_profiles'] as Map?)?.cast<String,dynamic>()??{};return Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.settings)),title:Text(p['part_name'].toString()),subtitle:Text('${shop['shop_name']??'Auto spares'} • ${shop['location']??''}\\nRef: ${p['part_reference']??'Not supplied'} • Stock: ${p['quantity']} ${p['unit']}'),trailing:Text('KES ${p['price_kes']}',style:const TextStyle(fontWeight:FontWeight.bold))));})
    ]))
   ]))
  ]);
