@@ -137,10 +137,70 @@ class SetupRequiredApp extends StatelessWidget {
 }
 
 final appTheme = ThemeData(
-  colorScheme: ColorScheme.fromSeed(seedColor: brandGreen, primary: brandGreen, secondary: brandGold),
-  scaffoldBackgroundColor: const Color(0xFFF6F8F5),
-  appBarTheme: const AppBarTheme(backgroundColor: brandGreen, foregroundColor: Colors.white),
   useMaterial3: true,
+  colorScheme: ColorScheme.fromSeed(
+    seedColor: brandGreen,
+    primary: brandGreen,
+    secondary: brandGold,
+    surface: const Color(0xFFFFFFFF),
+  ),
+  scaffoldBackgroundColor: const Color(0xFFF3F6F4),
+  appBarTheme: const AppBarTheme(
+    backgroundColor: Color(0xFFF3F6F4),
+    foregroundColor: Color(0xFF173B2C),
+    elevation: 0,
+    centerTitle: false,
+    titleTextStyle: TextStyle(
+      color: Color(0xFF173B2C),
+      fontSize: 21,
+      fontWeight: FontWeight.w800,
+      letterSpacing: .2,
+    ),
+    iconTheme: IconThemeData(color: Color(0xFF173B2C)),
+  ),
+  cardTheme: CardThemeData(
+    color: Colors.white,
+    elevation: 1,
+    shadowColor: Color(0x14173B2C),
+    margin: EdgeInsets.zero,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(18)),
+      side: BorderSide(color: Color(0xFFE6EDE8)),
+    ),
+  ),
+  inputDecorationTheme: InputDecorationTheme(
+    filled: true,
+    fillColor: Color(0xFFF8FAF8),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.all(Radius.circular(13)),
+      borderSide: BorderSide(color: Color(0xFFDCE6DF)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.all(Radius.circular(13)),
+      borderSide: BorderSide(color: Color(0xFFDCE6DF)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.all(Radius.circular(13)),
+      borderSide: BorderSide(color: brandGreen, width: 1.6),
+    ),
+    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+  ),
+  navigationBarTheme: NavigationBarThemeData(
+    backgroundColor: Colors.white,
+    indicatorColor: Color(0xFFDDEDE2),
+    labelTextStyle: WidgetStatePropertyAll(
+      TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+    ),
+  ),
+  filledButtonTheme: FilledButtonThemeData(
+    style: FilledButton.styleFrom(
+      backgroundColor: brandGreen,
+      foregroundColor: Colors.white,
+      minimumSize: const Size(48, 48),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+      textStyle: const TextStyle(fontWeight: FontWeight.w700),
+    ),
+  ),
 );
 
 class TajirApp extends StatefulWidget {
@@ -1283,7 +1343,35 @@ class _HomeShellState extends State<HomeShell> {
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      appBar: AppBar(
+        title: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 34, height: 34,
+            decoration: BoxDecoration(
+              color: brandGreen,
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: const Icon(Icons.agriculture, color: Colors.white, size: 21),
+          ),
+          const SizedBox(width: 10),
+          const Text('TAJIR'),
+        ]),
+        actions: [
+          IconButton(
+            tooltip: 'Account security',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AccountSecurityPage()),
+            ),
+            icon: const Icon(Icons.lock_reset_rounded),
+          ),
+          IconButton(
+            tooltip: 'Sign out',
+            onPressed: () => Supabase.instance.client.auth.signOut(),
+            icon: const Icon(Icons.logout_rounded),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
       body: Row(children: [
         if (wide) NavigationRail(selectedIndex: index, onDestinationSelected: selectPage, labelType: NavigationRailLabelType.all, destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i])))),
         Expanded(child: IndexedStack(index: index, children: pages)),
@@ -1405,12 +1493,48 @@ class _DashboardPageState extends State<DashboardPage> {
   ]));
 }
 class MetricCard extends StatelessWidget {
-  final String title, value; final IconData icon;
+  final String title, value;
+  final IconData icon;
   const MetricCard({super.key, required this.title, required this.value, required this.icon});
-  @override Widget build(BuildContext context) => SizedBox(width: 250, child: Card(child: Padding(padding: const EdgeInsets.all(16), child: Row(children: [
-    Icon(icon, color: brandGreen, size: 30), const SizedBox(width: 12),
-    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(color: Colors.black54)), Text(value, style: const TextStyle(fontWeight: FontWeight.bold))])),
-  ]))));
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 250,
+    child: Card(
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Row(children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF4ED),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: brandGreen, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(
+                color: Color(0xFF68776E),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              )),
+              const SizedBox(height: 4),
+              Text(value, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF173B2C),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                )),
+            ],
+          )),
+        ]),
+      ),
+    ),
+  );
 }
 
 class PurchasePage extends StatefulWidget {
