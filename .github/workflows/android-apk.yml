@@ -112,6 +112,28 @@ jobs:
           }
           GRADLE
 
+      - name: Install Android NDK with retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION="28.2.13676358"
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          for attempt in 1 2 3 4; do
+            echo "Installing Android NDK $NDK_VERSION (attempt $attempt/4)"
+            rm -rf "$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
+            rm -rf "$ANDROID_SDK_ROOT/.temp/"*
+            if yes | "$SDKMANAGER" --install "ndk;$NDK_VERSION"; then
+              test -d "$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
+              echo "Android NDK $NDK_VERSION installed."
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "NDK installation failed after four attempts."
+          exit 1
+
       - name: Build TAJIR Android APK
         working-directory: TAJIR_flutter_app
         env:
