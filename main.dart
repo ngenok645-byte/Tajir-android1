@@ -375,6 +375,11 @@ class _LoginPageState extends State<LoginPage> {
           email: tajirLoginEmail(normalized),
           password: staffAuthPassword(pin.text),
         );
+        // LoginPage is pushed above AuthGate. Clear the login route so the
+        // authenticated router can immediately display the user's dashboard.
+        if (mounted) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
       }
     } on AuthException catch (e) {
       if (mounted) setState(() => error = friendlyError(e));
