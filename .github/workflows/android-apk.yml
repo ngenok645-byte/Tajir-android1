@@ -116,7 +116,11 @@ jobs:
           # Allow Android's package installer to read an APK downloaded by TAJIR.
           provider = """\n    <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.fileprovider" android:exported="false" android:grantUriPermissions="true">\n        <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/tajir_file_paths" />\n    </provider>\n"""
           if "androidx.core.content.FileProvider" not in source:
-              source = source.replace("<application", "<application" + provider, 1)
+              app_start = source.find("<application")
+              app_end = source.find(">", app_start)
+              if app_start < 0 or app_end < 0:
+                  raise SystemExit("Could not locate Android application element")
+              source = source[:app_end + 1] + provider + source[app_end + 1:]
               manifest.write_text(source)
           paths = Path("android/app/src/main/res/xml")
           paths.mkdir(parents=True, exist_ok=True)
