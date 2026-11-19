@@ -200,28 +200,8 @@ class MainActivity : FlutterActivity() {
           if close_brace is None:
               raise SystemExit("pluginManagement block is not closed")
           block = s[body_start:close_brace]
-          # Replace the pluginManagement repository block deterministically so
-          # Maven Central is always available for Kotlin/Flutter Gradle plugins.
-          repo_marker = "repositories {"
-          repo_pos = block.find(repo_marker)
-          repositories = "repositories {\n        google()\n        mavenCentral()\n        gradlePluginPortal()\n    }"
-          if repo_pos >= 0:
-              repo_start = body_start + repo_pos
-              repo_depth = 0
-              repo_close = None
-              for i, ch in enumerate(s[repo_start:], repo_start):
-                  if ch == "{":
-                      repo_depth += 1
-                  elif ch == "}":
-                      repo_depth -= 1
-                      if repo_depth == 0:
-                          repo_close = i + 1
-                          break
-              if repo_close is None:
-                  raise SystemExit("pluginManagement repositories block is not closed")
-              s = s[:repo_start] + repositories + s[repo_close:]
-          else:
-              repositories = "\n    " + repositories + "\n"
+          if "repositories {" not in block:
+              repositories = "\n    repositories {\n        google()\n        mavenCentral()\n        gradlePluginPortal()\n    }\n"
               s = s[:body_start] + repositories + s[body_start:]
           p.write_text(s)
           print("pluginManagement repositories verified: google, mavenCentral, gradlePluginPortal.")
