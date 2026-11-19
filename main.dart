@@ -182,7 +182,7 @@ class AuthGate extends StatelessWidget {
       stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
         if (Supabase.instance.client.auth.currentSession == null) {
-          return const LoginPage();
+          return const AuthChoicePage();
         }
         return const AccountRouter();
       },
@@ -190,6 +190,67 @@ class AuthGate extends StatelessWidget {
   }
 }
 
+
+class AuthChoicePage extends StatelessWidget {
+  const AuthChoicePage({super.key});
+
+  Widget _choice(BuildContext context, {required IconData icon,
+    required String title, required String subtitle, required String button,
+    required VoidCallback onPressed}) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Icon(icon, size: 42, color: brandGreen),
+          const SizedBox(height: 8),
+          Text(title, textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          Text(subtitle, textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 13, color: Colors.black54)),
+          const SizedBox(height: 12),
+          FilledButton(onPressed: onPressed, child: Text(button)),
+        ]),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(child: Center(child: SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 460),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const BrandMark(),
+          const SizedBox(height: 12),
+          const Text('Welcome to TAJIR',
+            style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          const Text('Choose the account that describes how you use TAJIR.',
+            textAlign: TextAlign.center),
+          const SizedBox(height: 18),
+          _choice(context, icon: Icons.admin_panel_settings_outlined,
+            title: 'DIRECTORS & WORKERS',
+            subtitle: 'For both Directors and all authorised TAJIR staff. Each person signs in with their own registered phone number and PIN. Workers must get an account from a Director.',
+            button: 'Staff login',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const LoginPage()))),
+          const SizedBox(height: 10),
+          _choice(context, icon: Icons.agriculture,
+            title: 'CLIENTS & FARM SERVICES',
+            subtitle: 'For farmers, buyers, sellers, tractor and machinery owners, and drivers. Tractor owners and drivers can also use the marketplace to buy or sell farm products.',
+            button: 'Client login / register',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const CustomerAuthPage()))),
+          const SizedBox(height: 8),
+          const Text('Not sure? Choose Client if you are using farm services or buying and selling farm products.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: Colors.black54)),
+        ]),
+      ),
+    ))),
+  );
+}
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -260,11 +321,11 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const BrandMark(),
             const SizedBox(height: 24),
-            Text(setupDirector ? 'Set up director access' : 'Sign in to TAJIR',
+            Text(setupDirector ? 'Set up Director access' : 'Staff sign in',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 18),
             TextField(controller: phone, keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(labelText: 'Director phone number', hintText: '0700020140', border: OutlineInputBorder())),
+                decoration: const InputDecoration(labelText: 'Your registered staff phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
               const SizedBox(height: 12),
               TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
                 decoration: const InputDecoration(labelText: 'Four-digit PIN', border: OutlineInputBorder(), counterText: '')),
@@ -275,8 +336,8 @@ class _LoginPageState extends State<LoginPage> {
               ],
               const SizedBox(height: 6),
               Text(setupDirector
-                ? 'One-time setup for the pre-approved TAJIR Director account. No OTP or email confirmation is needed.'
-                : 'Sign in with your registered phone number and director PIN.',
+                ? 'One-time setup is only for a pre-approved Director. Workers must ask a Director to create their staff account.'
+                : 'Both Directors and authorised workers sign in here using their own registered phone number and four-digit PIN.',
                 textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
             if (error != null) Padding(padding: const EdgeInsets.only(top: 12),
               child: Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
@@ -289,7 +350,7 @@ class _LoginPageState extends State<LoginPage> {
               child: Text(setupDirector ? 'I already set up my PIN — sign in' : 'First time? Set up director PIN')),
             TextButton(onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
-              child: const Text('Customer? Register or sign in with phone number')),
+              child: const Text('Are you a client, tractor owner or driver?')),
           ]),
         )),
       ),
@@ -377,13 +438,13 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   }
 
   @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('TAJIR customer account')),
+    appBar: AppBar(title: const Text('TAJIR client account')),
     body: Center(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
       child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 440),
         child: Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(
           mainAxisSize: MainAxisSize.min, children: [
             const BrandMark(), const SizedBox(height: 18),
-            Text(createAccount ? 'Create customer account' : 'Customer sign in',
+            Text(createAccount ? 'Register as a TAJIR client' : 'Client sign in',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 8),
             const Text('No OTP or SMS is used. Your phone number is not verified.', textAlign: TextAlign.center,
