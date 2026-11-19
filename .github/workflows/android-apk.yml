@@ -102,6 +102,7 @@ jobs:
           permissions = [
               "android.permission.INTERNET",
               "android.permission.ACCESS_NETWORK_STATE",
+              "android.permission.REQUEST_INSTALL_PACKAGES",
           ]
           for permission in permissions:
               marker = f'android:name="{permission}"'
