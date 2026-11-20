@@ -13,7 +13,21 @@ String friendlyError(Object error) {
   ).trim();
   final value = raw.toLowerCase();
 
-  // Give specific, helpful messages before checking general server codes.
+  // Lockout and throttling messages must be checked before generic PIN errors.
+  // The server's lockout message contains "incorrect PIN", but it is not a bad-PIN
+  // response; preserve the retry guidance instead of misleading every user.
+  if (RegExp(r'\\b429\\b').hasMatch(value) ||
+      value.contains('too many incorrect pin attempts') ||
+      value.contains('too many attempts') ||
+      value.contains('try again in') ||
+      value.contains('temporarily locked')) {
+    final waitMatch = RegExp(r'try again in ([^.]+)').firstMatch(raw);
+    return waitMatch != null
+        ? 'Your account is temporarily locked. Please try again in ${waitMatch.group(1)}.'
+        : 'Your account is temporarily locked after several attempts. Please wait before trying again.';
+  }
+
+  // Only show Wrong PIN for an actual credential mismatch.
   if (value.contains('wrong pin') || value.contains('incorrect pin') ||
       value.contains('invalid pin') || value.contains('pin does not match')) {
     return 'Wrong PIN. Please check your PIN and try again.';
