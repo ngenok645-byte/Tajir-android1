@@ -2183,7 +2183,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
       if (!signingOutForBackground && Supabase.instance.client.auth.currentSession != null) {
         signingOutForBackground = true;
-        Supabase.instance.client.auth.signOut().catchError((_) {}).whenComplete(() {
+        Supabase.instance.client.auth.signOut().then((_) {}, onError: (_) {}).whenComplete(() {
           signingOutForBackground = false;
         });
       }
