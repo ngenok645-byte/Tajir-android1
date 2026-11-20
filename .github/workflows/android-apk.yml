@@ -124,6 +124,7 @@ jobs:
           flutter build apk --release \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            --dart-define=TAJIR_VERSION="${GITHUB_RUN_NUMBER}" \
             --android-skip-build-dependency-validation
 
       - name: Upload TAJIR Android APK
@@ -132,3 +133,11 @@ jobs:
           name: TAJIR-Android-APK
           path: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+
+      - name: Publish versioned update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: TAJIR v${{ github.run_number }}
+          generate_release_notes: true
+          files: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-release.apk
