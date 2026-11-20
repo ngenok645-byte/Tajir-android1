@@ -1492,13 +1492,13 @@ class DirectorReadOnlyDashboardPage extends StatelessWidget {
 
 
 const Map<String, Map<String, dynamic>> _demoRoleTemplates = {
-  'buyer': {'label':'Client / Buyer','icon':Icons.shopping_bag_outlined,'metrics':{'Available products':'24','Open orders':'3','Completed purchases':'12','Pending payments':'1'},'sections':['Browse maize, beans and fertilizer','Place and track orders','Purchase history','Delivery and payment status']},
-  'seller': {'label':'Client / Seller','icon':Icons.storefront_outlined,'metrics':{'Active listings':'8','Orders received':'5','Completed sales':'17','Stock alerts':'2'},'sections':['Create product listings','Manage product stock','Review buyer orders','Sales and earnings']},
-  'worker': {'label':'Worker','icon':Icons.badge_outlined,'metrics':{'Assigned duties':'4','Completed tasks':'9','Attendance':'Present','Pending reports':'1'},'sections':['Daily assigned duties','Attendance register','Work completion records','Supervisor instructions']},
-  'tractor_owner': {'label':'Tractor Owner','icon':Icons.agriculture,'metrics':{'Registered tractors':'2','Bookings':'6','Active drivers':'2','Demo earnings':'Ksh 18,500'},'sections':['Register and manage tractors','Review bookings','Assign drivers','Earnings and service history']},
-  'driver': {'label':'Driver','icon':Icons.local_shipping_outlined,'metrics':{'Assigned jobs':'3','Completed jobs':'14','Tractor':'KDA 204X','Work status':'Available'},'sections':['View assigned tractor','Accept and complete jobs','Record job progress','Work and earnings history']},
-  'mechanic': {'label':'Mechanic','icon':Icons.build_outlined,'metrics':{'Repair requests':'4','Jobs in progress':'2','Completed repairs':'18','Pending inspections':'1'},'sections':['Receive repair requests','Update repair progress','Record parts and labour','Maintenance history']},
-  'auto_spares_owner': {'label':'Auto-spares Owner','icon':Icons.handyman_outlined,'metrics':{'Spare parts':'36','Orders':'7','Low-stock items':'3','Demo sales':'Ksh 12,400'},'sections':['Manage spare-parts inventory','Receive customer orders','Record demo sales','Stock and sales reports']},
+  'buyer': {'label':'Client / Buyer','icon':Icons.shopping_bag_outlined,'metrics':{'Available products':'24','Open orders':'3','Completed purchases':'12','Pending payments':'1'},'sections':['Browse maize, beans and fertilizer','Place and track orders','Purchase history','Delivery and payment status'],'activity':[{'title':'Maize • Grade 1','detail':'2 bags • Kitale branch • Order TJ-BUY-1042','status':'In transit'},{'title':'DAP Fertilizer','detail':'5 bags • Seller: Demo Farm Supplies','status':'Awaiting dispatch'},{'title':'Beans • Rosecoco','detail':'1 bag • Delivered 18 Nov','status':'Completed'}]},
+  'seller': {'label':'Client / Seller','icon':Icons.storefront_outlined,'metrics':{'Active listings':'8','Orders received':'5','Completed sales':'17','Stock alerts':'2'},'sections':['Create product listings','Manage product stock','Review buyer orders','Sales and earnings'],'activity':[{'title':'New order • Maize','detail':'Buyer order TJ-ORD-2081 • 4 bags','status':'New order'},{'title':'Stock updated • Beans','detail':'Rosecoco • Available quantity: 18 bags','status':'Sample update'},{'title':'Sale completed','detail':'Fertilizer • 3 bags • Ksh 18,600','status':'Completed'}]},
+  'worker': {'label':'Worker','icon':Icons.badge_outlined,'metrics':{'Assigned duties':'4','Completed tasks':'9','Attendance':'Present','Pending reports':'1'},'sections':['Daily assigned duties','Attendance register','Work completion records','Supervisor instructions'],'activity':[{'title':'Field preparation','detail':'North plot • Assigned by Branch Supervisor','status':'In progress'},{'title':'Attendance • 20 Nov','detail':'Check-in recorded at 7:42 AM','status':'Present'},{'title':'Fertilizer application','detail':'Completed • 2-acre maize field','status':'Submitted'}]},
+  'tractor_owner': {'label':'Tractor Owner','icon':Icons.agriculture,'metrics':{'Registered tractors':'2','Bookings':'6','Active drivers':'2','Demo earnings':'Ksh 18,500'},'sections':['Register and manage tractors','Review bookings','Assign drivers','Earnings and service history'],'activity':[{'title':'Booking • Ploughing','detail':'2 acres • Milimani • 22 Nov','status':'Pending'},{'title':'Tractor KDA 204X','detail':'Driver: Demo Driver • 146 hours','status':'Available'},{'title':'Service record','detail':'Engine oil and filter • 15 Nov','status':'Serviced'}]},
+  'driver': {'label':'Driver','icon':Icons.local_shipping_outlined,'metrics':{'Assigned jobs':'3','Completed jobs':'14','Tractor':'KDA 204X','Work status':'Available'},'sections':['View assigned tractor','Accept and complete jobs','Record job progress','Work and earnings history'],'activity':[{'title':'Ploughing • Job TJ-JOB-031','detail':'2 acres • Milimani • Report by 8:00 AM','status':'Assigned'},{'title':'Transport delivery','detail':'Seed and fertilizer • Kitale depot','status':'Completed'},{'title':'Assigned tractor','detail':'KDA 204X • Owner: Demo Tractor Services','status':'Active'}]},
+  'mechanic': {'label':'Mechanic','icon':Icons.build_outlined,'metrics':{'Repair requests':'4','Jobs in progress':'2','Completed repairs':'18','Pending inspections':'1'},'sections':['Receive repair requests','Update repair progress','Record parts and labour','Maintenance history'],'activity':[{'title':'Repair request • KDA 204X','detail':'Hydraulic lift inspection • Tractor owner demo','status':'Open'},{'title':'Service • KDG 118A','detail':'Oil change and filter replacement','status':'In progress'},{'title':'Repair completed','detail':'Starter motor • Labour and parts recorded','status':'Completed'}]},
+  'auto_spares_owner': {'label':'Auto-spares Owner','icon':Icons.handyman_outlined,'metrics':{'Spare parts':'36','Orders':'7','Low-stock items':'3','Demo sales':'Ksh 12,400'},'sections':['Manage spare-parts inventory','Receive customer orders','Record demo sales','Stock and sales reports'],'activity':[{'title':'New order • Oil filter','detail':'2 units • Order TJ-SP-0084','status':'Awaiting'},{'title':'Low stock • Tractor belt','detail':'Remaining quantity: 2 units','status':'Reorder'},{'title':'Sale • Hydraulic hose','detail':'1 unit • Ksh 4,800','status':'Completed'}]},
 };
 
 class DirectorDemoAccountsPage extends StatefulWidget {
@@ -1656,6 +1656,10 @@ class DemoRoleDashboardPage extends StatelessWidget {
     final data = Map<String, dynamic>.from(demo['demo_data'] ?? {});
     final metrics = Map<String, dynamic>.from(data['metrics'] ?? template['metrics']);
     final sections = List<String>.from(data['sections'] ?? template['sections']);
+    final activity = List<Map<String, dynamic>>.from(
+      (data['activity'] ?? template['activity'] ?? const <Map<String, dynamic>>[])
+          .map((item) => Map<String, dynamic>.from(item)),
+    );
     return Scaffold(
       appBar: AppBar(title: Text(template['label'] as String)),
       body: ListView(padding: const EdgeInsets.all(16), children: [
@@ -1682,9 +1686,31 @@ class DemoRoleDashboardPage extends StatelessWidget {
             ]),
           ))).toList(),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 18),
+        const Text('Recent activity', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        ...activity.map((item) => Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: brandGreen.withOpacity(.10),
+              child: const Icon(Icons.receipt_long_outlined, color: brandGreen),
+            ),
+            title: Text((item['title'] ?? 'Sample activity').toString(),
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text((item['detail'] ?? '').toString()),
+            trailing: Text((item['status'] ?? 'Sample').toString(),
+              style: const TextStyle(fontSize: 11, color: brandGreen, fontWeight: FontWeight.bold)),
+          ),
+        )),
+        const SizedBox(height: 10),
         const Text('Areas to explore', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-        ...sections.map((section) => Card(child: ListTile(leading: const Icon(Icons.check_circle_outline, color: brandGreen), title: Text(section), subtitle: const Text('Demo preview — sample workflow only')))),
+        ...sections.map((section) => Card(child: ListTile(
+          leading: const Icon(Icons.check_circle_outline, color: brandGreen),
+          title: Text(section),
+          subtitle: const Text('Preview only • no live action'),
+          trailing: const Icon(Icons.lock_outline, size: 18),
+        ))),
         const SizedBox(height: 12),
         const Text('Isolated demonstration only. No action here submits real orders, approves users, changes stock, books tractors or records payments.',
           style: TextStyle(color: Colors.black54, fontSize: 12)),
