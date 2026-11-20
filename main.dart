@@ -857,7 +857,12 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    }else if(widget.mode=='sell'){
     r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
    }else{
-    r=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
+    final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
+    final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,note,status,created_at,products(name),product_variants(variant_name)').order('created_at',ascending:false);
+    r=[
+     ...List<Map<String,dynamic>>.from(marketplaceRows),
+     ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
+    ]..sort((a,b)=>DateTime.parse(b['created_at'].toString()).compareTo(DateTime.parse(a['created_at'].toString())));
    }
    if(mounted)setState(()=>{rows=List<Map<String,dynamic>>.from(r),error=null});
   }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
@@ -920,6 +925,18 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      ));
     }
     if(widget.mode=='requests'){
+     if(r['_is_tajir_request']==true){
+      final p=(r['products'] as Map?)?.cast<String,dynamic>()??{};
+      final v=(r['product_variants'] as Map?)?.cast<String,dynamic>()??{};
+      final name=(p['name']??'TAJIR product').toString();
+      final variant=(v['variant_name']??'').toString();
+      return Card(child:ListTile(
+       leading:const Icon(Icons.inventory_2_outlined),
+       title:Text(variant.isEmpty?name:'$name • $variant'),
+       subtitle:Text('Quantity requested: '+r['quantity_requested'].toString()+' • '+r['status'].toString()),
+       trailing:const Icon(Icons.hourglass_top),
+      ));
+     }
      final l=(r['listing'] as Map?)?.cast<String,dynamic>()??{};
      final seller=l['seller_customer_id']==widget.customer['id'];
      return Card(child:ListTile(
