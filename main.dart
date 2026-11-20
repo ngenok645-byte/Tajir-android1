@@ -2096,6 +2096,11 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
         Expanded(child: Text('${accounts.length} accounts with active role assignments')),
         IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
       ]),
+      Align(alignment: Alignment.centerLeft, child: OutlinedButton.icon(
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceRecordsPage())),
+        icon: const Icon(Icons.event_note),
+        label: const Text('View worker attendance'),
+      )),
       if (loading) const LinearProgressIndicator(),
       if (error.isNotEmpty) Text(error, style: const TextStyle(color: Colors.red)),
       if (!loading && accounts.isEmpty && error.isEmpty) const Text('No active staff role assignments were found.'),
@@ -2110,6 +2115,80 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
         style: TextStyle(fontSize: 12, color: Colors.black54),
       )),
     ]),
+  );
+}
+
+class AttendanceRecordsPage extends StatefulWidget {
+  const AttendanceRecordsPage({super.key});
+  @override State<AttendanceRecordsPage> createState() => _AttendanceRecordsPageState();
+}
+
+class _AttendanceRecordsPageState extends State<AttendanceRecordsPage> {
+  bool loading = true;
+  String error = '';
+  List<Map<String,dynamic>> rows = [];
+  Map<String,String> names = {}, branches = {};
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = ''; });
+    try {
+      final db = Supabase.instance.client;
+      final result = await db.from('staff_attendance')
+        .select('id,user_id,branch_id,check_in_at,check_out_at')
+        .order('check_in_at', ascending: false).limit(200);
+      rows = List<Map<String,dynamic>>.from(result);
+      final userIds = rows.map((r) => r['user_id'].toString()).toSet().toList();
+      final branchIds = rows.map((r) => r['branch_id'].toString()).toSet().toList();
+      names = {};
+      branches = {};
+      if (userIds.isNotEmpty) {
+        final profiles = await db.from('profiles').select('id,display_name').inFilter('id', userIds);
+        for (final p in List<Map<String,dynamic>>.from(profiles)) {
+          names[p['id'].toString()] = (p['display_name'] ?? 'Unnamed worker').toString();
+        }
+      }
+      if (branchIds.isNotEmpty) {
+        final locations = await db.from('branches').select('id,name').inFilter('id', branchIds);
+        for (final b in List<Map<String,dynamic>>.from(locations)) {
+          branches[b['id'].toString()] = (b['name'] ?? 'Branch').toString();
+        }
+      }
+    } catch (e) {
+      error = 'Could not load attendance records: ' + friendlyError(e);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Worker attendance')),
+    body: RefreshIndicator(onRefresh: load, child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(18),
+      children: [
+        const Text('Attendance records', style: TextStyle(fontSize: 23, fontWeight: FontWeight.bold)),
+        const Text('Director-only view • Server-recorded check-in and check-out times'),
+        if (loading) const LinearProgressIndicator(),
+        if (error.isNotEmpty) Text(error, style: const TextStyle(color: Colors.red)),
+        if (!loading && rows.isEmpty && error.isEmpty) const Text('No worker attendance has been recorded yet.'),
+        ...rows.map((r) {
+          final user = r['user_id'].toString();
+          final branch = r['branch_id'].toString();
+          final checkedOut = r['check_out_at'] != null;
+          return Card(child: ListTile(
+            leading: CircleAvatar(child: Icon(checkedOut ? Icons.event_available : Icons.timer)),
+            title: Text(names[user] ?? 'Worker account'),
+            subtitle: Text((branches[branch] ?? 'Branch') +
+              '\nIn: ' + (r['check_in_at'] ?? '').toString() +
+              '\nOut: ' + (r['check_out_at'] ?? 'Still checked in').toString()),
+            isThreeLine: true,
+            trailing: Text(checkedOut ? 'Closed' : 'Active'),
+          ));
+        }),
+      ],
+    )),
   );
 }
 
