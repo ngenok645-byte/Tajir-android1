@@ -746,6 +746,12 @@ class _LoginPageState extends State<LoginPage> {
                 ? 'One-time setup is only for a pre-approved Director. Workers must ask a Director to create their staff account.'
                 : 'Enter the phone number and PIN registered to your account. TAJIR checks your assigned role and opens the correct dashboard automatically.',
                 textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+            if (widget.roleCode == 'driver')
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text('Driver accounts are created and linked to a tractor by the tractor owner or Director. Use the phone number and PIN they registered for you.',
+                  textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
+              ),
             if (error != null) Padding(padding: const EdgeInsets.only(top: 12),
               child: Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
             const SizedBox(height: 16),
