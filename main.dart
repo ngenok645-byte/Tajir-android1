@@ -5,6 +5,17 @@ import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 const double kgPerBag = 90.0;
+
+IconData productIconFor(String value) {
+  final name = value.toLowerCase();
+  if (name.contains('maize') || name.contains('corn')) return Icons.grain;
+  if (name.contains('bean')) return Icons.spa_outlined;
+  if (name.contains('fertilizer') || name.contains('fertiliser') || name.contains('dap') || name.contains('can')) return Icons.science_outlined;
+  if (name.contains('seed')) return Icons.eco_outlined;
+  if (name.contains('chemical') || name.contains('pesticide')) return Icons.biotech_outlined;
+  return Icons.inventory_2_outlined;
+}
+
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
 const tajirUpdateChannel = MethodChannel('tajir/update');
@@ -2737,7 +2748,7 @@ class _PurchasePageState extends State<PurchasePage> {
       DropdownButtonFormField<String>(
         value: product,
         items: const ['Maize', 'Beans', 'Fertilizer']
-            .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+            .map((x) => DropdownMenuItem(value: x, child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(productIconFor(x), size: 20, color: brandGreen), const SizedBox(width: 10), Text(x)])))
             .toList(),
         onChanged: (v) {
           if (v == null) return;
@@ -2751,7 +2762,7 @@ class _PurchasePageState extends State<PurchasePage> {
         value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
         items: variants.map((v) => DropdownMenuItem<String>(
           value: v['id'] as String,
-          child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(productIconFor(product), size: 20, color: brandGreen), const SizedBox(width: 10), Flexible(child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'))]),
         )).toList(),
         onChanged: (v) => setState(() => selectedVariantId = v),
         decoration: InputDecoration(
@@ -3021,7 +3032,7 @@ class _SalePageState extends State<SalePage> {
       DropdownButtonFormField<String>(
         value: product,
         items: const ['Maize', 'Beans', 'Fertilizer']
-            .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+            .map((x) => DropdownMenuItem(value: x, child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(productIconFor(x), size: 20, color: brandGreen), const SizedBox(width: 10), Text(x)])))
             .toList(),
         onChanged: (v) {
           if (v == null) return;
@@ -3035,7 +3046,7 @@ class _SalePageState extends State<SalePage> {
         value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
         items: variants.map((v) => DropdownMenuItem<String>(
           value: v['id'] as String,
-          child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(productIconFor(product), size: 20, color: brandGreen), const SizedBox(width: 10), Flexible(child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'))]),
         )).toList(),
         onChanged: (v) => setState(() => selectedVariantId = v),
         decoration: InputDecoration(
@@ -3235,7 +3246,7 @@ class _StockPageState extends State<StockPage>{
       const Text('Available stock',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
       if(products.isEmpty&&!loading)const Card(child:Padding(padding:EdgeInsets.all(14),child:Text('No approved stock balances yet.'))),
       ...products.map((p)=>Card(child:ListTile(
-        leading:const Icon(Icons.inventory_2,color:brandGreen),
+        leading:CircleAvatar(backgroundColor:brandGreen.withOpacity(.10),child:Icon(productIconFor((p['product_name']??p['name']??'').toString()),color:brandGreen)),
         title:Text('${p['product_name']??p['name']??'Product'}'),
         subtitle:Text('Branch: ${p['branch_name']??'Ntulele'}'),
         trailing:Text('${p['quantity_available']??''} ${p['unit']??''}'),
