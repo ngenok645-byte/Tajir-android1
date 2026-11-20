@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+const double kgPerBag = 90.0;
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
 const tajirUpdateChannel = MethodChannel('tajir/update');
@@ -2425,6 +2426,7 @@ class _PurchasePageState extends State<PurchasePage> {
   final List<Map<String, TextEditingController>> otherExpenses = [];
 
   String product = 'Maize';
+  String quantityUnit = 'BAGS';
   String payer = 'Mercy';
   String? productId;
   String? selectedVariantId;
@@ -2560,8 +2562,10 @@ class _PurchasePageState extends State<PurchasePage> {
   }
 
   Future<void> save() async {
-    final q = double.tryParse(qty.text);
-    final c = double.tryParse(cost.text);
+    final enteredQuantity = double.tryParse(qty.text);
+    final enteredCost = double.tryParse(cost.text);
+    final q = enteredQuantity == null ? null : (quantityUnit == 'KG' ? enteredQuantity / kgPerBag : enteredQuantity);
+    final c = enteredCost == null ? null : (quantityUnit == 'KG' ? enteredCost * kgPerBag : enteredCost);
     final transport = double.tryParse(transportCost.text.trim().isEmpty ? '0' : transportCost.text.trim());
     final loading = double.tryParse(loadingCost.text.trim().isEmpty ? '0' : loadingCost.text.trim());
     final labour = double.tryParse(labourCost.text.trim().isEmpty ? '0' : labourCost.text.trim());
@@ -2658,8 +2662,15 @@ class _PurchasePageState extends State<PurchasePage> {
           icon: const Icon(Icons.add),
           label: Text(product == 'Beans' ? 'Add bean variety' : 'Add fertilizer type'),
         ),
-      field(qty, 'Quantity (bags)', number: true),
-      field(cost, 'Buying price per bag (KES)', number: true),
+      DropdownButtonFormField<String>(
+        value: quantityUnit,
+        items: const [DropdownMenuItem(value: 'BAGS', child: Text('Bags (1 bag = 90 KG)')), DropdownMenuItem(value: 'KG', child: Text('Kilograms (KG)'))],
+        onChanged: (v) => setState(() => quantityUnit = v ?? 'BAGS'),
+        decoration: const InputDecoration(labelText: 'Quantity and price unit'),
+      ),
+      field(qty, 'Quantity (${quantityUnit == 'KG' ? 'KG' : 'bags'})', number: true),
+      field(cost, 'Buying price per ${quantityUnit == 'KG' ? 'KG' : 'bag'} (KES)', number: true),
+      if (qty.text.trim().isNotEmpty && cost.text.trim().isNotEmpty) Text('Stored as: ${(double.tryParse(qty.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(qty.text.trim()) / kgPerBag : double.parse(qty.text.trim()))).toStringAsFixed(3)} bags • ${(double.tryParse(cost.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(cost.text.trim()) * kgPerBag : double.parse(cost.text.trim()))).toStringAsFixed(2)} KES per bag'),
       const Text('Additional costs for this purchase (KES)',style:TextStyle(fontWeight:FontWeight.bold)),
       field(transportCost, 'Transport', number: true),
       field(loadingCost, 'Loading / offloading', number: true),
@@ -2721,6 +2732,7 @@ class _SalePageState extends State<SalePage> {
   final reference = TextEditingController();
 
   String product = 'Maize';
+  String quantityUnit = 'BAGS';
   String mode = 'collection';
   String method = 'cash';
   String? productId;
@@ -2844,8 +2856,10 @@ class _SalePageState extends State<SalePage> {
   }
 
   Future<void> save() async {
-    final q = double.tryParse(qty.text);
-    final p = double.tryParse(price.text);
+    final enteredQuantity = double.tryParse(qty.text);
+    final enteredPrice = double.tryParse(price.text);
+    final q = enteredQuantity == null ? null : (quantityUnit == 'KG' ? enteredQuantity / kgPerBag : enteredQuantity);
+    final p = enteredPrice == null ? null : (quantityUnit == 'KG' ? enteredPrice * kgPerBag : enteredPrice);
     final amount = double.tryParse(paid.text) ?? 0;
     final deliveryFee = double.tryParse(fee.text) ?? 0;
     if (q == null || p == null || q <= 0 || p < 0 || selectedVariantId == null ||
@@ -2932,8 +2946,15 @@ class _SalePageState extends State<SalePage> {
           icon: const Icon(Icons.add),
           label: Text(product == 'Beans' ? 'Add bean variety' : 'Add fertilizer type'),
         ),
-      field(qty, 'Quantity (bags)', number: true),
-      field(price, 'Selling price per bag (KES)', number: true),
+      DropdownButtonFormField<String>(
+        value: quantityUnit,
+        items: const [DropdownMenuItem(value: 'BAGS', child: Text('Bags (1 bag = 90 KG)')), DropdownMenuItem(value: 'KG', child: Text('Kilograms (KG)'))],
+        onChanged: (v) => setState(() => quantityUnit = v ?? 'BAGS'),
+        decoration: const InputDecoration(labelText: 'Quantity and price unit'),
+      ),
+      field(qty, 'Quantity (${quantityUnit == 'KG' ? 'KG' : 'bags'})', number: true),
+      field(price, 'Selling price per ${quantityUnit == 'KG' ? 'KG' : 'bag'} (KES)', number: true),
+      if (qty.text.trim().isNotEmpty && price.text.trim().isNotEmpty) Text('Stored as: ${(double.tryParse(qty.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(qty.text.trim()) / kgPerBag : double.parse(qty.text.trim()))).toStringAsFixed(3)} bags • ${(double.tryParse(price.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(price.text.trim()) * kgPerBag : double.parse(price.text.trim()))).toStringAsFixed(2)} KES per bag'),
       field(customer, 'Customer name'),
       field(customerPhone, 'Customer phone (required for a new customer)'),
       DropdownButtonFormField<String>(
@@ -4212,6 +4233,7 @@ class _PreviewHomeState extends State<PreviewHome> {
   int index = 0;
   DateTime selectedDate = DateTime.now();
   String product = 'Maize';
+  String entryUnit = 'BAGS';
   String beanVariety = 'Rosecoco';
   String fertilizerType = 'DAP';
   final beanVarieties = <String>['Rosecoco', 'Wairimu', 'Canadian Wonder', 'Mwitemania', 'Mwezi Moja', 'Nyayo'];
@@ -4262,8 +4284,10 @@ class _PreviewHomeState extends State<PreviewHome> {
   }
 
   void saveEntry(bool isSale) {
-    final q = double.tryParse(quantity.text.trim());
-    final p = double.tryParse(price.text.trim());
+    final enteredQ = double.tryParse(quantity.text.trim());
+    final enteredP = double.tryParse(price.text.trim());
+    final q = enteredQ == null ? null : (entryUnit == 'KG' ? enteredQ / kgPerBag : enteredQ);
+    final p = enteredP == null ? null : (entryUnit == 'KG' ? enteredP * kgPerBag : enteredP);
     if (q == null || q <= 0 || p == null || p < 0) {
       setState(() => message = 'Enter a valid quantity and price.');
       return;
@@ -4274,6 +4298,7 @@ class _PreviewHomeState extends State<PreviewHome> {
       'variety': product == 'Beans' ? beanVariety : product == 'Fertilizer' ? fertilizerType : '—',
       'quantity': q.toString(),
       'price': p.toStringAsFixed(2),
+      'entered_unit': entryUnit,
     };
     setState(() {
       (isSale ? sales : purchases).insert(0, item);
@@ -4329,12 +4354,20 @@ class _PreviewHomeState extends State<PreviewHome> {
                 icon: const Icon(Icons.add), label: const Text('Add another fertilizer type')),
           ],
           const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: entryUnit,
+            decoration: const InputDecoration(labelText: 'Quantity and price unit', border: OutlineInputBorder()),
+            items: const [DropdownMenuItem(value: 'BAGS', child: Text('Bags (1 bag = 90 KG)')), DropdownMenuItem(value: 'KG', child: Text('Kilograms (KG)'))],
+            onChanged: (v) => setState(() => entryUnit = v ?? 'BAGS'),
+          ),
+          const SizedBox(height: 12),
           TextField(controller: quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Quantity (bags)', border: OutlineInputBorder())),
+              decoration: InputDecoration(labelText: 'Quantity (${entryUnit == 'KG' ? 'KG' : 'bags'})', border: const OutlineInputBorder())),
           const SizedBox(height: 12),
           TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(labelText: isSale ? 'Selling price per bag (KES)' : 'Buying price per bag (KES)',
+              decoration: InputDecoration(labelText: isSale ? 'Selling price per ${entryUnit == 'KG' ? 'KG' : 'bag'} (KES)' : 'Buying price per ${entryUnit == 'KG' ? 'KG' : 'bag'} (KES)',
                   border: const OutlineInputBorder())),
+          if (quantity.text.trim().isNotEmpty && price.text.trim().isNotEmpty) Text('Equivalent: ${(double.tryParse(quantity.text.trim()) == null ? 0 : (entryUnit == 'KG' ? double.parse(quantity.text.trim()) / kgPerBag : double.parse(quantity.text.trim()))).toStringAsFixed(3)} bags • ${(double.tryParse(price.text.trim()) == null ? 0 : (entryUnit == 'KG' ? double.parse(price.text.trim()) * kgPerBag : double.parse(price.text.trim()))).toStringAsFixed(2)} KES per bag'),
           const SizedBox(height: 16),
           SizedBox(width: double.infinity, child: FilledButton.icon(
               onPressed: () => saveEntry(isSale), icon: const Icon(Icons.save),
@@ -4348,7 +4381,7 @@ class _PreviewHomeState extends State<PreviewHome> {
         if (records.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('No entries added yet.')),
         ...records.map((r) => Card(child: ListTile(
           title: Text('${r['product']} • ${r['variety']}'),
-          subtitle: Text('${r['date']}  |  ${r['quantity']} bags'),
+          subtitle: Text('${r['date']}  |  ${r['quantity']} bags (${((double.tryParse(r['quantity'] ?? '0') ?? 0) * kgPerBag).toStringAsFixed(1)} KG)'),
           trailing: Text('KES ${r['price']}'),
         ))),
       ],
@@ -4501,7 +4534,7 @@ class _PreviewHomeState extends State<PreviewHome> {
           const Text('Items tracked'), Text('${rows.length}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         ])))),
         Expanded(child: Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Net bags in stock'), Text(total.toStringAsFixed(2), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          const Text('Net stock (bags / KG)'), Text('${total.toStringAsFixed(2)} bags\n${(total * kgPerBag).toStringAsFixed(1)} KG', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         ])))),
       ]),
       const SizedBox(height: 8),
@@ -4516,7 +4549,7 @@ class _PreviewHomeState extends State<PreviewHome> {
           leading: Icon(Icons.inventory_2, color: quantity <= 0 ? Colors.red : isLow ? Colors.orange : brandGreen),
           title: Text('${row['product']} • ${row['variety']}'),
           subtitle: Text(quantity <= 0 ? 'Out of stock' : isLow ? 'Low stock' : 'Available'),
-          trailing: Text('${quantity.toStringAsFixed(2)} bags', style: const TextStyle(fontWeight: FontWeight.bold)),
+          trailing: Text('${quantity.toStringAsFixed(2)} bags\n${(quantity * kgPerBag).toStringAsFixed(1)} KG', textAlign: TextAlign.end, style: const TextStyle(fontWeight: FontWeight.bold)),
         ));
       }),
       const SizedBox(height: 14),
@@ -4527,7 +4560,7 @@ class _PreviewHomeState extends State<PreviewHome> {
               color: e['movement'] == 'Stock out' ? Colors.deepOrange : brandGreen),
           title: Text('${e['movement']} • ${e['product']} • ${e['variety']}'),
           subtitle: Text('${e['date']}'),
-          trailing: Text('${e['quantity']} bags'),
+          trailing: Text('${e['quantity']} bags\n${((double.tryParse(e['quantity'] ?? '0') ?? 0) * kgPerBag).toStringAsFixed(1)} KG', textAlign: TextAlign.end),
         ))),
     ]);
   }
