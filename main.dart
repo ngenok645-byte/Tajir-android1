@@ -1844,13 +1844,6 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
     );
   }
 
-  bool _matchesFor(Map<String, dynamic> a, String c) {
-    const mapping = {
-      'Clients': 'Client', 'Workers': 'Worker', 'Tractor owners': 'Tractor owner',
-      'Drivers': 'Driver', 'Mechanics': 'Mechanic', 'Auto-spares': 'Auto-spares owner',
-    };
-    return (a['roles'] as Set<String>).contains(mapping[c]);
-  }
 
   IconData _iconForRoles(List<String> roles) {
     if (roles.contains('Worker')) return Icons.badge_outlined;
