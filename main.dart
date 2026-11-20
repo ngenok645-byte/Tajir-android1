@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -354,50 +355,89 @@ class TajirApp extends StatefulWidget {
 }
 
 class _TajirAppState extends State<TajirApp> with WidgetsBindingObserver {
-  bool _backgroundLogoutStarted = false;
+  static const _inactivityLimit = Duration(minutes: 10);
+  Timer? _inactivityTimer;
+  StreamSubscription<AuthState>? _authSubscription;
+  DateTime? _backgroundedAt;
+  bool _signOutInProgress = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((_) {
+      _resetInactivityTimer();
+    });
+    _resetInactivityTimer();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _inactivityTimer?.cancel();
+    _authSubscription?.cancel();
     super.dispose();
   }
 
-  // Sign out when TAJIR is sent to the background so reopening requires login.
+  // A short app switch (for example, answering a call) must not log a user out.
+  // A long background period or ten minutes without interaction expires the session.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _logoutWhenAppIsLeft();
+    if (state == AppLifecycleState.paused) {
+      _backgroundedAt = DateTime.now();
+      _inactivityTimer?.cancel();
+    } else if (state == AppLifecycleState.resumed) {
+      final backgroundedAt = _backgroundedAt;
+      _backgroundedAt = null;
+      if (backgroundedAt != null &&
+          DateTime.now().difference(backgroundedAt) >= _inactivityLimit) {
+        _signOutForInactivity();
+      } else {
+        _resetInactivityTimer();
+      }
     }
   }
 
-  Future<void> _logoutWhenAppIsLeft() async {
-    if (_backgroundLogoutStarted) return;
-    _backgroundLogoutStarted = true;
+  void _recordActivity() {
+    if (Supabase.instance.client.auth.currentSession != null) {
+      _resetInactivityTimer();
+    }
+  }
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    if (!mounted || Supabase.instance.client.auth.currentSession == null) return;
+    _inactivityTimer = Timer(_inactivityLimit, _signOutForInactivity);
+  }
+
+  Future<void> _signOutForInactivity() async {
+    if (_signOutInProgress) return;
+    final auth = Supabase.instance.client.auth;
+    if (auth.currentSession == null) return;
+    _signOutInProgress = true;
+    _inactivityTimer?.cancel();
     try {
-      if (Supabase.instance.client.auth.currentSession != null) {
-        await Supabase.instance.client.auth.signOut();
-      }
+      await auth.signOut();
     } catch (_) {
-      // Do not block app closing if the network is unavailable.
+      // Keep the app responsive during a temporary network outage. Supabase
+      // will still enforce server-side token expiry and refresh rules.
     } finally {
-      _backgroundLogoutStarted = false;
+      _signOutInProgress = false;
+      _resetInactivityTimer();
     }
   }
 
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'TAJIR', debugShowCheckedModeBanner: false, theme: appTheme,
+    builder: (context, child) => Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => _recordActivity(),
+      child: child ?? const SizedBox.shrink(),
+    ),
     home: const AuthGate(),
   );
 }
-
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
