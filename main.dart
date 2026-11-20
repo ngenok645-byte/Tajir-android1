@@ -1703,14 +1703,13 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
     return (a['roles'] as Set<String>).contains(mapping[c]);
   }
 
-  Future<void> _preview(Map<String, dynamic> account) async {
-    final targetId = account['id']?.toString() ?? '';
-    if (targetId.isEmpty || targetId.startsWith('customer:')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This account does not have a linked login yet.')),
-      );
-      return;
-    }
+  void _preview(Map<String, dynamic> account) {
+    // Keep the Director's own authenticated session. Never impersonate the
+    // target account: this inspection screen is deliberately read-only.
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => DirectorReadOnlyDashboardPage(account: account)),
+    );
+  }
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) {
       ScaffoldMessenger.of(context).showSnackBar(
