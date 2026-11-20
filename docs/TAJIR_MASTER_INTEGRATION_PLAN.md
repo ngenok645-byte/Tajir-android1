@@ -201,3 +201,17 @@ TAJIR is one connected platform with role-specific workspaces. A dashboard is a 
 - Confirm director/owner approval limits and branch profit-sharing agreement templates; never invent financial terms.
 - Confirm exact session-lock/background behaviour and any permitted offline transactions.
 - Confirm production release approval process before publishing a new APK.
+
+
+## Client product selection and director-controlled prices (release requirement)
+
+- The client BUY TAJIR PRODUCTS flow must let a customer choose a listed product/variant and select the offered sales unit: kilogram (KG), bag, or both where enabled by the director.
+- Only an authorised director may create, change, activate or deactivate the official TAJIR selling price. Customers must never receive a price-entry or price-edit control for official TAJIR catalogue products. Seller-created marketplace listings remain a separate workflow.
+- Store an explicit price per supported unit, currency (KES), effective status/date, product/variant and applicable branch or pricing scope. Bag weight is product/branch-configurable; do not assume a universal 90 kg bag. Derive a second unit price only from an explicit director-approved conversion rule.
+- The client enters quantity only. The app fetches active price and unit configuration from the authoritative server and displays product, selected unit, quantity, unit price and calculated total. Recalculate when product, unit or quantity changes. Validate positive finite quantities, supported units, available stock and currency precision.
+- The client may see the estimated/quoted total but cannot change official unit price, discount or payable total. Final order totals must be recalculated server-side from the current approved price and confirmed quantity; never trust a client-supplied amount.
+- Price changes must be director-authorised, audited (actor, old/new values, time and scope), and versioned/effective-dated. Preserve the price snapshot used for an accepted order so later price changes do not rewrite historical orders or receipts.
+- Block submission if price is missing, inactive, stale under the defined validity rule, or the selected unit is not permitted. Never show KES 0 or silently accept an unpriced order.
+- RLS and server-side order RPC/Edge Function validation must prevent customers and non-director roles from writing official price fields or bypassing the approved price. Hiding a UI control is not security.
+
+Acceptance scenarios: (1) Director sets maize prices per KG and per configured bag; client selects either unit and sees the correct total. (2) Product-specific bag weight and fractional quantity rules are respected. (3) A director price change applies to new orders while accepted order snapshots remain unchanged. (4) A tampered client-supplied price/total is rejected or ignored and the server calculates the authoritative total. (5) Non-directors cannot edit official prices. (6) Missing/inactive/stale pricing blocks submission. (7) Client, server order, director dashboard and receipt totals agree.
