@@ -5,14 +5,15 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("POST required", { status: 405 });
   try {
     const b = await req.json();
-    if (typeof b.phone !== "string" || typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin))
-      return Response.json({ error: "Enter your phone number and four-digit PIN." }, { status: 400 });
-    const digits = b.phone.replace(/[^0-9]/g, "");
+    const pin = typeof b.pin === "string" ? b.pin.trim() : "";
+    if (typeof b.phone !== "string" || !/^\d{4}$/.test(pin))
+      return Response.json({ error: "Enter your phone number and all four PIN digits (numbers only)." }, { status: 400 });
+    const digits = b.phone.trim().replace(/[^0-9]/g, "");
     const phone = digits.startsWith("254") ? "+" + digits : digits.startsWith("0") ? "+254" + digits.slice(1) : "+254" + digits;
     if (!/^\+254\d{9}$/.test(phone))
       return Response.json({ error: "Invalid Kenyan phone number." }, { status: 400 });
     const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-    const { data: authResult, error: authError } = await db.rpc("authenticate_tajir_customer_pin", { p_phone: phone, p_pin: b.pin });
+    const { data: authResult, error: authError } = await db.rpc("authenticate_tajir_customer_pin", { p_phone: phone, p_pin: pin });
     if (authError) throw authError;
     if (!authResult?.success) {
       const seconds = Number(authResult?.retry_after_seconds || 0);
