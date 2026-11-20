@@ -1183,48 +1183,223 @@ class AccountRouter extends StatelessWidget {
   );
 }
 
-class RoleWorkspacePage extends StatelessWidget {
+class RoleWorkspacePage extends StatefulWidget {
   final String roleCode;
   final String roleName;
   const RoleWorkspacePage({super.key, required this.roleCode, required this.roleName});
+  @override State<RoleWorkspacePage> createState() => _RoleWorkspacePageState();
+}
 
-  String get description => switch (roleCode) {
-    'tractor_owner' => 'Your workspace is for tractor records, bookings, assigned drivers, maintenance and earnings.',
-    'driver' => 'Your workspace is for assigned jobs, tractor details and your work history.',
-    'mechanic' => 'Your workspace is for repair requests, maintenance jobs and service records.',
-    'auto_spares_owner' => 'Your workspace is for spare-parts inventory, orders and sales.',
-    _ => 'Your TAJIR workspace.',
-  };
+class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
+  final db = Supabase.instance.client;
+  bool loading = true, busy = false;
+  String error = '';
+  Map<String,dynamic>? profile;
+  List<Map<String,dynamic>> primary = [], secondary = [], requests = [];
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(roleName), actions: [
-      IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout)),
+  @override void initState() { super.initState(); load(); }
+
+  String get uid => db.auth.currentUser!.id;
+  String money(dynamic value) => 'KES ${(double.tryParse((value ?? 0).toString()) ?? 0).toStringAsFixed(2)}';
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = ''; });
+    try {
+      profile = null; primary = []; secondary = []; requests = [];
+      switch (widget.roleCode) {
+        case 'tractor_owner':
+          profile = await db.from('tractor_owner_profiles')
+            .select('id,full_name,company_name,phone,status,operating_mode')
+            .eq('profile_id', uid).maybeSingle();
+          if (profile != null) {
+            final ownerId = profile!['id'].toString();
+            final assets = await db.from('tractor_owner_assets')
+              .select('id,tractor_id,verification_status,verified_at,created_at')
+              .eq('owner_id', ownerId).order('created_at', ascending: false);
+            primary = List<Map<String,dynamic>>.from(assets);
+          }
+          final jobs = await db.from('tractor_repair_jobs').select()
+            .eq('owner_user_id', uid).order('requested_at', ascending: false);
+          secondary = List<Map<String,dynamic>>.from(jobs);
+          break;
+        case 'driver':
+          final jobs = await db.from('tractor_service_jobs')
+            .select('id,job_number,service_type,service_location,booked_for,status,total_charge,tractor_id,operator_id')
+            .eq('operator_id', uid).order('booked_for', ascending: false);
+          primary = List<Map<String,dynamic>>.from(jobs);
+          break;
+        case 'mechanic':
+          profile = await db.from('mechanic_profiles')
+            .select('id,business_name,phone,location,services,status')
+            .eq('profile_id', uid).maybeSingle();
+          if (profile != null) {
+            final mechanicId = profile!['id'].toString();
+            final jobs = await db.from('tractor_repair_jobs').select()
+              .eq('mechanic_id', mechanicId).order('requested_at', ascending: false);
+            primary = List<Map<String,dynamic>>.from(jobs);
+            final parts = await db.from('repair_part_requests').select()
+              .eq('mechanic_id', mechanicId).order('requested_at', ascending: false);
+            requests = List<Map<String,dynamic>>.from(parts);
+          }
+          break;
+        case 'auto_spares_owner':
+          profile = await db.from('auto_spares_profiles')
+            .select('id,shop_name,phone,location,status')
+            .eq('profile_id', uid).maybeSingle();
+          if (profile != null) {
+            final shopId = profile!['id'].toString();
+            final stock = await db.from('auto_spares_inventory').select()
+              .eq('shop_id', shopId).order('created_at', ascending: false);
+            primary = List<Map<String,dynamic>>.from(stock);
+            final parts = await db.from('repair_part_requests').select()
+              .eq('shop_id', shopId).order('requested_at', ascending: false);
+            requests = List<Map<String,dynamic>>.from(parts);
+          }
+          break;
+      }
+    } catch (e) {
+      error = 'Could not load your workspace: ${friendlyError(e)}';
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> updatePartRequest(Map<String,dynamic> row, String nextStatus) async {
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      await db.from('repair_part_requests').update({'status': nextStatus}).eq('id', row['id']);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Parts request updated to ${nextStatus.replaceAll('_',' ')}.')));
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Widget sectionTitle(String title, int count) => Padding(
+    padding: const EdgeInsets.only(top: 18, bottom: 8),
+    child: Row(children: [
+      Expanded(child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+      Chip(label: Text('$count')),
     ]),
-    body: SafeArea(child: Center(child: SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 480), child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.agriculture, size: 64, color: brandGreen),
-          const SizedBox(height: 16),
-          Text('$roleName account', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-          const SizedBox(height: 10),
-          Text(description, textAlign: TextAlign.center),
-          const SizedBox(height: 20),
-          const Card(child: Padding(padding: EdgeInsets.all(16), child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.construction, color: brandGreen),
-              SizedBox(width: 12),
-              Expanded(child: Text('Your role is recognised securely. The dedicated operational tools are still being connected and tested. This account is not being sent to the general staff dashboard while those tools are unfinished.')),
-            ],
-          ))),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout), label: const Text('Sign out')),
-        ],
-      )),
-    ))),
+  );
+
+  Widget recordCard(String title, String subtitle, {String? trailing, Widget? actions}) =>
+    Card(child: Padding(padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(children: [
+        ListTile(title: Text(title), subtitle: Text(subtitle), trailing: trailing == null ? null : Text(trailing)),
+        if (actions != null) Padding(padding: const EdgeInsets.fromLTRB(12,0,12,10),
+          child: Align(alignment: Alignment.centerRight, child: actions)),
+      ])));
+
+  Widget partRequestCard(Map<String,dynamic> row) {
+    final status = (row['status'] ?? 'requested').toString();
+    final buttons = <Widget>[];
+    if (widget.roleCode == 'auto_spares_owner' && status == 'requested') {
+      buttons.add(TextButton(onPressed: busy ? null : () => updatePartRequest(row,'accepted'), child: const Text('Accept')));
+      buttons.add(TextButton(onPressed: busy ? null : () => updatePartRequest(row,'declined'), child: const Text('Decline')));
+    }
+    if (widget.roleCode == 'auto_spares_owner' && status == 'accepted') {
+      buttons.add(FilledButton(onPressed: busy ? null : () => updatePartRequest(row,'supplied'), child: const Text('Mark supplied')));
+    }
+    if (widget.roleCode == 'mechanic' && status == 'requested') {
+      buttons.add(TextButton(onPressed: busy ? null : () => updatePartRequest(row,'cancelled'), child: const Text('Cancel request')));
+    }
+    if (widget.roleCode == 'mechanic' && status == 'supplied') {
+      buttons.add(FilledButton(onPressed: busy ? null : () => updatePartRequest(row,'installed'), child: const Text('Mark installed')));
+    }
+    return recordCard(
+      'Parts request • ${row['quantity'] ?? ''} units',
+      'Status: $status • Unit price: ${money(row['agreed_unit_price_kes'])}',
+      trailing: row['requested_at']?.toString().split('T').first,
+      actions: buttons.isEmpty ? null : Wrap(spacing: 8, children: buttons),
+    );
+  }
+
+  List<Widget> workspaceContent() {
+    final out = <Widget>[];
+    if (profile != null) {
+      final name = profile!['company_name'] ?? profile!['business_name'] ?? profile!['shop_name'] ?? profile!['full_name'] ?? widget.roleName;
+      out.add(Card(child: ListTile(
+        leading: const CircleAvatar(child: Icon(Icons.verified_user_outlined)),
+        title: Text(name.toString()),
+        subtitle: Text('${profile!['status'] ?? 'Profile'} • ${profile!['phone'] ?? ''}'),
+      )));
+    }
+    switch (widget.roleCode) {
+      case 'tractor_owner':
+        out.add(sectionTitle('Registered tractor assets', primary.length));
+        if (primary.isEmpty) out.add(const Text('No tractor ownership records are linked to this account yet.'));
+        for (final r in primary) {
+          out.add(recordCard('Tractor asset • ${r['tractor_id']}', 'Verification: ${r['verification_status'] ?? 'pending'}'));
+        }
+        out.add(sectionTitle('Repair requests and history', secondary.length));
+        if (secondary.isEmpty) out.add(const Text('No repair jobs have been submitted.'));
+        for (final r in secondary) {
+          out.add(recordCard('${r['job_number'] ?? 'Repair job'}', '${r['issue_description'] ?? ''} • ${r['status'] ?? ''}', trailing: money(r['final_cost_kes'] ?? r['estimated_cost_kes'])));
+        }
+        break;
+      case 'driver':
+        out.add(sectionTitle('My assigned tractor jobs', primary.length));
+        if (primary.isEmpty) out.add(const Text('No jobs are currently assigned to you.'));
+        for (final r in primary) {
+          out.add(recordCard('${r['job_number'] ?? 'Job'} • ${r['service_type'] ?? ''}',
+            '${r['service_location'] ?? ''} • ${r['booked_for'] ?? ''} • ${r['status'] ?? ''}',
+            trailing: money(r['total_charge'])));
+        }
+        break;
+      case 'mechanic':
+        out.add(sectionTitle('Assigned repair jobs', primary.length));
+        if (primary.isEmpty) out.add(const Text('No repair jobs are currently assigned to you.'));
+        for (final r in primary) {
+          out.add(recordCard('${r['job_number'] ?? 'Repair job'}',
+            '${r['issue_description'] ?? ''} • ${r['location'] ?? ''} • ${r['status'] ?? ''}',
+            trailing: money(r['estimated_cost_kes'] ?? r['final_cost_kes'])));
+        }
+        out.add(sectionTitle('Parts requests', requests.length));
+        if (requests.isEmpty) out.add(const Text('No parts requests yet.'));
+        out.addAll(requests.map(partRequestCard));
+        break;
+      case 'auto_spares_owner':
+        out.add(sectionTitle('Spare-parts inventory', primary.length));
+        if (primary.isEmpty) out.add(const Text('No spare parts have been added to your shop yet.'));
+        for (final r in primary) {
+          out.add(recordCard('${r['part_name'] ?? 'Spare part'}',
+            'Ref: ${r['part_reference'] ?? '-'} • Stock: ${r['quantity'] ?? 0} ${r['unit'] ?? ''} • ${r['status'] ?? ''}',
+            trailing: money(r['price_kes'])));
+        }
+        out.add(sectionTitle('Incoming parts requests', requests.length));
+        if (requests.isEmpty) out.add(const Text('No incoming repair-parts requests.'));
+        out.addAll(requests.map(partRequestCard));
+        break;
+    }
+    return out;
+  }
+
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(widget.roleName), actions: [
+      IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
+        MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
+      IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
+      IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
+    ]),
+    body: RefreshIndicator(onRefresh: load, child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(18),
+      children: [
+        Text('${widget.roleName} workspace', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        const Text('Your records are limited by your signed-in account permissions.'),
+        if (loading) const LinearProgressIndicator(),
+        if (error.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(error, style: const TextStyle(color: Colors.red))),
+        if (!loading && error.isEmpty) ...workspaceContent(),
+        if (!loading && error.isNotEmpty) OutlinedButton.icon(onPressed: load, icon: const Icon(Icons.refresh), label: const Text('Try again')),
+      ],
+    )),
   );
 }
 
