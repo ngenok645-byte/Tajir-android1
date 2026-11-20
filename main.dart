@@ -846,11 +846,66 @@ class CustomerMarketPage extends StatefulWidget{
 class _CustomerMarketPageState extends State<CustomerMarketPage>{
  List<Map<String,dynamic>> rows=[];bool busy=true;String? error;
  @override void initState(){super.initState();load();}
- Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;dynamic r;if(widget.mode=='buy'){var query=db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status').eq('status','active');if(widget.fertilizerOnly)query=query.ilike('product_name','%fertilizer%');r=await query.order('created_at',ascending:false);}else if(widget.mode=='sell'){r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);}else{r=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);}if(mounted)setState(()=>rows=List<Map<String,dynamic>>.from(r));}catch(e){if(mounted)setState(()=>error=friendlyError(e));}if(mounted)setState(()=>busy=false);}
+ Future<void> load()async{
+  if(mounted)setState(()=>busy=true);
+  try{
+   final db=Supabase.instance.client;
+   dynamic r;
+   if(widget.mode=='buy'){
+    // The buyer catalogue is TAJIR's actual branch stock, not seller listings.
+    r=await db.rpc('get_stock_balances');
+   }else if(widget.mode=='sell'){
+    r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
+   }else{
+    r=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
+   }
+   if(mounted)setState(()=>{rows=List<Map<String,dynamic>>.from(r),error=null});
+  }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
+  if(mounted)setState(()=>busy=false);
+ }
  Future<void> createListing()async{final p=TextEditingController(),q=TextEditingController(),u=TextEditingController(text:'bag'),v=TextEditingController(),l=TextEditingController(),d=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:const Text('List product'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:p,decoration:const InputDecoration(labelText:'Product')),TextField(controller:d,decoration:const InputDecoration(labelText:'Description')),TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),TextField(controller:u,decoration:const InputDecoration(labelText:'Unit')),TextField(controller:v,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Price per unit KES')),TextField(controller:l,decoration:const InputDecoration(labelText:'Location'))])),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Publish'))]));if(ok==true){try{await Supabase.instance.client.from('marketplace_listings').insert({'seller_customer_id':widget.customer['id'],'product_name':p.text.trim(),'description':d.text.trim(),'quantity':double.parse(q.text),'unit':u.text.trim().isEmpty?'bag':u.text.trim(),'price_per_unit':double.parse(v.text),'location':l.text.trim(),'status':'active'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}p.dispose();q.dispose();u.dispose();v.dispose();l.dispose();d.dispose();}
  Future<void> requestBuy(Map<String,dynamic> item)async{final q=TextEditingController(text:'1');final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:Text('Buy '+item['product_name'].toString()),content:TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send request'))]));if(ok==true){try{final n=double.parse(q.text);if(n<=0||n>(item['quantity'] as num).toDouble())throw const FormatException('Quantity exceeds available stock.');await Supabase.instance.client.from('marketplace_purchase_requests').insert({'listing_id':item['id'],'buyer_customer_id':widget.customer['id'],'quantity':n});if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Purchase request sent.')));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}q.dispose();}
  Future<void> change(Map<String,dynamic> r,String value,bool listing)async{try{await Supabase.instance.client.from(listing?'marketplace_listings':'marketplace_purchase_requests').update({'status':value}).eq('id',r['id']);await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
- @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[Row(children:[Expanded(child:Text(widget.mode=='buy'?'Products for sale':widget.mode=='sell'?'Your listings':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Add listing'))]),if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),if(!busy&&rows.isEmpty)const Text('No marketplace records yet.'),...rows.map((r){if(widget.mode=='requests'){final l=(r['listing'] as Map?)?.cast<String,dynamic>()??{};final seller=l['seller_customer_id']==widget.customer['id'];return Card(child:ListTile(title:Text((l['product_name']??'Purchase request').toString()),subtitle:Text(r['quantity'].toString()+' '+(l['unit']??'').toString()+' • '+r['status'].toString()),trailing:seller&&r['status']=='pending'?PopupMenuButton<String>(onSelected:(v)=>change(r,v,false),itemBuilder:(_)=>const [PopupMenuItem(value:'accepted',child:Text('Accept')),PopupMenuItem(value:'declined',child:Text('Decline'))]):seller&&r['status']=='accepted'?TextButton(onPressed:()=>change(r,'completed',false),child:const Text('Complete')):null));}return Card(child:ListTile(title:Text(r['product_name'].toString()),subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • KES '+r['price_per_unit'].toString()+' • '+r['location'].toString()),trailing:widget.mode=='buy'?FilledButton(onPressed:()=>requestBuy(r),child:const Text('Request')):PopupMenuButton<String>(onSelected:(v)=>change(r,v,true),itemBuilder:(_)=>const [PopupMenuItem(value:'active',child:Text('Active')),PopupMenuItem(value:'paused',child:Text('Pause')),PopupMenuItem(value:'sold',child:Text('Sold'))])));})]));
+ @override Widget build(BuildContext context)=>RefreshIndicator(
+  onRefresh:load,
+  child:ListView(padding:const EdgeInsets.all(16),children:[
+   Row(children:[
+    Expanded(child:Text(widget.mode=='buy'?'TAJIR products available':widget.mode=='sell'?'Your listings':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),
+    if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Add listing'))
+   ]),
+   if(busy)const LinearProgressIndicator(),
+   if(error!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(error!,style:const TextStyle(color:Colors.red))),
+   if(!busy&&rows.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(widget.mode=='buy'?'No TAJIR stock is currently available. Please check again or contact your branch.':'No marketplace records yet.')),
+   ...rows.map((r){
+    if(widget.mode=='buy'){
+     final quantity=(r['quantity_available']??0).toString();
+     final variant=(r['variant_name']??'').toString();
+     final product=(r['product_name']??'Product').toString();
+     final title=variant.isNotEmpty&&variant.toLowerCase()!=product.toLowerCase()?product+' • '+variant:product;
+     return Card(child:ListTile(
+      leading:const CircleAvatar(child:Icon(Icons.inventory_2_outlined)),
+      title:Text(title),
+      subtitle:Text('Available: '+quantity+' '+(r['unit']??'').toString()+' • Branch: '+(r['branch_name']??'').toString()),
+      trailing:const Text('In stock',style:TextStyle(color:brandGreen,fontWeight:FontWeight.w600))
+     ));
+    }
+    if(widget.mode=='requests'){
+     final l=(r['listing'] as Map?)?.cast<String,dynamic>()??{};
+     final seller=l['seller_customer_id']==widget.customer['id'];
+     return Card(child:ListTile(
+      title:Text((l['product_name']??'Purchase request').toString()),
+      subtitle:Text(r['quantity'].toString()+' '+(l['unit']??'').toString()+' • '+r['status'].toString()),
+      trailing:seller&&r['status']=='pending'?PopupMenuButton<String>(onSelected:(v)=>change(r,v,false),itemBuilder:(_)=>const [PopupMenuItem(value:'accepted',child:Text('Accept')),PopupMenuItem(value:'declined',child:Text('Decline'))]):seller&&r['status']=='accepted'?TextButton(onPressed:()=>change(r,'completed',false),child:const Text('Complete')):null
+     ));
+    }
+    return Card(child:ListTile(
+     title:Text(r['product_name'].toString()),
+     subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • KES '+r['price_per_unit'].toString()+' • '+r['location'].toString()),
+     trailing:PopupMenuButton<String>(onSelected:(v)=>change(r,v,true),itemBuilder:(_)=>const [PopupMenuItem(value:'active',child:Text('Active')),PopupMenuItem(value:'paused',child:Text('Pause')),PopupMenuItem(value:'sold',child:Text('Sold'))])
+    ));
+   })
+  ])
+ );
 }
 class CustomerTractorPage extends StatefulWidget{@override State<CustomerTractorPage> createState()=>_CustomerTractorPageState();}
 class _CustomerTractorPageState extends State<CustomerTractorPage>{
