@@ -481,7 +481,7 @@ class _LoginPageState extends State<LoginPage> {
             TextField(controller: phone, keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(labelText: 'Your registered staff phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
               const SizedBox(height: 12),
-              TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+              TextField(controller: pin, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], obscureText: true, maxLength: 4,
                 decoration: const InputDecoration(labelText: 'Four-digit PIN', border: OutlineInputBorder(), counterText: '')),
               if (setupDirector) ...[
                 const SizedBox(height: 12),
@@ -639,7 +639,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
               decoration: InputDecoration(labelText: createAccount ? 'Four-digit PIN' : 'PIN', border: const OutlineInputBorder(), counterText: '')),
             if (createAccount) const SizedBox(height: 12),
-            if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+            if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], obscureText: true, maxLength: 4,
               decoration: const InputDecoration(labelText: 'Confirm four-digit PIN', border: OutlineInputBorder(), counterText: '')),
             if (message != null) Padding(padding: const EdgeInsets.only(top: 12),
               child: Text(message!, style: const TextStyle(color: Colors.red))),
