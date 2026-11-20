@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
+bool tajirCallInProgress = false;
 const tajirUpdateChannel = MethodChannel('tajir/update');
 const tajirVersion = String.fromEnvironment('TAJIR_VERSION', defaultValue: '0');
 
@@ -44,11 +45,13 @@ Future<void> openTajirUpdate(String url) async {
 }
 
 Future<void> callTajirPhone(String phone) async {
+  tajirCallInProgress = true;
   final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
   if (digits.replaceAll(RegExp(r'[^0-9]'), '').length < 9) {
     throw const FormatException('This contact does not have a valid phone number.');
   }
-  await tajirUpdateChannel.invokeMethod<void>('callPhone', {'phone': digits});
+  try { await tajirUpdateChannel.invokeMethod<void>('callPhone', {'phone': digits}); }
+  catch (_) { tajirCallInProgress = false; rethrow; }
 }
 
 Future<void> showTajirNationalId(BuildContext context, String profileId) async {
@@ -2189,10 +2192,11 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
-  // Primary registered Director contact. The second authorised Director
-  // number is not shown until its TAJIR profile is registered and verified.
+  // Both authorised TAJIR management contacts are displayed to every role.
   static const String directorContactName = 'TAJIR Director';
   static const String directorContactPhone = '0700020140';
+  static const String mercyContactName = 'Mercy';
+  static const String mercyContactPhone = '0713971207';
 
   Future<void> contactDirector() async {
     try {
@@ -2204,6 +2208,11 @@ class _HomeShellState extends State<HomeShell> {
         );
       }
     }
+  }
+
+  Future<void> contactMercy() async {
+    try { await callTajirPhone(mercyContactPhone); }
+    catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Unable to open Mercy call screen: $e'))); }
   }
 
   int index = 0;
@@ -2237,9 +2246,28 @@ class _HomeShellState extends State<HomeShell> {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
       appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: 'Call TAJIR Director • 0700020140', onPressed: contactDirector, icon: const Icon(Icons.support_agent)), IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
-      body: Row(children: [
+      body: Column(children: [
+        Material(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 10,
+              runSpacing: 8,
+              children: [
+                const Text('CONTACT TAJIR MANAGEMENT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: .5)),
+                OutlinedButton.icon(onPressed: contactDirector, icon: const Icon(Icons.call, size: 18), label: const Text('Director  0700020140')),
+                OutlinedButton.icon(onPressed: contactMercy, icon: const Icon(Icons.call, size: 18), label: const Text('Mercy  0713971207')),
+              ],
+            ),
+          ),
+        ),
+        Expanded(child: Row(children: [
         if (wide) NavigationRail(selectedIndex: index, onDestinationSelected: selectPage, labelType: NavigationRailLabelType.all, destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i])))),
         Expanded(child: IndexedStack(index: index, children: pages)),
+        ])),
       ]),
       bottomNavigationBar: wide ? null : NavigationBar(
         selectedIndex: index < 4 ? index : 4,
