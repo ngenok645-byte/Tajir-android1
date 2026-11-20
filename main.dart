@@ -2109,7 +2109,7 @@ class _DirectorySearchPageState extends State<DirectorySearchPage> {
         onSubmitted: (_) => search(),
         decoration: InputDecoration(
           labelText: 'Phone number or TAJIR ID',
-          hintText: 'e.g. 0712345678 or TJ-12AB34CD',
+          hintText: 'e.g. 0712345678 or TJ-12AB34CDEF',
           prefixIcon: const Icon(Icons.search),
           border: const OutlineInputBorder(),
           suffixIcon: IconButton(
