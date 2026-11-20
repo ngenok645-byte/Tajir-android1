@@ -1510,6 +1510,14 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
     switch (widget.roleCode) {
       case 'tractor_owner':
         out.add(sectionTitle('Registered tractor assets', primary.length));
+        out.add(Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Repair and spare-parts marketplace')),
+            body: const SafeArea(child: RepairMarketplacePage()),
+          ))),
+          icon: const Icon(Icons.build_circle_outlined),
+          label: const Text('Find a mechanic or spare parts'),
+        )));
         if (primary.isEmpty) out.add(const Text('No tractor ownership records are linked to this account yet.'));
         for (final r in primary) {
           out.add(recordCard('Tractor asset • ${r['tractor_id']}', 'Verification: ${r['verification_status'] ?? 'pending'}'));
