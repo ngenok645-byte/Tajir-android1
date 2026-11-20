@@ -258,6 +258,7 @@ jobs:
           PY
 
       - name: Prepare persistent release signing
+        id: signing
         working-directory: TAJIR_flutter_app
         env:
           TAJIR_KEYSTORE_BASE64: ${{ secrets.TAJIR_KEYSTORE_BASE64 }}
@@ -267,8 +268,10 @@ jobs:
         run: |
           if [ -z "$TAJIR_KEYSTORE_BASE64" ]; then
             echo "::warning::Persistent signing key is not configured. This build cannot be published as an install-over-existing-app update."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "signed=true" >> "$GITHUB_OUTPUT"
           mkdir -p android/app
           echo "$TAJIR_KEYSTORE_BASE64" | base64 --decode > android/app/tajir-release.jks
           cat > android/key.properties <<EOF
@@ -339,7 +342,7 @@ jobs:
             --android-skip-build-dependency-validation
 
       - name: Publish signed TAJIR release for in-app updates
-        if: ${{ secrets.TAJIR_KEYSTORE_BASE64 != '' && secrets.TAJIR_KEYSTORE_PASSWORD != '' && secrets.TAJIR_KEY_ALIAS != '' && secrets.TAJIR_KEY_PASSWORD != '' }}
+        if: steps.signing.outputs.signed == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: tajir-${{ github.run_number }}
