@@ -852,8 +852,12 @@ class _ProviderRegistrationPageState extends State<ProviderRegistrationPage> {
       if (fullName.text.trim().length < 2) {
         throw const FormatException('Enter your full name.');
       }
-      if (!RegExp(r'^[0-9]{7,8}
-        throw const FormatException('Choose a four-digit PIN.');
+      if (!RegExp(r'^[0-9]{7,8}$').hasMatch(nationalId.text.trim())) {
+        throw const FormatException('Enter a valid 7 or 8 digit Kenyan National ID number.');
+      }
+      if (idFullName.text.trim().length < 2 || idFullName.text.trim().length > 100) {
+        throw const FormatException('Enter the full name exactly as printed on your National ID.');
+      }
       }
       if (pin.text != confirmPin.text) {
         throw const FormatException('The PIN entries do not match.');
