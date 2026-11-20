@@ -16,7 +16,7 @@ String friendlyError(Object error) {
   // Lockout and throttling messages must be checked before generic PIN errors.
   // The server's lockout message contains "incorrect PIN", but it is not a bad-PIN
   // response; preserve the retry guidance instead of misleading every user.
-  if (RegExp(r'\\b429\\b').hasMatch(value) ||
+  if (RegExp(r'\b429\b').hasMatch(value) ||
       value.contains('too many incorrect pin attempts') ||
       value.contains('too many attempts') ||
       value.contains('try again in') ||
