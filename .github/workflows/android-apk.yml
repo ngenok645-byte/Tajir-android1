@@ -1,5 +1,8 @@
 # Rebuild after the live customer-profile trigger correction for customer registration.
 name: Build TAJIR Android APK
+
+permissions:
+  contents: write
 # CI verification run for the phone-and-PIN authentication build.
 # Rebuild requested on 2026-11-19.
 
@@ -11,6 +14,7 @@ name: Build TAJIR Android APK
   push:
     branches:
       - main
+      - feature/director-account-centre-login
 
 jobs:
   build:
@@ -29,7 +33,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: '3.38.9'
 
       - name: Extract TAJIR Flutter app
         run: |
@@ -37,15 +41,46 @@ jobs:
           import zipfile
           from pathlib import Path
           import shutil
+
+          # Start clean so files from an earlier extraction cannot affect detection.
           source = Path("/tmp/tajir_source")
+          shutil.rmtree(source, ignore_errors=True)
           source.mkdir(parents=True, exist_ok=True)
-          with zipfile.ZipFile("TAJIR_flutter_app.zip") as z:
-              z.extractall(source)
-          matches = list(source.rglob("pubspec.yaml"))
-          if not matches:
-              raise SystemExit("ERROR: pubspec.yaml not found")
-          app_folder = matches[0].parent
-          shutil.copytree(app_folder, Path("TAJIR_flutter_app"), dirs_exist_ok=True)
+
+          # The repository has carried both the original app archive and a cloud
+          # build pack. Search both rather than assuming the first archive contains
+          # the Flutter project at its top level.
+          archives = [
+              Path("TAJIR_flutter_app.zip"),
+              Path("TAJIR_cloud_android_build_pack (1).zip"),
+          ]
+          app_folder = None
+          for archive in archives:
+              if not archive.is_file():
+                  print(f"Skipping missing archive: {archive}")
+                  continue
+              extract_to = source / archive.stem.replace(" ", "_").replace("(", "").replace(")", "")
+              extract_to.mkdir(parents=True, exist_ok=True)
+              with zipfile.ZipFile(archive) as z:
+                  z.extractall(extract_to)
+              matches = list(extract_to.rglob("pubspec.yaml"))
+              if matches:
+                  app_folder = matches[0].parent
+                  print(f"Flutter project found in {archive}: {app_folder}")
+                  break
+              print(f"No pubspec.yaml found in {archive}; checking next archive.")
+
+          if app_folder is None:
+              details = []
+              for archive in archives:
+                  if archive.is_file():
+                      with zipfile.ZipFile(archive) as z:
+                          details.append(f"{archive}: " + ", ".join(z.namelist()[:25]))
+              raise SystemExit("ERROR: No Flutter pubspec.yaml found in available archives. " + " | ".join(details))
+
+          destination = Path("TAJIR_flutter_app")
+          shutil.rmtree(destination, ignore_errors=True)
+          shutil.copytree(app_folder, destination)
           print("Flutter source extracted successfully.")
           PY
 
@@ -82,20 +117,61 @@ jobs:
           manifest.write_text(source)
           print("Android network permissions verified.")
           PY
-          # Flutter's generated settings may resolve Kotlin plugin transitive artifacts
-          # only from the Gradle Plugin Portal. Add Google and Maven Central explicitly.
+          # Kotlin plugin artifacts are published on Maven Central. Ensure that
+          # repository is present specifically in pluginManagement (not merely in
+          # dependencyResolutionManagement), where Gradle resolves plugin classpaths.
           python - <<'PY'
           from pathlib import Path
+          import re
           p = Path("android/settings.gradle.kts")
           s = p.read_text()
-          if "pluginManagement" not in s:
-              raise SystemExit("pluginManagement block missing from Android settings")
-          if "mavenCentral()" not in s:
-              s = s.replace("repositories {", "repositories {\\n        google()\\n        mavenCentral()", 1)
-          elif "google()" not in s:
-              s = s.replace("repositories {", "repositories {\\n        google()", 1)
+          match = re.search(r"pluginManagement\s*\{", s)
+          if not match:
+              raise SystemExit("pluginManagement block missing from generated Gradle settings")
+          body_start = match.end()
+          depth = 1
+          close_brace = None
+          for i, ch in enumerate(s[body_start:], body_start):
+              if ch == "{":
+                  depth += 1
+              elif ch == "}":
+                  depth -= 1
+                  if depth == 0:
+                      close_brace = i
+                      break
+          if close_brace is None:
+              raise SystemExit("pluginManagement block is not closed")
+          block = s[body_start:close_brace]
+          if "repositories {" not in block:
+              repositories = "\n    repositories {\n        google()\n        mavenCentral()\n        gradlePluginPortal()\n    }\n"
+              s = s[:body_start] + repositories + s[body_start:]
           p.write_text(s)
-          print("Android plugin repositories verified.")
+          print("pluginManagement repositories configured.")
+          PY
+          # Flutter's Gradle plugin is an included build with its own settings.
+          # Its pluginManagement repositories are separate from the app's settings.
+          # Add Maven Central there so Kotlin DSL transitive artifacts (including
+          # kotlin-stdlib and the Kotlin Gradle plugin BOM) can be resolved.
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          p = Path(os.environ["FLUTTER_ROOT"]) / "packages/flutter_tools/gradle/settings.gradle.kts"
+          s = p.read_text()
+          if "pluginManagement" not in s:
+              block = """pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          """
+              s = block + s
+          else:
+              raise SystemExit("Flutter included-build pluginManagement already exists; inspect it before modifying.")
+          p.write_text(s)
+          print(f"Configured plugin repositories in Flutter included build: {p}")
           PY
           flutter pub get
           # Work around an Android Lint detector crash in the current toolchain.
@@ -111,6 +187,151 @@ jobs:
           }
           GRADLE
 
+      - name: Add native Android APK installer bridge
+        working-directory: TAJIR_flutter_app
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          source = manifest.read_text()
+          permission = '    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />'
+          if permission not in source:
+              pos = source.find('>')
+              source = source[:pos + 1] + '\n' + permission + source[pos + 1:]
+          provider = '''
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="${applicationId}.provider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/tajir_file_paths" />
+                  </provider>
+          '''
+          if 'androidx.core.content.FileProvider' not in source:
+              source = source.replace('</application>', provider + '\n        </application>')
+          manifest.write_text(source)
+          paths = Path('android/app/src/main/res/xml')
+          paths.mkdir(parents=True, exist_ok=True)
+          (paths / 'tajir_file_paths.xml').write_text('''<?xml version="1.0" encoding="utf-8"?>
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+              <cache-path name="tajir_cache" path="." />
+              <files-path name="tajir_files" path="." />
+          </paths>
+          ''')
+          kotlin_root = Path('android/app/src/main/kotlin')
+          activity = next(kotlin_root.rglob('MainActivity.kt'))
+          package = '.'.join(activity.parent.relative_to(kotlin_root).parts)
+          activity.write_text('''package PLACEHOLDER
+
+          import android.content.Intent
+          import android.net.Uri
+          import androidx.core.content.FileProvider
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+          import java.io.File
+
+          class MainActivity : FlutterActivity() {
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tajir/update")
+                      .setMethodCallHandler { call, result ->
+                          if (call.method != "installApk") { result.notImplemented(); return@setMethodCallHandler }
+                          val path = call.argument<String>("path")
+                          if (path.isNullOrBlank()) { result.error("INVALID_PATH", "APK path is missing.", null); return@setMethodCallHandler }
+                          val apk = File(path)
+                          if (!apk.isFile) { result.error("APK_NOT_FOUND", "APK not found.", null); return@setMethodCallHandler }
+                          try {
+                              val uri: Uri = FileProvider.getUriForFile(this, "${applicationContext.packageName}.provider", apk)
+                              val intent = Intent(Intent.ACTION_VIEW).apply {
+                                  setDataAndType(uri, "application/vnd.android.package-archive")
+                                  addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                  addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                              }
+                              startActivity(intent)
+                              result.success(true)
+                          } catch (e: Exception) { result.error("INSTALLER_ERROR", e.message, null) }
+                      }
+              }
+          }
+          '''.replace('PLACEHOLDER', package))
+          print('APK installer bridge configured.')
+          PY
+
+      - name: Prepare persistent release signing
+        id: signing
+        working-directory: TAJIR_flutter_app
+        env:
+          TAJIR_KEYSTORE_BASE64: ${{ secrets.TAJIR_KEYSTORE_BASE64 }}
+          TAJIR_KEYSTORE_PASSWORD: ${{ secrets.TAJIR_KEYSTORE_PASSWORD }}
+          TAJIR_KEY_ALIAS: ${{ secrets.TAJIR_KEY_ALIAS }}
+          TAJIR_KEY_PASSWORD: ${{ secrets.TAJIR_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAJIR_KEYSTORE_BASE64" ]; then
+            echo "::warning::Persistent signing key is not configured; this APK cannot be published as an update for existing installations."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+          mkdir -p android/app
+          echo "$TAJIR_KEYSTORE_BASE64" | base64 --decode > android/app/tajir-release.jks
+          cat > android/key.properties <<EOF
+          storePassword=$TAJIR_KEYSTORE_PASSWORD
+          keyPassword=$TAJIR_KEY_PASSWORD
+          keyAlias=$TAJIR_KEY_ALIAS
+          storeFile=tajir-release.jks
+          EOF
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/build.gradle.kts')
+          s = p.read_text()
+          signing = '''import java.util.Properties
+          val tajirSigning = Properties().apply {
+              val f = rootProject.file("key.properties")
+              if (f.exists()) f.inputStream().use { load(it) }
+          }
+          android {
+              signingConfigs {
+                  create("release") {
+                      keyAlias = tajirSigning.getProperty("keyAlias")
+                      keyPassword = tajirSigning.getProperty("keyPassword")
+                      storePassword = tajirSigning.getProperty("storePassword")
+                      storeFile = file(tajirSigning.getProperty("storeFile")!!)
+                  }
+              }
+          }
+          '''
+          s = s.replace('android {', signing, 1)
+          s = s.replace('buildTypes {', 'buildTypes {\n        release { signingConfig = signingConfigs.getByName("release") }', 1)
+          p.write_text(s)
+          PY
+      - name: Install Android NDK with retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION="28.2.13676358"
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          # Accept SDK licences separately. The install command must not be piped
+          # through yes: sdkmanager exits early after unzipping and causes SIGPIPE.
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          for attempt in 1 2 3 4; do
+            echo "Installing Android NDK $NDK_VERSION (attempt $attempt/4)"
+            rm -rf "$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
+            rm -rf "$ANDROID_SDK_ROOT/.temp/"*
+            if "$SDKMANAGER" --install "ndk;$NDK_VERSION"; then
+              test -d "$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
+              echo "Android NDK $NDK_VERSION installed."
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "NDK installation failed after four attempts."
+          exit 1
+
       - name: Build TAJIR Android APK
         working-directory: TAJIR_flutter_app
         env:
@@ -122,9 +343,27 @@ jobs:
             exit 1
           fi
           flutter build apk --release \
+            --build-number="$GITHUB_RUN_NUMBER" \
+            --build-name="1.0.$GITHUB_RUN_NUMBER" \
+            --dart-define=TAJIR_BUILD_NUMBER="$GITHUB_RUN_NUMBER" \
+            --dart-define=TAJIR_VERSION_NAME="1.0.$GITHUB_RUN_NUMBER" \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
             --android-skip-build-dependency-validation
+
+      - name: Publish signed TAJIR release for in-app updates
+        if: steps.signing.outputs.signed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: tajir-${{ github.run_number }}
+          name: TAJIR 1.0.${{ github.run_number }}
+          body: |
+            Automatic TAJIR Android release.
+            Build: ${{ github.run_number }}
+          files: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload TAJIR Android APK
         uses: actions/upload-artifact@v4

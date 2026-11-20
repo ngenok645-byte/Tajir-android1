@@ -1,8 +1,67 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+const int tajirBuildNumber = int.fromEnvironment('TAJIR_BUILD_NUMBER', defaultValue: 1);
+const String tajirVersionName = String.fromEnvironment('TAJIR_VERSION_NAME', defaultValue: '1.0.0');
+const MethodChannel _tajirUpdateChannel = MethodChannel('tajir/update');
+
+// Kept only in memory while the Director temporarily accesses another account.
+String? _directorRestoreRefreshToken;
+String? _directorAccessingAccount;
+
+Future<void> returnToDirectorAccount(BuildContext context) async {
+  final refreshToken = _directorRestoreRefreshToken;
+  if (refreshToken == null || refreshToken.isEmpty) return;
+  try {
+    await Supabase.instance.client.auth.setSession(refreshToken);
+    _directorRestoreRefreshToken = null;
+    _directorAccessingAccount = null;
+    if (context.mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not restore Director access: ${friendlyError(e)}')),
+      );
+    }
+  }
+}
 
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
+
+// Consistent visual identifiers for products and farm services throughout TAJIR.
+IconData productIcon(String name) {
+  final value = name.toLowerCase();
+  if (value.contains('bean')) return Icons.grain;
+  if (value.contains('maize') || value.contains('corn')) return Icons.agriculture;
+  if (value.contains('fertilizer') || value.contains('fertiliser') || value.contains('manure')) return Icons.science_outlined;
+  if (value.contains('seed')) return Icons.grass;
+  if (value.contains('coffee')) return Icons.coffee_outlined;
+  if (value.contains('wheat') || value.contains('rice') || value.contains('sorghum')) return Icons.grain;
+  return Icons.inventory_2_outlined;
+}
+
+IconData tractorServiceIcon(String service) {
+  final value = service.toLowerCase();
+  if (value.contains('plough')) return Icons.agriculture;
+  if (value.contains('plant')) return Icons.grass;
+  if (value.contains('harrow')) return Icons.terrain;
+  if (value.contains('weed')) return Icons.eco;
+  if (value.contains('harvest')) return Icons.agriculture;
+  if (value.contains('transport')) return Icons.local_shipping_outlined;
+  if (value.contains('repair') || value.contains('maintenance')) return Icons.build_outlined;
+  if (value.contains('spare')) return Icons.settings_outlined;
+  return Icons.miscellaneous_services_outlined;
+}
  
 /// Turns technical backend/network failures into clear messages for everyday users.
 /// Never display raw HTTP/database error codes in the app.
@@ -99,18 +158,80 @@ class SetupRequiredApp extends StatelessWidget {
     title: 'TAJIR', theme: appTheme,
     home: const Scaffold(body: Center(child: Padding(
       padding: EdgeInsets.all(28),
-      child: Text('TAJIR setup required\\n\\nBuild with SUPABASE_URL and SUPABASE_ANON_KEY. See README.md.',
+      child: Text('TAJIR setup required\n\nBuild with SUPABASE_URL and SUPABASE_ANON_KEY. See README.md.',
         textAlign: TextAlign.center, style: TextStyle(fontSize: 18)),
     ))),
   );
 }
 
 final appTheme = ThemeData(
-  colorScheme: ColorScheme.fromSeed(seedColor: brandGreen, primary: brandGreen, secondary: brandGold),
-  scaffoldBackgroundColor: const Color(0xFFF6F8F5),
-  appBarTheme: const AppBarTheme(backgroundColor: brandGreen, foregroundColor: Colors.white),
   useMaterial3: true,
+  colorScheme: ColorScheme.fromSeed(
+    seedColor: brandGreen,
+    primary: brandGreen,
+    secondary: brandGold,
+    surface: const Color(0xFFFFFFFF),
+  ),
+  scaffoldBackgroundColor: const Color(0xFFF3F6F4),
+  appBarTheme: const AppBarTheme(
+    backgroundColor: Color(0xFFF3F6F4),
+    foregroundColor: Color(0xFF173B2C),
+    elevation: 0,
+    centerTitle: false,
+    titleTextStyle: TextStyle(
+      color: Color(0xFF173B2C),
+      fontSize: 21,
+      fontWeight: FontWeight.w800,
+      letterSpacing: .2,
+    ),
+    iconTheme: IconThemeData(color: Color(0xFF173B2C)),
+  ),
+  cardTheme: CardThemeData(
+    color: Colors.white,
+    elevation: 1,
+    shadowColor: Color(0x14173B2C),
+    margin: EdgeInsets.zero,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(18)),
+      side: BorderSide(color: Color(0xFFE6EDE8)),
+    ),
+  ),
+  inputDecorationTheme: InputDecorationTheme(
+    filled: true,
+    fillColor: Color(0xFFF8FAF8),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.all(Radius.circular(13)),
+      borderSide: BorderSide(color: Color(0xFFDCE6DF)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.all(Radius.circular(13)),
+      borderSide: BorderSide(color: Color(0xFFDCE6DF)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.all(Radius.circular(13)),
+      borderSide: BorderSide(color: brandGreen, width: 1.6),
+    ),
+    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+  ),
+  navigationBarTheme: NavigationBarThemeData(
+    backgroundColor: Colors.white,
+    indicatorColor: Color(0xFFDDEDE2),
+    labelTextStyle: WidgetStatePropertyAll(
+      TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+    ),
+  ),
+  filledButtonTheme: FilledButtonThemeData(
+    style: FilledButton.styleFrom(
+      backgroundColor: brandGreen,
+      foregroundColor: Colors.white,
+      minimumSize: const Size(48, 48),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+      textStyle: const TextStyle(fontWeight: FontWeight.w700),
+    ),
+  ),
 );
+
+final GlobalKey<NavigatorState> _tajirNavigatorKey = GlobalKey<NavigatorState>();
 
 class TajirApp extends StatefulWidget {
   const TajirApp({super.key});
@@ -127,6 +248,46 @@ class _TajirAppState extends State<TajirApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
   }
 
+  Future<void> _lockAppOnBackground() async {
+    if (_signingOutForBackground) return;
+    _signingOutForBackground = true;
+    try {
+      if (!AuthGate.previewMode &&
+          Supabase.instance.client.auth.currentSession != null) {
+        // Local sign-out removes the persisted session on this device. It does
+        // not revoke or alter the user's account or other devices' sessions.
+        await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);
+      }
+      _directorRestoreRefreshToken = null;
+      _directorAccessingAccount = null;
+      _tajirNavigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
+    } catch (_) {
+      // Keep the app locked locally even if the network is unavailable.
+      _directorRestoreRefreshToken = null;
+      _directorAccessingAccount = null;
+      _tajirNavigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
+    } finally {
+      _signingOutForBackground = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // hidden/paused are emitted when the user leaves TAJIR or switches apps.
+    // Do not sign out for inactive: Android can briefly emit it for system UI.
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _lockAppOnBackground();
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -134,32 +295,8 @@ class _TajirAppState extends State<TajirApp> with WidgetsBindingObserver {
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Log out when the app is sent to the background or closed.
-    // Ignore "inactive", which can occur briefly for system dialogs.
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _signOutWhenLeaving();
-    }
-  }
-
-  Future<void> _signOutWhenLeaving() async {
-    if (_signingOutForBackground) return;
-    _signingOutForBackground = true;
-    try {
-      if (Supabase.instance.client.auth.currentSession != null) {
-        await Supabase.instance.client.auth.signOut();
-      }
-    } catch (_) {
-      // The app may be terminated before the network request completes.
-      // Supabase's local session is cleared when signOut succeeds.
-    } finally {
-      _signingOutForBackground = false;
-    }
-  }
-
-  @override
   Widget build(BuildContext context) => MaterialApp(
+    navigatorKey: _tajirNavigatorKey,
     title: 'TAJIR', debugShowCheckedModeBanner: false, theme: appTheme,
     home: const AuthGate(),
   );
@@ -264,7 +401,8 @@ class _LoginPageState extends State<LoginPage> {
   final phone = TextEditingController();
   final pin = TextEditingController();
   final confirmPin = TextEditingController();
-  bool busy = false, setupDirector = false;
+  final otp = TextEditingController();
+  bool busy = false, setupDirector = false, otpSent = false;
   String? error;
 
   @override
@@ -272,6 +410,7 @@ class _LoginPageState extends State<LoginPage> {
     phone.dispose();
     pin.dispose();
     confirmPin.dispose();
+    otp.dispose();
     super.dispose();
   }
 
@@ -287,38 +426,78 @@ class _LoginPageState extends State<LoginPage> {
     setState(() { busy = true; error = null; });
     try {
       final db = Supabase.instance.client;
-      {
-        final normalized = normalizeKenyanPhone(phone.text);
-        if (!RegExp(r'^\d{4}$').hasMatch(pin.text)) {
-          throw const FormatException('Enter a four-digit PIN.');
+      final normalized = normalizeKenyanPhone(phone.text.trim());
+      final staffPin = pin.text.trim();
+      if (!RegExp(r'^\d{4}$').hasMatch(staffPin)) {
+        throw const FormatException('Enter all four PIN digits (numbers only).');
+      }
+
+      if (setupDirector) {
+        if (staffPin != confirmPin.text.trim()) {
+          throw const FormatException('The PIN entries do not match.');
         }
-        if (setupDirector) {
-          if (pin.text != confirmPin.text) {
-            throw const FormatException('The PIN entries do not match.');
+
+        if (!otpSent) {
+          // The database allowlist and verification trigger grant Director
+          // access only after ownership of an approved phone is confirmed.
+          await db.auth.signInWithOtp(phone: normalized);
+          if (mounted) {
+            setState(() {
+              otpSent = true;
+              error = null;
+            });
           }
-          final response = await db.functions.invoke(
-            'tajir-director-setup',
-            body: {'phone': phone.text.trim(), 'pin': pin.text},
-          );
-          if (response.status != 200) {
-            final data = response.data;
-            throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'Director setup failed.') : 'Director setup failed.');
-          }
+          return;
         }
-        await db.auth.signInWithPassword(
-          email: tajirLoginEmail(normalized),
-          password: staffAuthPassword(pin.text),
+
+        final code = otp.text.trim();
+        if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+          throw const FormatException('Enter the six-digit SMS verification code.');
+        }
+
+        await db.auth.verifyOTP(
+          phone: normalized,
+          token: code,
+          type: OtpType.sms,
+        );
+
+        final response = await db.functions.invoke(
+          'tajir-director-setup',
+          body: {'phone': normalized, 'pin': staffPin},
+        );
+        if (response.status != 200) {
+          final data = response.data;
+          throw FormatException(data is Map
+              ? (friendlyError(data['error'] ?? 'Director setup failed.') ?? 'Director setup failed.')
+              : 'Director setup failed.');
+        }
+      }
+
+      await db.auth.signInWithPassword(
+        email: tajirLoginEmail(normalized),
+        password: staffAuthPassword(staffPin),
+      );
+
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AuthGate()),
+          (route) => false,
         );
       }
     } on AuthException catch (e) {
       if (mounted) setState(() => error = friendlyError(e));
     } on FunctionException catch (e) {
       final details = e.details;
-      if (mounted) setState(() => error = details is Map ? (friendlyError(details['error'] ?? 'Something went wrong.') ?? e.reasonPhrase ?? 'Director setup failed.') : (e.reasonPhrase ?? 'Director setup failed.'));
+      if (mounted) {
+        setState(() => error = details is Map
+            ? (friendlyError(details['error'] ?? 'Something went wrong.') ?? e.reasonPhrase ?? 'Director setup failed.')
+            : (e.reasonPhrase ?? 'Director setup failed.'));
+      }
     } catch (e) {
       if (mounted) setState(() => error = friendlyError(e).replaceFirst('FormatException: ', ''));
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
-    if (mounted) setState(() => busy = false);
   }
 
   @override Widget build(BuildContext context) => Scaffold(
@@ -329,35 +508,65 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const BrandMark(),
             const SizedBox(height: 24),
-            Text(setupDirector ? 'Set up Director access' : 'Staff sign in',
+            Text(setupDirector ? 'First-time Director registration' : 'Staff sign in',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 18),
-            TextField(controller: phone, keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(labelText: 'Your registered staff phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
+            TextField(controller: phone, enabled: !otpSent,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Your registered phone number',
+                hintText: '07XXXXXXXX', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: pin, keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              obscureText: true, maxLength: 4,
+              decoration: InputDecoration(
+                labelText: setupDirector ? 'Choose a four-digit PIN' : 'Four-digit PIN',
+                border: const OutlineInputBorder(), counterText: '')),
+            if (setupDirector) ...[
               const SizedBox(height: 12),
-              TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
-                decoration: const InputDecoration(labelText: 'Four-digit PIN', border: OutlineInputBorder(), counterText: '')),
-              if (setupDirector) ...[
+              TextField(controller: confirmPin, keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                obscureText: true, maxLength: 4,
+                decoration: const InputDecoration(labelText: 'Confirm four-digit PIN',
+                  border: OutlineInputBorder(), counterText: '')),
+              if (otpSent) ...[
                 const SizedBox(height: 12),
-                TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
-                  decoration: const InputDecoration(labelText: 'Confirm four-digit PIN', border: OutlineInputBorder(), counterText: '')),
-              ],
-              const SizedBox(height: 6),
-              Text(setupDirector
-                ? 'One-time setup is only for a pre-approved Director. Workers must ask a Director to create their staff account.'
-                : 'Both Directors and authorised workers sign in here using their own registered phone number and four-digit PIN.',
-                textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                TextField(controller: otp, keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
+                  decoration: const InputDecoration(labelText: 'Six-digit SMS verification code',
+                    border: OutlineInputBorder(), counterText: '')),
+                const Text('Enter the verification code sent to the registered phone. Your four-digit PIN will be used for future sign-ins.',
+                  textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
+              ] else
+                const Text('Only the two pre-approved Director phone numbers can complete registration. Phone ownership is verified once by SMS; future sign-ins use the four-digit PIN.',
+                  textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
+            ] else
+              const Text('Directors and authorised workers sign in with their registered phone number and four-digit PIN.',
+                textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
             if (error != null) Padding(padding: const EdgeInsets.only(top: 12),
               child: Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
             const SizedBox(height: 16),
             SizedBox(width: double.infinity, child: FilledButton(
               onPressed: busy ? null : submit,
-              child: Text(busy ? 'Please wait…' : setupDirector ? 'Set up and sign in' : 'Sign in'),
+              child: Text(busy ? 'Please wait…' : setupDirector
+                ? (otpSent ? 'Verify & set up Director' : 'Send verification code')
+                : 'Sign in'),
             )),
-            TextButton(onPressed: busy ? null : showForgotPinHelp,
-              child: const Text('Forgot PIN?')),
-            TextButton(onPressed: busy ? null : () => setState(() { setupDirector = !setupDirector; error = null; }),
-              child: Text(setupDirector ? 'I already set up my PIN — sign in' : 'First time? Set up director PIN')),
+            SizedBox(width: double.infinity, child: OutlinedButton.icon(
+              onPressed: busy ? null : showForgotPinHelp,
+              icon: const Icon(Icons.lock_reset),
+              label: const Text('FORGOT PIN? GET HELP'),
+            )),
+            TextButton(
+              onPressed: busy ? null : () => setState(() {
+                setupDirector = !setupDirector;
+                otpSent = false;
+                otp.clear();
+                confirmPin.clear();
+                error = null;
+              }),
+              child: Text(setupDirector ? 'Back to staff sign in' : 'First-time Director? Register here')),
             TextButton(onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
               child: const Text('Are you a client, tractor owner or driver?')),
@@ -385,6 +594,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   final pin = TextEditingController();
   final confirmPin = TextEditingController();
   bool createAccount = true, busy = false;
+  String customerType = 'buyer';
   String? message;
   @override void dispose() {
     name.dispose(); phone.dispose(); pin.dispose(); confirmPin.dispose(); super.dispose();
@@ -415,44 +625,44 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
     try {
       final db = Supabase.instance.client;
       final normalized = normalizeKenyanPhone(phone.text);
-      if (createAccount && !RegExp(r'^\d{4}$').hasMatch(pin.text)) {
-        throw const FormatException('New customer PIN must contain exactly four digits.');
-      }
-      if (!createAccount && !RegExp(r'^\d{4}$').hasMatch(pin.text)) {
-        throw const FormatException('Enter your four-digit PIN.');
+      final customerPin = pin.text.trim();
+      final confirmationPin = confirmPin.text.trim();
+      if (!RegExp(r'^[0-9]{4}$').hasMatch(customerPin)) {
+        throw const FormatException('Enter all four PIN digits (numbers only).');
       }
       if (createAccount) {
         if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
-        if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
+        if (customerPin != confirmationPin) throw const FormatException('The PIN entries do not match.');
         final response = await db.functions.invoke(
           'tajir-customer-register',
-          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text},
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': customerPin, 'customer_type': customerType},
         );
         final resultData = response.data;
         if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
           final data = resultData;
           throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'Customer registration failed.') : 'Customer registration failed.');
         }
-        await signInCustomerWithPin(db, normalized, pin.text);
-        if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
+        await signInCustomerWithPin(db, normalized, customerPin);
       } else {
-        await signInCustomerWithPin(db, normalized, pin.text);
+        await signInCustomerWithPin(db, normalized, customerPin);
         final result = await db.rpc('get_my_account_status');
         final rows = List<Map<String,dynamic>>.from(result);
         if (rows.isEmpty || rows.first['is_customer'] != true) {
           throw const FormatException('No customer account is linked to this phone number. Please register first.');
         }
-        if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
       }
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
     } on AuthException catch (e) {
       if (mounted) setState(() => message = friendlyError(e));
     } catch (e) {
       if (mounted) setState(() => message = friendlyError(e).replaceFirst('FormatException: ', ''));
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
-    if (mounted) setState(() => busy = false);
   }
 
   @override Widget build(BuildContext context) => Scaffold(
@@ -474,22 +684,34 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             if (createAccount) TextField(controller: name, textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
             if (createAccount) const SizedBox(height: 12),
+            if (createAccount) DropdownButtonFormField<String>(
+              value: customerType,
+              decoration: const InputDecoration(labelText: 'Account type', border: OutlineInputBorder()),
+              items: const [
+                DropdownMenuItem(value: 'buyer', child: Text('Buyer')),
+                DropdownMenuItem(value: 'seller', child: Text('Seller')),
+              ],
+              onChanged: (value) { if (value != null) setState(() => customerType = value); },
+            ),
+            if (createAccount) const SizedBox(height: 12),
             TextField(controller: phone, keyboardType: TextInputType.phone,
               decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
             const SizedBox(height: 12),
-            TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+            TextField(controller: pin, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], obscureText: true, maxLength: 4,
               decoration: InputDecoration(labelText: createAccount ? 'Four-digit PIN' : 'PIN', border: const OutlineInputBorder(), counterText: '')),
             if (createAccount) const SizedBox(height: 12),
-            if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+            if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], obscureText: true, maxLength: 4,
               decoration: const InputDecoration(labelText: 'Confirm four-digit PIN', border: OutlineInputBorder(), counterText: '')),
             if (message != null) Padding(padding: const EdgeInsets.only(top: 12),
               child: Text(message!, style: const TextStyle(color: Colors.red))),
             const SizedBox(height: 16),
             SizedBox(width: double.infinity, child: FilledButton(onPressed: busy ? null : submit,
               child: Text(busy ? 'Please wait…' : createAccount ? 'Create account' : 'Sign in'))),
-            if (!createAccount)
-              TextButton(onPressed: busy ? null : showForgotPinHelp,
-                child: const Text('Forgot PIN?')),
+            SizedBox(width: double.infinity, child: OutlinedButton.icon(
+              onPressed: busy ? null : showForgotPinHelp,
+              icon: const Icon(Icons.lock_reset),
+              label: const Text('FORGOT PIN? GET HELP'),
+            )),
             TextButton(onPressed: busy ? null : () => setState(() { createAccount = !createAccount; message = null; }),
               child: Text(createAccount ? 'Already registered? Sign in' : 'New customer? Register')),
           ],
@@ -524,7 +746,7 @@ class _BranchRequestPanelState extends State<BranchRequestPanel> {
   final db=Supabase.instance.client;
   List<Map<String,dynamic>> branches=[],requests=[];
   String? selected,error; bool loading=true,saving=false;
-  @override void initState(){super.initState();load();}
+  @override void initState(){super.initState();load();WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) checkForTajirUpdate(context); });}
   Future<void> load() async {
     if(mounted)setState(()=>loading=true);
     try {
@@ -584,6 +806,8 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
   final currentPin = TextEditingController(), newPin = TextEditingController(), confirmPin = TextEditingController();
   bool isCustomer = false, loading = true, busy = false;
   String? error;
+  bool get directorAssumedAccount => _directorAccessingAccount != null;
+  bool get directorCanResetStaffPin => directorAssumedAccount && !isCustomer;
   @override void initState() { super.initState(); loadAccount(); }
   @override void dispose() { currentPin.dispose(); newPin.dispose(); confirmPin.dispose(); super.dispose(); }
   Future<void> loadAccount() async {
@@ -595,13 +819,22 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
   }
   Future<void> savePin() async {
     final oldPin = currentPin.text.trim(), nextPin = newPin.text.trim();
-    if (oldPin.length != 4 || int.tryParse(oldPin) == null || nextPin.length != 4 || int.tryParse(nextPin) == null) { setState(() => error = 'Enter your current PIN and a new four-digit PIN.'); return; }
+    if (nextPin.length != 4 || int.tryParse(nextPin) == null) { setState(() => error = 'Enter a new four-digit PIN.'); return; }
+    if (!directorCanResetStaffPin && (oldPin.length != 4 || int.tryParse(oldPin) == null)) { setState(() => error = 'Enter your current four-digit PIN.'); return; }
     if (nextPin != confirmPin.text.trim()) { setState(() => error = 'The new PIN entries do not match.'); return; }
-    if (oldPin == nextPin) { setState(() => error = 'Choose a different PIN from your current PIN.'); return; }
+    if (!directorCanResetStaffPin && oldPin == nextPin) { setState(() => error = 'Choose a different PIN from your current PIN.'); return; }
     setState(() { busy = true; error = null; });
     try {
       final db = Supabase.instance.client;
-      if (isCustomer) {
+      if (directorAssumedAccount && !isCustomer) {
+        // Director has opened this exact account through the protected
+        // assume-account flow. The target's authenticated session may set its
+        // own password without knowing the previous PIN.
+        await db.auth.updateUser(UserAttributes(password: staffAuthPassword(nextPin)));
+      } else if (isCustomer) {
+        if (directorAssumedAccount) {
+          throw const FormatException('Customer PIN resets must be completed from the Director Customers screen.');
+        }
         final response = await db.functions.invoke('tajir-customer-change-pin', body: {'current_pin': oldPin, 'new_pin': nextPin});
         final data = response.data;
         if (response.status != 200 || data is! Map || data['success'] != true) throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'PIN update failed.') : 'PIN update failed.');
@@ -626,18 +859,18 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
     appBar: AppBar(title: const Text('Account security')),
     body: loading ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(20), children: [
       const Icon(Icons.shield_outlined, size: 52, color: brandGreen),
-      const Text('Change your four-digit PIN', textAlign: TextAlign.center, style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
-      const Text('Your PIN is private. Do not share it with anyone.', textAlign: TextAlign.center),
+      Text(directorCanResetStaffPin ? 'Set a new PIN for ${_directorAccessingAccount}' : directorAssumedAccount ? 'Customer PIN reset' : 'Change your four-digit PIN', textAlign: TextAlign.center, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
+      Text(directorCanResetStaffPin ? 'Director account access is active. Set a new PIN for this staff account without requesting the old PIN.' : directorAssumedAccount ? 'Customer PINs are managed separately. Return to the Director account centre to reset this customer PIN.' : 'Your PIN is private. Do not share it with anyone.', textAlign: TextAlign.center),
       const SizedBox(height: 20),
-      TextField(controller: currentPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Current PIN', border: OutlineInputBorder(), counterText: '')),
-      const SizedBox(height: 10),
+      if (!directorAssumedAccount) TextField(controller: currentPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Current PIN', border: OutlineInputBorder(), counterText: '')),
+      if (!directorAssumedAccount) const SizedBox(height: 10),
       TextField(controller: newPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'New four-digit PIN', border: OutlineInputBorder(), counterText: '')),
-      const SizedBox(height: 10),
-      TextField(controller: confirmPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Confirm new PIN', border: OutlineInputBorder(), counterText: '')),
+      if (!directorAssumedAccount || directorCanResetStaffPin) const SizedBox(height: 10),
+      if (!directorAssumedAccount || directorCanResetStaffPin) TextField(controller: confirmPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Confirm new PIN', border: OutlineInputBorder(), counterText: '')),
       if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
       const SizedBox(height: 14),
-      FilledButton(onPressed: busy ? null : savePin, child: Text(busy ? 'Saving…' : 'Change PIN')),
-      TextButton(onPressed: busy ? null : forgotPin, child: const Text('Forgot PIN?')),
+      if (!directorAssumedAccount || directorCanResetStaffPin) FilledButton(onPressed: busy ? null : savePin, child: Text(busy ? 'Saving…' : directorCanResetStaffPin ? 'Set account PIN' : 'Change PIN')),
+      if (!directorAssumedAccount) TextButton(onPressed: busy ? null : forgotPin, child: const Text('Forgot PIN?')),
     ]),
   );
 }
@@ -647,7 +880,7 @@ class CustomerPortalPage extends StatefulWidget {
 }
 class _CustomerPortalPageState extends State<CustomerPortalPage>{
  Map<String,dynamic>? c;bool busy=true;String? error;
- @override void initState(){super.initState();load();}
+ @override void initState(){super.initState();load();WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) checkForTajirUpdate(context); });}
  Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',db.auth.currentUser!.id).maybeSingle();if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');if(mounted)setState(()=>c=Map<String,dynamic>.from(r));}catch(e){if(mounted)setState(()=>error=friendlyError(e));}if(mounted)setState(()=>busy=false);}
  @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;
  final tabs=<Widget>[
@@ -668,7 +901,9 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
  ];
  const tractorTabIndex=3;
  return DefaultTabController(length:tabs.length,child:Builder(builder:(tabContext)=>Scaffold(
-  appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[
+  appBar:AppBar(title:Text(_directorAccessingAccount == null ? 'TAJIR - '+c!['full_name'].toString() : 'ADMIN ACCESS • '+_directorAccessingAccount!),actions:[
+   if (_directorRestoreRefreshToken != null)
+    IconButton(tooltip:'Return to Director account',onPressed:()=>returnToDirectorAccount(context),icon:const Icon(Icons.admin_panel_settings)),
    IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
    IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
   ],bottom:TabBar(isScrollable:true,tabs:tabs)),
@@ -745,13 +980,13 @@ class _RepairMarketplacePageState extends State<RepairMarketplacePage> with Sing
     const Text('Choose a mechanic',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
     const Text('Browse approved mechanics and request help for your tractor.'),
     if(!busy&&mechanics.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No approved mechanics are listed yet.')),
-    ...mechanics.map((m)=>Card(child:ListTile(isThreeLine:true,leading:const CircleAvatar(child:Icon(Icons.handyman)),title:Text(m['business_name'].toString()),subtitle:Text('${m['location']} • ${m['phone']}\\n${(m['services'] as List).join(', ')}'),trailing:FilledButton(onPressed:()=>requestRepair(m),child:const Text('Choose')))))
+    ...mechanics.map((m)=>Card(child:ListTile(isThreeLine:true,leading:const CircleAvatar(child:Icon(Icons.handyman)),title:Text(m['business_name'].toString()),subtitle:Text('${m['location']} • ${m['phone']}\n${(m['services'] as List).join(', ')}'),trailing:FilledButton(onPressed:()=>requestRepair(m),child:const Text('Choose')))))
    ])),
    RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(12),children:[
     const Text('Available spare parts',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
     const Text('Parts listed by approved auto-spares shops.'),
     if(!busy&&parts.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No spare parts are listed yet.')),
-    ...parts.map((p){final shop=(p['auto_spares_profiles'] as Map?)?.cast<String,dynamic>()??{};return Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.settings)),title:Text(p['part_name'].toString()),subtitle:Text('${shop['shop_name']??'Auto spares'} • ${shop['location']??''}\\nRef: ${p['part_reference']??'Not supplied'} • Stock: ${p['quantity']} ${p['unit']}'),trailing:Text('KES ${p['price_kes']}',style:const TextStyle(fontWeight:FontWeight.bold))));})
+    ...parts.map((p){final shop=(p['auto_spares_profiles'] as Map?)?.cast<String,dynamic>()??{};return Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.settings)),title:Text(p['part_name'].toString()),subtitle:Text('${shop['shop_name']??'Auto spares'} • ${shop['location']??''}\nRef: ${p['part_reference']??'Not supplied'} • Stock: ${p['quantity']} ${p['unit']}'),trailing:Text('KES ${p['price_kes']}',style:const TextStyle(fontWeight:FontWeight.bold))));})
    ]))
   ]))
  ]);
@@ -809,7 +1044,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
  Future<void> createListing()async{final p=TextEditingController(),q=TextEditingController(),u=TextEditingController(text:'bag'),v=TextEditingController(),l=TextEditingController(),d=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:const Text('List product'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:p,decoration:const InputDecoration(labelText:'Product')),TextField(controller:d,decoration:const InputDecoration(labelText:'Description')),TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),TextField(controller:u,decoration:const InputDecoration(labelText:'Unit')),TextField(controller:v,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Price per unit KES')),TextField(controller:l,decoration:const InputDecoration(labelText:'Location'))])),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Publish'))]));if(ok==true){try{await Supabase.instance.client.from('marketplace_listings').insert({'seller_customer_id':widget.customer['id'],'product_name':p.text.trim(),'description':d.text.trim(),'quantity':double.parse(q.text),'unit':u.text.trim().isEmpty?'bag':u.text.trim(),'price_per_unit':double.parse(v.text),'location':l.text.trim(),'status':'active'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}p.dispose();q.dispose();u.dispose();v.dispose();l.dispose();d.dispose();}
  Future<void> requestBuy(Map<String,dynamic> item)async{final q=TextEditingController(text:'1');final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:Text('Buy '+item['product_name'].toString()),content:TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send request'))]));if(ok==true){try{final n=double.parse(q.text);if(n<=0||n>(item['quantity'] as num).toDouble())throw const FormatException('Quantity exceeds available stock.');await Supabase.instance.client.from('marketplace_purchase_requests').insert({'listing_id':item['id'],'buyer_customer_id':widget.customer['id'],'quantity':n});if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Purchase request sent.')));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}q.dispose();}
  Future<void> change(Map<String,dynamic> r,String value,bool listing)async{try{await Supabase.instance.client.from(listing?'marketplace_listings':'marketplace_purchase_requests').update({'status':value}).eq('id',r['id']);await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
- @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[Row(children:[Expanded(child:Text(widget.mode=='buy'?'Products for sale':widget.mode=='sell'?'Your listings':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Add listing'))]),if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),if(!busy&&rows.isEmpty)const Text('No marketplace records yet.'),...rows.map((r){if(widget.mode=='requests'){final l=(r['listing'] as Map?)?.cast<String,dynamic>()??{};final seller=l['seller_customer_id']==widget.customer['id'];return Card(child:ListTile(title:Text((l['product_name']??'Purchase request').toString()),subtitle:Text(r['quantity'].toString()+' '+(l['unit']??'').toString()+' • '+r['status'].toString()),trailing:seller&&r['status']=='pending'?PopupMenuButton<String>(onSelected:(v)=>change(r,v,false),itemBuilder:(_)=>const [PopupMenuItem(value:'accepted',child:Text('Accept')),PopupMenuItem(value:'declined',child:Text('Decline'))]):seller&&r['status']=='accepted'?TextButton(onPressed:()=>change(r,'completed',false),child:const Text('Complete')):null));}return Card(child:ListTile(title:Text(r['product_name'].toString()),subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • KES '+r['price_per_unit'].toString()+' • '+r['location'].toString()),trailing:widget.mode=='buy'?FilledButton(onPressed:()=>requestBuy(r),child:const Text('Request')):PopupMenuButton<String>(onSelected:(v)=>change(r,v,true),itemBuilder:(_)=>const [PopupMenuItem(value:'active',child:Text('Active')),PopupMenuItem(value:'paused',child:Text('Pause')),PopupMenuItem(value:'sold',child:Text('Sold'))])));})]));
+ @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[Row(children:[Expanded(child:Text(widget.mode=='buy'?'Products for sale':widget.mode=='sell'?'Your listings':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Add listing'))]),if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),if(!busy&&rows.isEmpty)const Text('No marketplace records yet.'),...rows.map((r){if(widget.mode=='requests'){final l=(r['listing'] as Map?)?.cast<String,dynamic>()??{};final seller=l['seller_customer_id']==widget.customer['id'];return Card(child:ListTile(leading:Icon(productIcon((l['product_name']??'').toString()),color:brandGreen,size:30),title:Text((l['product_name']??'Purchase request').toString()),subtitle:Text(r['quantity'].toString()+' '+(l['unit']??'').toString()+' • '+r['status'].toString()),trailing:seller&&r['status']=='pending'?PopupMenuButton<String>(onSelected:(v)=>change(r,v,false),itemBuilder:(_)=>const [PopupMenuItem(value:'accepted',child:Text('Accept')),PopupMenuItem(value:'declined',child:Text('Decline'))]):seller&&r['status']=='accepted'?TextButton(onPressed:()=>change(r,'completed',false),child:const Text('Complete')):null));}return Card(child:ListTile(leading:Icon(productIcon(r['product_name'].toString()),color:brandGreen,size:30),title:Text(r['product_name'].toString()),subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • KES '+r['price_per_unit'].toString()+' • '+r['location'].toString()),trailing:widget.mode=='buy'?FilledButton(onPressed:()=>requestBuy(r),child:const Text('Request')):PopupMenuButton<String>(onSelected:(v)=>change(r,v,true),itemBuilder:(_)=>const [PopupMenuItem(value:'active',child:Text('Active')),PopupMenuItem(value:'paused',child:Text('Pause')),PopupMenuItem(value:'sold',child:Text('Sold'))])));})]));
 }
 class CustomerTractorPage extends StatefulWidget{@override State<CustomerTractorPage> createState()=>_CustomerTractorPageState();}
 class _CustomerTractorPageState extends State<CustomerTractorPage>{
@@ -818,29 +1053,461 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
  @override void dispose(){location.dispose();acres.dispose();super.dispose();}
  Future<void> load()async{try{final r=await Supabase.instance.client.rpc('customer_list_tractor_services');tractors=List<Map<String,dynamic>>.from(r);tractor=tractors.isEmpty?null:tractors.first['tractor_id'].toString();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}if(mounted)setState(()=>busy=false);}
  Future<void> book()async{try{if(tractor==null)throw const FormatException('No tractor available.');if(location.text.trim().length<3)throw const FormatException('Enter farm location.');final r=await Supabase.instance.client.rpc('customer_book_tractor_service',params:{'p_tractor_id':tractor,'p_service_type':service,'p_service_location':location.text.trim(),'p_area_acres':acres.text.trim().isEmpty?null:double.parse(acres.text),'p_booked_for':date.toUtc().toIso8601String(),'p_notes':null});if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Booking submitted: '+(r as List).first['job_number'].toString())));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
- @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(18),children:[const Text('Book tractor service',style:TextStyle(fontSize:21,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(tractors.isNotEmpty)DropdownButtonFormField<String>(value:tractor,items:tractors.map((t)=>DropdownMenuItem(value:t['tractor_id'].toString(),child:Text(t['selection_label'].toString()))).toList(),onChanged:(v)=>setState(()=>tractor=v),decoration:const InputDecoration(labelText:'Available tractor')),if(tractors.isEmpty&&!busy)const Text('No tractors available.'),DropdownButtonFormField<String>(value:service,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v)=>setState(()=>service=v??'ploughing'),decoration:const InputDecoration(labelText:'Service')),TextField(controller:location,decoration:const InputDecoration(labelText:'Farm location')),TextField(controller:acres,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Acres')),ListTile(title:Text('Booking date: '+date.toLocal().toString().split(' ')[0]),trailing:TextButton(onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)setState(()=>date=d);},child:const Text('Choose'))),FilledButton(onPressed:busy||tractors.isEmpty?null:book,child:const Text('Book service'))]);
+ @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(18),children:[const Text('Book tractor service',style:TextStyle(fontSize:21,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(tractors.isNotEmpty)DropdownButtonFormField<String>(value:tractor,items:tractors.map((t)=>DropdownMenuItem(value:t['tractor_id'].toString(),child:Text(t['selection_label'].toString()))).toList(),onChanged:(v)=>setState(()=>tractor=v),decoration:const InputDecoration(labelText:'Available tractor')),if(tractors.isEmpty&&!busy)const Text('No tractors available.'),DropdownButtonFormField<String>(value:service,items:['ploughing','planting','harrowing','weeding','harvesting','transport','repairs','spare_parts','other'].map((v)=>DropdownMenuItem(value:v,child:Row(mainAxisSize:MainAxisSize.min,children:[Icon(tractorServiceIcon(v),color:brandGreen),const SizedBox(width:10),Text(v.replaceAll('_',' '))]))).toList(),onChanged:(v)=>setState(()=>service=v??'ploughing'),decoration:const InputDecoration(labelText:'Service')),TextField(controller:location,decoration:const InputDecoration(labelText:'Farm location')),TextField(controller:acres,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Acres')),ListTile(title:Text('Booking date: '+date.toLocal().toString().split(' ')[0]),trailing:TextButton(onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)setState(()=>date=d);},child:const Text('Choose'))),FilledButton(onPressed:busy||tractors.isEmpty?null:book,child:const Text('Book service'))]);
 }
 class CustomerTractorBookingsPage extends StatefulWidget{@override State<CustomerTractorBookingsPage> createState()=>_CustomerTractorBookingsPageState();}
 class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPage>{
  List<Map<String,dynamic>> rows=[];bool busy=true;
  @override void initState(){super.initState();load();}
  Future<void> load()async{try{final r=await Supabase.instance.client.rpc('customer_list_tractor_bookings');if(mounted)setState(()=>rows=List<Map<String,dynamic>>.from(r));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}if(mounted)setState(()=>busy=false);}
- @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[const Text('Tractor booking history',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(!busy&&rows.isEmpty)const Text('No bookings yet.'),...rows.map((r)=>Card(child:ListTile(title:Text(r['service_type'].toString()+' • '+r['job_number'].toString()),subtitle:Text(r['service_location'].toString()+' • '+r['status'].toString()),trailing:Text('KES '+r['total_charge'].toString()))))]));
+ @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[const Text('Tractor booking history',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(!busy&&rows.isEmpty)const Text('No bookings yet.'),...rows.map((r)=>Card(child:ListTile(leading:Icon(tractorServiceIcon(r['service_type'].toString()),color:brandGreen,size:30),title:Text(r['service_type'].toString()+' • '+r['job_number'].toString()),subtitle:Text(r['service_location'].toString()+' • '+r['status'].toString()),trailing:Text('KES '+r['total_charge'].toString()))))]));
 }
 
-class AccountRouter extends StatelessWidget {
+class AccountRouter extends StatefulWidget {
   const AccountRouter({super.key});
-  @override Widget build(BuildContext context) => FutureBuilder<dynamic>(
-    future: Supabase.instance.client.rpc('get_my_account_status'),
+  @override State<AccountRouter> createState() => _AccountRouterState();
+}
+
+class _AccountRouterState extends State<AccountRouter> {
+  late Future<dynamic> _accountStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAccountStatus();
+  }
+
+  void _loadAccountStatus() {
+    _accountStatus = Supabase.instance.client.rpc('get_my_account_access');
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<dynamic>(
+    future: _accountStatus,
     builder: (context, snapshot) {
-      if (snapshot.connectionState != ConnectionState.done) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      if (snapshot.hasError) return const HomeShell();
-      final rows = List<Map<String,dynamic>>.from(snapshot.data ?? const []);
-      if (rows.isNotEmpty && rows.first['is_customer'] == true) {
-        return const CustomerPortalPage();
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
       }
-      return const HomeShell();
+
+      // Never send an account to the staff/Director workspace when its role
+      // check failed. That would turn a backend outage into an access fallback.
+      if (snapshot.hasError) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('TAJIR account check')),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock_outline, size: 52, color: brandGreen),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'We could not verify your account access.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Your account has not been opened. Check your internet connection and try again. If this continues, contact the TAJIR Director.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: () => setState(_loadAccountStatus),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Try again'),
+                  ),
+                  TextButton(
+                    onPressed: () => Supabase.instance.client.auth.signOut(),
+                    child: const Text('Sign out'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
+
+      try {
+        final rows = List<Map<String, dynamic>>.from(snapshot.data ?? const []);
+        if (rows.isEmpty) return const CustomerPendingPage();
+        final access = rows.first;
+        final profileStatus = (access['profile_status'] ?? '').toString();
+        if (profileStatus != 'active') return const CustomerPendingPage();
+        final roles = List<String>.from(access['role_codes'] ?? const []);
+        if (roles.contains('director') || roles.contains('accountant') ||
+            roles.contains('branch_manager') || roles.contains('supplier')) {
+          return const HomeShell();
+        }
+        final tractorStatus = access['tractor_owner_status']?.toString();
+        if (tractorStatus != null) {
+          if (tractorStatus != 'verified') return const CustomerPendingPage();
+          return const RoleWorkspacePage(role: 'tractor_owner');
+        }
+        if (access['is_driver'] == true) {
+          return const RoleWorkspacePage(role: 'driver');
+        }
+        final mechanicStatus = access['mechanic_status']?.toString();
+        if (mechanicStatus != null) {
+          if (mechanicStatus != 'approved') return const CustomerPendingPage();
+          return const RoleWorkspacePage(role: 'mechanic');
+        }
+        final sparesStatus = access['auto_spares_status']?.toString();
+        if (sparesStatus != null) {
+          if (sparesStatus != 'approved') return const CustomerPendingPage();
+          return const RoleWorkspacePage(role: 'auto_spares');
+        }
+        if (roles.contains('worker')) return const RoleWorkspacePage(role: 'worker');
+        if (access['is_customer'] == true) {
+          if (access['customer_active'] != true) return const CustomerPendingPage();
+          return const CustomerPortalPage();
+        }
+        return const CustomerPendingPage();
+      } catch (_) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('TAJIR account check')),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock_outline, size: 52, color: brandGreen),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Your account information could not be read safely.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: () => setState(_loadAccountStatus),
+                    child: const Text('Try again'),
+                  ),
+                  TextButton(
+                    onPressed: () => Supabase.instance.client.auth.signOut(),
+                    child: const Text('Sign out'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
     },
+  );
+}
+
+class RoleWorkspacePage extends StatefulWidget {
+  final String role;
+  const RoleWorkspacePage({super.key, required this.role});
+  @override State<RoleWorkspacePage> createState() => _RoleWorkspacePageState();
+}
+
+class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
+  bool busy = true;
+  String? error;
+  List<Map<String, dynamic>> records = [];
+  String displayName = 'TAJIR account';
+  String? providerProfileId;
+
+  String get heading => switch (widget.role) {
+    'worker' => 'Worker workspace',
+    'tractor_owner' => 'Tractor owner workspace',
+    'driver' => 'Driver workspace',
+    'mechanic' => 'Mechanic workspace',
+    'auto_spares' => 'Auto-spares workspace',
+    _ => 'TAJIR workspace',
+  };
+
+  IconData get roleIcon => switch (widget.role) {
+    'worker' => Icons.badge_outlined,
+    'tractor_owner' => Icons.agriculture,
+    'driver' => Icons.local_shipping_outlined,
+    'mechanic' => Icons.build_circle_outlined,
+    'auto_spares' => Icons.storefront_outlined,
+    _ => Icons.dashboard,
+  };
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    if (mounted) setState(() { busy = true; error = null; });
+    try {
+      final db = Supabase.instance.client;
+      final uid = db.auth.currentUser?.id;
+      if (uid == null) throw const FormatException('Your session has ended. Please sign in again.');
+      final profile = await db.from('profiles').select('display_name').eq('id', uid).maybeSingle();
+      displayName = (profile?['display_name'] ?? 'TAJIR account').toString();
+      List<Map<String, dynamic>> next = [];
+
+      if (widget.role == 'worker') {
+        final rows = await db.from('staff_tasks')
+          .select('id,task_number,title,description,due_at,status,completed_at')
+          .eq('assigned_to', uid).order('created_at', ascending: false);
+        next = List<Map<String, dynamic>>.from(rows);
+      } else if (widget.role == 'mechanic') {
+        final profileRow = await db.from('mechanic_profiles').select('id')
+          .eq('profile_id', uid).maybeSingle();
+        if (profileRow != null) {
+          final rows = await db.from('tractor_repair_jobs')
+            .select('id,job_number,issue_description,location,status,requested_at,estimated_cost_kes')
+            .eq('mechanic_id', profileRow['id']).order('requested_at', ascending: false);
+          next = List<Map<String, dynamic>>.from(rows);
+        }
+      } else if (widget.role == 'auto_spares') {
+        final profileRow = await db.from('auto_spares_profiles').select('id')
+          .eq('profile_id', uid).maybeSingle();
+        if (profileRow != null) {
+          providerProfileId = profileRow['id'].toString();
+          final rows = await db.from('auto_spares_inventory')
+            .select('part_name,part_reference,quantity,unit,price_kes,status')
+            .eq('shop_id', profileRow['id']).order('part_name');
+          next = List<Map<String, dynamic>>.from(rows);
+        }
+      } else if (widget.role == 'tractor_owner') {
+        final owner = await db.from('tractor_owner_profiles').select('id')
+          .eq('profile_id', uid).maybeSingle();
+        if (owner != null) {
+          final rows = await db.from('tractor_owner_assets')
+            .select('id,tractor_id,verification_status')
+            .eq('owner_id', owner['id']).order('created_at', ascending: false);
+          next = List<Map<String, dynamic>>.from(rows);
+        }
+      } else if (widget.role == 'driver') {
+        final vehicles = await db.from('vehicles')
+          .select('registration_number,make,model,active,branch_id')
+          .eq('driver_id', uid).order('registration_number');
+        next.addAll(List<Map<String, dynamic>>.from(vehicles).map((v) => {
+          'record_type': 'Assigned vehicle',
+          'title': v['registration_number'] ?? 'Vehicle',
+          'details': '${v['make'] ?? ''} ${v['model'] ?? ''}'.trim(),
+          'status': v['active'] == true ? 'Active' : 'Inactive',
+        }));
+        final jobs = await db.from('tractor_service_jobs')
+          .select('job_number,service_type,service_location,status,booked_for,completed_at')
+          .eq('operator_id', uid).order('created_at', ascending: false);
+        next.addAll(List<Map<String, dynamic>>.from(jobs).map((j) => {
+          'record_type': 'Assigned job',
+          'title': '${j['job_number'] ?? 'Job'} • ${j['service_type'] ?? 'Tractor service'}',
+          'details': j['service_location'] ?? 'Location not provided',
+          'status': j['status'] ?? 'Assigned',
+          'booked_for': j['booked_for'],
+        }));
+      }
+
+      if (mounted) setState(() { records = next; busy = false; });
+    } catch (e) {
+      if (mounted) setState(() { error = friendlyError(e); busy = false; });
+    }
+  }
+
+  Future<void> _addSparePart() async {
+    if (providerProfileId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Your approved shop profile could not be found.')),
+      );
+      return;
+    }
+    final name = TextEditingController();
+    final reference = TextEditingController();
+    final quantity = TextEditingController();
+    final unit = TextEditingController(text: 'piece');
+    final price = TextEditingController();
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Add spare part'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: name, textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(labelText: 'Part name')),
+        TextField(controller: reference, decoration: const InputDecoration(labelText: 'Part reference (optional)')),
+        TextField(controller: quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(labelText: 'Quantity in stock')),
+        TextField(controller: unit, decoration: const InputDecoration(labelText: 'Unit (e.g. piece, litre)')),
+        TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(labelText: 'Selling price (KES)')),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save item')),
+      ],
+    ));
+    if (accepted != true) {
+      name.dispose(); reference.dispose(); quantity.dispose(); unit.dispose(); price.dispose();
+      return;
+    }
+    final qty = double.tryParse(quantity.text.trim());
+    final amount = double.tryParse(price.text.trim());
+    if (name.text.trim().isEmpty || qty == null || qty <= 0 || amount == null || amount < 0 || unit.text.trim().isEmpty) {
+      name.dispose(); reference.dispose(); quantity.dispose(); unit.dispose(); price.dispose();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a part name, valid positive quantity, unit and valid KES price.')),
+      );
+      return;
+    }
+    try {
+      await Supabase.instance.client.from('auto_spares_inventory').insert({
+        'shop_id': providerProfileId,
+        'part_name': name.text.trim(),
+        'part_reference': reference.text.trim().isEmpty ? null : reference.text.trim(),
+        'quantity': qty,
+        'unit': unit.text.trim(),
+        'price_kes': amount,
+        'status': 'active',
+      });
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Spare part added to your shop inventory.')),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    } finally {
+      name.dispose(); reference.dispose(); quantity.dispose(); unit.dispose(); price.dispose();
+    }
+  }
+
+  Future<void> _updateMechanicJob(Map<String, dynamic> row, String nextStatus) async {
+    try {
+      await Supabase.instance.client.rpc('update_my_mechanic_job_status', params: {
+        'p_job_id': row['id'],
+        'p_status': nextStatus,
+      });
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Repair job updated to ${nextStatus.replaceAll('_', ' ')}.')),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
+    }
+  }
+
+  Future<void> _updateWorkerTask(Map<String, dynamic> row, String nextStatus) async {
+    try {
+      await Supabase.instance.client.from('staff_tasks')
+        .update({'status': nextStatus}).eq('id', row['id']);
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Task status updated to ${nextStatus.replaceAll('_', ' ')}.')),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
+    }
+  }
+
+  String _title(Map<String, dynamic> row) {
+    for (final key in ['title','task_number','job_number','part_name','registration_number','tractor_id']) {
+      final value = row[key];
+      if (value != null && value.toString().trim().isNotEmpty) return value.toString();
+    }
+    return row['record_type']?.toString() ?? 'Account record';
+  }
+
+  String _subtitle(Map<String, dynamic> row) {
+    final values = <String>[];
+    for (final key in ['description','issue_description','location','service_location','details','verification_status','status','quantity','unit','price_kes','estimated_cost_kes','due_at','booked_for']) {
+      final value = row[key];
+      if (value != null && value.toString().trim().isNotEmpty) values.add('${key.replaceAll('_', ' ')}: $value');
+    }
+    return values.isEmpty ? 'No additional details' : values.join(' • ');
+  }
+
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(heading),
+      actions: [
+        if (widget.role == 'auto_spares')
+          IconButton(tooltip: 'Add spare part', onPressed: busy ? null : _addSparePart, icon: const Icon(Icons.add_box_outlined)),
+        IconButton(tooltip: 'Refresh', onPressed: load, icon: const Icon(Icons.refresh)),
+        IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)),
+        IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(),
+          icon: const Icon(Icons.logout)),
+      ],
+    ),
+    body: RefreshIndicator(onRefresh: load, child: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [Color(0xFF0E5630), Color(0xFF269653)]),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(children: [
+            CircleAvatar(radius: 27, backgroundColor: Colors.white24,
+              child: Icon(roleIcon, color: Colors.white, size: 30)),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('WELCOME, ${displayName.toUpperCase()}',
+                style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              Text(heading, style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.bold)),
+              const Text('Your account and assigned records', style: TextStyle(color: Colors.white70)),
+            ])),
+          ]),
+        ),
+        const SizedBox(height: 18),
+        Row(children: [
+          Expanded(child: Text('My ${widget.role == 'auto_spares' ? 'inventory' : widget.role == 'mechanic' ? 'repair jobs' : widget.role == 'worker' ? 'assigned tasks' : widget.role == 'driver' ? 'assignments' : 'tractors'}',
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold))),
+          Text('${records.length} records', style: const TextStyle(color: Colors.black54)),
+        ]),
+        if (busy) const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
+        if (error != null) Padding(padding: const EdgeInsets.all(12), child: Text(error!, style: const TextStyle(color: Colors.red))),
+        if (!busy && error == null && records.isEmpty)
+          const Padding(padding: EdgeInsets.all(22), child: Text('No records have been assigned or recorded yet. Pull down to refresh.')),
+        ...records.map((row) => Card(
+          child: ListTile(
+            leading: CircleAvatar(backgroundColor: brandGreen.withOpacity(.1),
+              child: Icon(roleIcon, color: brandGreen)),
+            title: Text(_title(row)),
+            subtitle: Text(_subtitle(row), maxLines: 3, overflow: TextOverflow.ellipsis),
+            isThreeLine: true,
+            trailing: widget.role == 'worker' && row['id'] != null &&
+                ['pending', 'in_progress'].contains(row['status'])
+              ? PopupMenuButton<String>(
+                  tooltip: 'Update task',
+                  onSelected: (value) => _updateWorkerTask(row, value),
+                  itemBuilder: (_) => [
+                    if (row['status'] == 'pending')
+                      const PopupMenuItem(value: 'in_progress', child: Text('Start task')),
+                    if (row['status'] == 'in_progress')
+                      const PopupMenuItem(value: 'submitted', child: Text('Submit completed task')),
+                  ],
+                )
+              : widget.role == 'mechanic' && row['id'] != null
+                  ? PopupMenuButton<String>(
+                      tooltip: 'Update repair job',
+                      onSelected: (value) => _updateMechanicJob(row, value),
+                      itemBuilder: (_) => [
+                        if (row['status'] == 'requested')
+                          const PopupMenuItem(value: 'accepted', child: Text('Accept job')),
+                        if (row['status'] == 'accepted')
+                          const PopupMenuItem(value: 'in_progress', child: Text('Start repair')),
+                        if (row['status'] == 'in_progress') ...[
+                          const PopupMenuItem(value: 'waiting_parts', child: Text('Waiting for parts')),
+                          const PopupMenuItem(value: 'completed', child: Text('Mark completed')),
+                        ],
+                        if (row['status'] == 'waiting_parts')
+                          const PopupMenuItem(value: 'in_progress', child: Text('Resume repair')),
+                      ],
+                    )
+                  : null,
+          ),
+        )),
+        const SizedBox(height: 18),
+        Card(
+          color: brandGreen.withOpacity(.07),
+          child: const Padding(padding: EdgeInsets.all(16), child: Text(
+            'Your workspace only displays records linked to your signed-in account. Contact the TAJIR Director if your assignments or business records are missing.',
+          )),
+        ),
+      ],
+    )),
   );
 }
 
@@ -855,22 +1522,897 @@ class BrandMark extends StatelessWidget {
   ]);
 }
 
+class DirectorAccountCentrePage extends StatefulWidget {
+  const DirectorAccountCentrePage({super.key});
+  @override State<DirectorAccountCentrePage> createState() => _DirectorAccountCentrePageState();
+}
+
+class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
+  bool busy = true;
+  String? error;
+  String filter = '';
+  String category = 'All';
+  List<Map<String, dynamic>> accounts = [];
+
+  static const categories = ['All', 'Clients', 'Workers', 'Tractor owners', 'Drivers', 'Mechanics', 'Auto-spares'];
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    if (mounted) setState(() { busy = true; error = null; });
+    try {
+      final db = Supabase.instance.client;
+      final uid = db.auth.currentUser?.id;
+      if (uid == null) throw const FormatException('Please sign in again.');
+      final ownRoles = await db.from('user_role_assignments')
+        .select('app_roles(code)').eq('user_id', uid).eq('is_active', true);
+      final isDirector = ownRoles.any((r) => r['app_roles'] is Map &&
+        (r['app_roles'] as Map)['code'] == 'director');
+      if (!isDirector) throw const FormatException('Director permission is required.');
+
+      // Fetch each account source separately so unlinked customer and provider
+      // applications are not hidden by an inner join to profiles.
+      final results = await Future.wait([
+        db.from('profiles').select('id,display_name,phone,status,created_at').order('display_name'),
+        db.from('user_role_assignments').select('user_id,is_active,app_roles(name,code)').eq('is_active', true),
+        db.from('customers').select('id,profile_id,customer_type,full_name,phone,active,approved_at,marketplace_can_buy,marketplace_can_sell,default_branch_id,deleted_at,permanently_deleted_at'),
+        db.from('tractor_owner_profiles').select('id,profile_id,full_name,phone,company_name,status,operating_mode,default_branch_id'),
+        db.from('mechanic_profiles').select('id,profile_id,business_name,phone,location,services,status'),
+        db.from('auto_spares_profiles').select('id,profile_id,shop_name,phone,location,status'),
+        db.from('provider_verification_applications').select('id,profile_id,account_type,applicant_name,phone,business_name,business_location,status,review_notes,created_at'),
+        db.from('vehicles').select('id,driver_id,registration_number,make,model,active,branch_id'),
+      ]);
+
+      final byId = <String, Map<String, dynamic>>{};
+      Map<String, dynamic> ensure(String id, String name, String phone, String status) {
+        return byId.putIfAbsent(id, () => {
+          'id': id, 'name': name.isEmpty ? 'Unnamed account' : name,
+          'phone': phone, 'status': status, 'roles': <String>{},
+          'records': <Map<String, dynamic>>[],
+        });
+      }
+      void addRole(Map<String, dynamic> account, String role) {
+        (account['roles'] as Set<String>).add(role);
+      }
+      void addRecord(Map<String, dynamic> account, String title, Map<String, dynamic> details) {
+        (account['records'] as List<Map<String, dynamic>>).add({'title': title, 'details': details});
+      }
+
+      final profiles = List<Map<String, dynamic>>.from(results[0] as List);
+      final roleRows = List<Map<String, dynamic>>.from(results[1] as List);
+      for (final p in profiles) {
+        ensure(p['id'].toString(), (p['display_name'] ?? '').toString(),
+          (p['phone'] ?? '').toString(), (p['status'] ?? 'unknown').toString());
+      }
+      for (final row in roleRows) {
+        final id = row['user_id']?.toString();
+        final role = row['app_roles'];
+        if (id == null || role is! Map) continue;
+        final account = byId[id];
+        if (account != null) addRole(account, (role['name'] ?? role['code'] ?? 'Account').toString());
+      }
+
+      for (final c in List<Map<String, dynamic>>.from(results[2] as List)) {
+        final profileId = c['profile_id']?.toString();
+        final id = (profileId == null || profileId.isEmpty) ? 'customer:${c['id']}' : profileId;
+        final a = ensure(id, (c['full_name'] ?? '').toString(), (c['phone'] ?? '').toString(),
+          c['permanently_deleted_at'] != null ? 'permanently deleted' :
+          c['deleted_at'] != null ? 'deleted' : (c['active'] == true ? 'active' : 'inactive'));
+        addRole(a, 'Client');
+        addRecord(a, 'Client / marketplace access', {
+          'Customer record': c['id'], 'Customer type': c['customer_type'],
+          'Can buy': c['marketplace_can_buy'] == true ? 'Yes' : 'No',
+          'Can sell': c['marketplace_can_sell'] == true ? 'Yes' : 'No',
+          'Approved': c['approved_at'] == null ? 'Not approved' : 'Approved',
+          'Branch ID': c['default_branch_id'] ?? 'Not assigned',
+        });
+      }
+
+      for (final p in List<Map<String, dynamic>>.from(results[3] as List)) {
+        final a = ensure(p['profile_id'].toString(), (p['full_name'] ?? '').toString(),
+          (p['phone'] ?? '').toString(), (p['status'] ?? 'pending').toString());
+        addRole(a, 'Tractor owner');
+        addRecord(a, 'Tractor-owner profile', {
+          'Company': p['company_name'] ?? 'Individual owner',
+          'Operating mode': p['operating_mode'] ?? 'Not set',
+          'Provider status': p['status'] ?? 'pending',
+          'Branch ID': p['default_branch_id'] ?? 'Not assigned',
+        });
+      }
+
+      for (final p in List<Map<String, dynamic>>.from(results[4] as List)) {
+        final a = ensure(p['profile_id'].toString(), (p['business_name'] ?? '').toString(),
+          (p['phone'] ?? '').toString(), (p['status'] ?? 'pending').toString());
+        addRole(a, 'Mechanic');
+        addRecord(a, 'Mechanic service profile', {
+          'Business': p['business_name'], 'Location': p['location'],
+          'Services': (p['services'] as List?)?.join(', ') ?? '',
+          'Provider status': p['status'] ?? 'pending',
+        });
+      }
+
+      for (final p in List<Map<String, dynamic>>.from(results[5] as List)) {
+        final a = ensure(p['profile_id'].toString(), (p['shop_name'] ?? '').toString(),
+          (p['phone'] ?? '').toString(), (p['status'] ?? 'pending').toString());
+        addRole(a, 'Auto-spares owner');
+        addRecord(a, 'Auto-spares shop profile', {
+          'Shop': p['shop_name'], 'Location': p['location'],
+          'Provider status': p['status'] ?? 'pending',
+        });
+      }
+
+      for (final p in List<Map<String, dynamic>>.from(results[6] as List)) {
+        final id = p['profile_id'].toString();
+        final role = switch ((p['account_type'] ?? '').toString()) {
+          'tractor_owner' => 'Tractor owner',
+          'mechanic' => 'Mechanic',
+          'auto_spares' => 'Auto-spares owner',
+          _ => 'Service provider',
+        };
+        final a = ensure(id, (p['applicant_name'] ?? '').toString(),
+          (p['phone'] ?? '').toString(), (p['status'] ?? 'pending').toString());
+        addRole(a, role);
+        addRecord(a, 'Verification application', {
+          'Application ID': p['id'], 'Type': role,
+          'Business': p['business_name'] ?? 'Not provided',
+          'Location': p['business_location'] ?? 'Not provided',
+          'Verification': p['status'] ?? 'pending',
+          'Director notes': p['review_notes'] ?? 'No review notes',
+        });
+      }
+
+      for (final v in List<Map<String, dynamic>>.from(results[7] as List)) {
+        final driverId = v['driver_id']?.toString();
+        if (driverId == null || driverId.isEmpty) continue;
+        final a = ensure(driverId, 'Driver account', '', 'assigned to vehicle');
+        addRole(a, 'Driver');
+        addRecord(a, 'Assigned vehicle', {
+          'Registration': v['registration_number'] ?? 'Not provided',
+          'Vehicle': '${v['make'] ?? ''} ${v['model'] ?? ''}'.trim(),
+          'Vehicle status': v['active'] == true ? 'Active' : 'Inactive',
+          'Vehicle ID': v['id'],
+        });
+      }
+
+      if (mounted) setState(() {
+        accounts = byId.values.toList()
+          ..sort((a, b) => a['name'].toString().toLowerCase().compareTo(b['name'].toString().toLowerCase()));
+        busy = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() { error = friendlyError(e); busy = false; });
+    }
+  }
+
+  bool _matchesCategory(Map<String, dynamic> a) {
+    if (category == 'All') return true;
+    final roles = a['roles'] as Set<String>;
+    const mapping = {
+      'Clients': 'Client', 'Workers': 'Worker', 'Tractor owners': 'Tractor owner',
+      'Drivers': 'Driver', 'Mechanics': 'Mechanic', 'Auto-spares': 'Auto-spares owner',
+    };
+    return roles.contains(mapping[category]);
+  }
+
+  bool _matchesFor(Map<String, dynamic> a, String c) {
+    if (c == 'All') return true;
+    const mapping = {
+      'Clients': 'Client', 'Workers': 'Worker', 'Tractor owners': 'Tractor owner',
+      'Drivers': 'Driver', 'Mechanics': 'Mechanic', 'Auto-spares': 'Auto-spares owner',
+    };
+    return (a['roles'] as Set<String>).contains(mapping[c]);
+  }
+
+  void _preview(Map<String, dynamic> account) {
+    // Keep the Director's own authenticated session. Never impersonate the
+    // target account: this inspection screen is deliberately read-only.
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => DirectorReadOnlyDashboardPage(account: account)),
+    );
+  }
+  Future<void> _resetCustomerPin(Map<String, dynamic> account) async {
+    final records = List<Map<String, dynamic>>.from(account['records'] ?? const []);
+    String? customerId;
+    for (final record in records) {
+      if (record['title'] == 'Client / marketplace access') {
+        customerId = (record['details'] as Map?)?['Customer record']?.toString();
+        break;
+      }
+    }
+    if (customerId == null || customerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This account has no linked customer PIN record. Open the account to manage its staff PIN if applicable.')),
+      );
+      return;
+    }
+    final pin = TextEditingController();
+    final confirm = TextEditingController();
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+      title: Text('Reset PIN • ${account['name']}'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text('Enter a new four-digit customer PIN. The customer will use it at their next sign-in.'),
+        const SizedBox(height: 12),
+        TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly], maxLength: 4,
+          decoration: const InputDecoration(labelText: 'New four-digit PIN', counterText: '')),
+        TextField(controller: confirm, keyboardType: TextInputType.number, obscureText: true,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly], maxLength: 4,
+          decoration: const InputDecoration(labelText: 'Confirm PIN', counterText: '')),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Reset PIN')),
+      ],
+    ));
+    if (accepted != true) { pin.dispose(); confirm.dispose(); return; }
+    if (!RegExp(r'^\d{4}$').hasMatch(pin.text) || pin.text != confirm.text) {
+      pin.dispose();
+      confirm.dispose();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter matching four-digit PINs.')),
+      );
+      return;
+    }
+    try {
+      final response = await Supabase.instance.client.functions.invoke(
+        'tajir-director-set-customer-pin',
+        body: {'customer_id': customerId, 'pin': pin.text},
+      );
+      final data = response.data;
+      if (response.status != 200 || data is! Map || data['success'] != true) {
+        throw FormatException(data is Map ? (data['error'] ?? 'Could not reset customer PIN.').toString() : 'Could not reset customer PIN.');
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('PIN reset for ${account['name']}.')),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    } finally {
+      pin.dispose();
+      confirm.dispose();
+    }
+  }
+
+  @override Widget build(BuildContext context) {
+    final q = filter.trim().toLowerCase();
+    final visible = accounts.where((a) {
+      final roles = (a['roles'] as Set<String>).join(' ').toLowerCase();
+      return _matchesCategory(a) && (a['name'].toString().toLowerCase().contains(q) ||
+        roles.contains(q) || a['id'].toString().toLowerCase().contains(q) ||
+        a['phone'].toString().toLowerCase().contains(q));
+    }).toList();
+    final counts = <String, int>{for (final c in categories) c:
+      c == 'All' ? accounts.length : accounts.where((a) => _matchesFor(a, c)).length};
+    return Scaffold(
+      appBar: AppBar(title: const Text('Director • Account Centre'),
+        actions: [IconButton(tooltip: 'Refresh accounts', onPressed: load, icon: const Icon(Icons.refresh))]),
+      body: Column(children: [
+        Container(width: double.infinity, padding: const EdgeInsets.all(14),
+          color: brandGreen.withOpacity(.08),
+          child: const Text('DIRECTOR CONTROL • ALL ACCOUNT TYPES',
+            style: TextStyle(fontWeight: FontWeight.bold, color: brandGreen))),
+        Padding(padding: const EdgeInsets.fromLTRB(12, 12, 12, 4), child: TextField(
+          onChanged: (v) => setState(() => filter = v),
+          decoration: const InputDecoration(prefixIcon: Icon(Icons.search),
+            hintText: 'Search name, phone, role or account ID', border: OutlineInputBorder()))),
+        SizedBox(height: 52, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8),
+          children: categories.map((c) => Padding(padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 6),
+            child: ChoiceChip(label: Text('$c (${counts[c] ?? 0})'), selected: category == c,
+              onSelected: (_) => setState(() => category = c)))).toList())),
+        if (busy) const LinearProgressIndicator(),
+        if (error != null) Padding(padding: const EdgeInsets.all(16), child: Text(error!, style: const TextStyle(color: Colors.red))),
+        Expanded(child: RefreshIndicator(onRefresh: load, child: ListView(
+          children: [
+            if (!busy && error == null) Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Text('${visible.length} accounts shown • Select an account to open its dashboard',
+                style: const TextStyle(fontWeight: FontWeight.w600))),
+            ...visible.map((a) {
+              final roles = (a['roles'] as Set<String>).toList()..sort();
+              return Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                child: ListTile(
+                  leading: CircleAvatar(backgroundColor: brandGreen.withOpacity(.1),
+                    child: Icon(_iconForRoles(roles), color: brandGreen)),
+                  title: Text(a['name'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(roles.isEmpty ? 'No active role assigned' : roles.join(' • ')),
+                    Text('${a['phone'].toString().isEmpty ? 'Phone unavailable' : a['phone']}  •  ${a['status']}',
+                      style: const TextStyle(fontSize: 11)),
+                  ]),
+                  isThreeLine: true,
+                  trailing: PopupMenuButton<String>(
+                    tooltip: 'Account actions',
+                    onSelected: (action) {
+                      if (action == 'open') _preview(a);
+                      if (action == 'pin') _resetCustomerPin(a);
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: 'open', child: ListTile(
+                        dense: true, leading: Icon(Icons.login), title: Text('Open account'))),
+                      if ((a['records'] as List<Map<String, dynamic>>).any((r) => r['title'] == 'Client / marketplace access'))
+                        const PopupMenuItem(value: 'pin', child: ListTile(
+                          dense: true, leading: Icon(Icons.lock_reset), title: Text('Reset customer PIN'))),
+                    ],
+                  ),
+                  onTap: () => _preview(a),
+                ));
+            }),
+            if (!busy && error == null && visible.isEmpty)
+              const Padding(padding: EdgeInsets.all(24), child: Text('No accounts found in this category.')),
+          ],
+        ))),
+      ]),
+    );
+  }
+
+
+  IconData _iconForRoles(List<String> roles) {
+    if (roles.contains('Worker')) return Icons.badge_outlined;
+    if (roles.contains('Tractor owner')) return Icons.agriculture;
+    if (roles.contains('Driver')) return Icons.local_shipping_outlined;
+    if (roles.contains('Mechanic')) return Icons.build_outlined;
+    if (roles.contains('Auto-spares owner')) return Icons.storefront_outlined;
+    return Icons.person_outline;
+  }
+}
+
+class DirectorReadOnlyDashboardPage extends StatelessWidget {
+  final Map<String, dynamic> account;
+  const DirectorReadOnlyDashboardPage({super.key, required this.account});
+
+  IconData _roleIcon(String role) {
+    switch (role.toLowerCase()) {
+      case 'client': return Icons.storefront_outlined;
+      case 'worker': return Icons.badge_outlined;
+      case 'tractor owner': return Icons.agriculture;
+      case 'driver': return Icons.local_shipping_outlined;
+      case 'mechanic': return Icons.build_outlined;
+      case 'auto-spares owner': return Icons.handyman_outlined;
+      default: return Icons.dashboard_outlined;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final roles = (account['roles'] as Set<String>).toList()..sort();
+    final records = account['records'] as List<Map<String, dynamic>>;
+    final name = account['name'].toString();
+    final phone = (account['phone'] ?? '').toString();
+    final status = (account['status'] ?? 'unknown').toString();
+    final roleLabel = roles.isEmpty ? 'No active role' : roles.join(' • ');
+    final summary = <String, String>{
+      'Account roles': roles.length.toString(),
+      'Linked record groups': records.length.toString(),
+      'Account status': status,
+    };
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Dashboard inspection'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Icon(Icons.visibility_outlined, color: brandGreen),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0E5630), Color(0xFF269653)],
+                begin: Alignment.topLeft, end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(children: [
+                  Icon(Icons.visibility_outlined, color: Colors.white, size: 22),
+                  SizedBox(width: 8),
+                  Text('DIRECTOR • READ-ONLY MODE',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: .7)),
+                ]),
+                const SizedBox(height: 18),
+                Text(name, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 5),
+                Text(roleLabel, style: const TextStyle(color: Colors.white70)),
+                const SizedBox(height: 12),
+                Text(phone.isEmpty ? 'Phone not available' : phone,
+                  style: const TextStyle(color: Colors.white)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('Dashboard overview',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 9, runSpacing: 9,
+            children: summary.entries.map((e) => SizedBox(
+              width: (MediaQuery.of(context).size.width - 41) / 2,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(13),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(e.key, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                    const SizedBox(height: 6),
+                    Text(e.value, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                  ]),
+                ),
+              ),
+            )).toList(),
+          ),
+          const SizedBox(height: 12),
+          const Text('Role dashboards',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          ...roles.map((role) => Card(
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: brandGreen.withOpacity(.10),
+                child: Icon(_roleIcon(role), color: brandGreen),
+              ),
+              title: Text(role),
+              subtitle: const Text('Inspection view • No edit or transaction access'),
+              trailing: const Icon(Icons.visibility_outlined),
+            ),
+          )),
+          const SizedBox(height: 12),
+          const Text('Account information',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          Card(child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Account ID: ${account['id']}', style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 5),
+              Text('Status: $status'),
+              Text('Phone: ${phone.isEmpty ? 'Not available' : phone}'),
+            ]),
+          )),
+          const SizedBox(height: 12),
+          const Text('Available dashboard records',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          if (records.isEmpty)
+            const Card(child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No linked role records are available for this account yet.'),
+            )),
+          ...records.map((record) => Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(record['title'].toString(),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const Divider(),
+                ...(record['details'] as Map<String, dynamic>).entries.map((entry) =>
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Expanded(flex: 4, child: Text(entry.key,
+                        style: const TextStyle(color: Colors.black54))),
+                      Expanded(flex: 5, child: Text((entry.value ?? '—').toString())),
+                    ]),
+                  )),
+              ]),
+            ),
+          )),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: Colors.orange.withOpacity(.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.orange.withOpacity(.25)),
+            ),
+            child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(Icons.lock_outline, color: Colors.orange),
+              SizedBox(width: 10),
+              Expanded(child: Text(
+                'Read-only inspection. This screen does not provide controls to approve, edit, delete, purchase, sell, assign work or make payments.',
+              )),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+const Map<String, Map<String, dynamic>> _demoRoleTemplates = {
+  'buyer': {'label':'Client / Buyer','icon':Icons.shopping_bag_outlined,'metrics':{'Available products':'24','Open orders':'3','Completed purchases':'12','Pending payments':'1'},'sections':['Browse maize, beans and fertilizer','Place and track orders','Purchase history','Delivery and payment status'],'activity':[{'title':'Maize • Grade 1','detail':'2 bags • Kitale branch • Order TJ-BUY-1042','status':'In transit'},{'title':'DAP Fertilizer','detail':'5 bags • Seller: Demo Farm Supplies','status':'Awaiting dispatch'},{'title':'Beans • Rosecoco','detail':'1 bag • Delivered 18 Nov','status':'Completed'}]},
+  'seller': {'label':'Client / Seller','icon':Icons.storefront_outlined,'metrics':{'Active listings':'8','Orders received':'5','Completed sales':'17','Stock alerts':'2'},'sections':['Create product listings','Manage product stock','Review buyer orders','Sales and earnings'],'activity':[{'title':'New order • Maize','detail':'Buyer order TJ-ORD-2081 • 4 bags','status':'New order'},{'title':'Stock updated • Beans','detail':'Rosecoco • Available quantity: 18 bags','status':'Sample update'},{'title':'Sale completed','detail':'Fertilizer • 3 bags • Ksh 18,600','status':'Completed'}]},
+  'worker': {'label':'Worker','icon':Icons.badge_outlined,'metrics':{'Assigned duties':'4','Completed tasks':'9','Attendance':'Present','Pending reports':'1'},'sections':['Daily assigned duties','Attendance register','Work completion records','Supervisor instructions'],'activity':[{'title':'Field preparation','detail':'North plot • Assigned by Branch Supervisor','status':'In progress'},{'title':'Attendance • 20 Nov','detail':'Check-in recorded at 7:42 AM','status':'Present'},{'title':'Fertilizer application','detail':'Completed • 2-acre maize field','status':'Submitted'}]},
+  'tractor_owner': {'label':'Tractor Owner','icon':Icons.agriculture,'metrics':{'Registered tractors':'2','Bookings':'6','Active drivers':'2','Demo earnings':'Ksh 18,500'},'sections':['Register and manage tractors','Review bookings','Assign drivers','Earnings and service history'],'activity':[{'title':'Booking • Ploughing','detail':'2 acres • Milimani • 22 Nov','status':'Pending'},{'title':'Tractor KDA 204X','detail':'Driver: Demo Driver • 146 hours','status':'Available'},{'title':'Service record','detail':'Engine oil and filter • 15 Nov','status':'Serviced'}]},
+  'driver': {'label':'Driver','icon':Icons.local_shipping_outlined,'metrics':{'Assigned jobs':'3','Completed jobs':'14','Tractor':'KDA 204X','Work status':'Available'},'sections':['View assigned tractor','Accept and complete jobs','Record job progress','Work and earnings history'],'activity':[{'title':'Ploughing • Job TJ-JOB-031','detail':'2 acres • Milimani • Report by 8:00 AM','status':'Assigned'},{'title':'Transport delivery','detail':'Seed and fertilizer • Kitale depot','status':'Completed'},{'title':'Assigned tractor','detail':'KDA 204X • Owner: Demo Tractor Services','status':'Active'}]},
+  'mechanic': {'label':'Mechanic','icon':Icons.build_outlined,'metrics':{'Repair requests':'4','Jobs in progress':'2','Completed repairs':'18','Pending inspections':'1'},'sections':['Receive repair requests','Update repair progress','Record parts and labour','Maintenance history'],'activity':[{'title':'Repair request • KDA 204X','detail':'Hydraulic lift inspection • Tractor owner demo','status':'Open'},{'title':'Service • KDG 118A','detail':'Oil change and filter replacement','status':'In progress'},{'title':'Repair completed','detail':'Starter motor • Labour and parts recorded','status':'Completed'}]},
+  'auto_spares_owner': {'label':'Auto-spares Owner','icon':Icons.handyman_outlined,'metrics':{'Spare parts':'36','Orders':'7','Low-stock items':'3','Demo sales':'Ksh 12,400'},'sections':['Manage spare-parts inventory','Receive customer orders','Record demo sales','Stock and sales reports'],'activity':[{'title':'New order • Oil filter','detail':'2 units • Order TJ-SP-0084','status':'Awaiting'},{'title':'Low stock • Tractor belt','detail':'Remaining quantity: 2 units','status':'Reorder'},{'title':'Sale • Hydraulic hose','detail':'1 unit • Ksh 4,800','status':'Completed'}]},
+};
+
+class DirectorDemoAccountsPage extends StatefulWidget {
+  const DirectorDemoAccountsPage({super.key});
+  @override State<DirectorDemoAccountsPage> createState() => _DirectorDemoAccountsPageState();
+}
+class _DirectorDemoAccountsPageState extends State<DirectorDemoAccountsPage> {
+  bool loading = true, saving = false;
+  String? error;
+  List<Map<String, dynamic>> demos = [];
+  @override void initState() { super.initState(); load(); }
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = null; });
+    try {
+      final db = Supabase.instance.client;
+      var rows = await db.from('tajir_demo_accounts')
+        .select('id,role_code,display_name,demo_data,is_active,created_at')
+        .order('created_at', ascending: false);
+
+      // First visit: create one isolated sample account for every supported
+      // dashboard area so the Director has something ready to open.
+      if (rows.isEmpty) {
+        final directorId = db.auth.currentUser?.id;
+        if (directorId == null) {
+          throw StateError('Please sign in again to create demo accounts.');
+        }
+        final starterAccounts = _demoRoleTemplates.entries.map((entry) {
+          final template = entry.value;
+          return <String, dynamic>{
+            'role_code': entry.key,
+            'display_name': 'Demo ${template['label']}',
+            'demo_data': {
+              'is_demo': true,
+              'metrics': template['metrics'],
+              'sections': template['sections'],
+            },
+            'created_by': directorId,
+          };
+        }).toList();
+        await db.from('tajir_demo_accounts').insert(starterAccounts);
+        rows = await db.from('tajir_demo_accounts')
+          .select('id,role_code,display_name,demo_data,is_active,created_at')
+          .order('created_at', ascending: false);
+      }
+      demos = List<Map<String, dynamic>>.from(rows)
+        .where((demo) => demo['is_active'] == true)
+        .toList();
+    } catch (e) { error = friendlyError(e); }
+    if (mounted) setState(() => loading = false);
+  }
+  Future<void> createDemo() async {
+    final name = TextEditingController();
+    String role = 'buyer';
+    final result = await showDialog<Map<String, String>>(context: context, builder: (dialogContext) =>
+      StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+        title: const Text('Create demo account'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          DropdownButtonFormField<String>(
+            value: role,
+            decoration: const InputDecoration(labelText: 'Dashboard area', border: OutlineInputBorder()),
+            items: _demoRoleTemplates.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value['label'] as String))).toList(),
+            onChanged: (v) { if (v != null) setDialogState(() => role = v); },
+          ),
+          const SizedBox(height: 12),
+          TextField(controller: name, textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Demo account name', hintText: 'e.g. Demo Buyer 01', border: OutlineInputBorder())),
+          const SizedBox(height: 8),
+          const Text('This creates a sample dashboard account only. It does not create a real login or touch live transactions.', style: TextStyle(fontSize: 12)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () {
+            if (name.text.trim().length < 2) return;
+            Navigator.pop(dialogContext, {'role': role, 'name': name.text.trim()});
+          }, child: const Text('Create demo')),
+        ],
+      )),
+    );
+    name.dispose();
+    if (result == null) return;
+    setState(() { saving = true; error = null; });
+    try {
+      final template = _demoRoleTemplates[result['role']]!;
+      await Supabase.instance.client.from('tajir_demo_accounts').insert({
+        'role_code': result['role'], 'display_name': result['name'],
+        'demo_data': {'is_demo': true, 'metrics': template['metrics'], 'sections': template['sections']},
+        'created_by': Supabase.instance.client.auth.currentUser!.id,
+      });
+      await load();
+    } catch (e) { if (mounted) setState(() => error = friendlyError(e)); }
+    if (mounted) setState(() => saving = false);
+  }
+  Future<void> resetDemo(Map<String, dynamic> demo) async {
+    final template = _demoRoleTemplates[demo['role_code']]!;
+    try {
+      await Supabase.instance.client.from('tajir_demo_accounts').update({
+        'demo_data': {'is_demo': true, 'metrics': template['metrics'], 'sections': template['sections']},
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', demo['id']);
+      await load();
+    } catch (e) { if (mounted) setState(() => error = friendlyError(e)); }
+  }
+  Future<void> deleteDemo(Map<String, dynamic> demo) async {
+    final yes = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+      title: const Text('Delete demo account?'),
+      content: Text('Delete ' + demo['display_name'].toString() + '? This affects only this demo account.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Delete'))],
+    ));
+    if (yes != true) return;
+    try {
+      await Supabase.instance.client.from('tajir_demo_accounts').delete().eq('id', demo['id']);
+      await load();
+    } catch (e) { if (mounted) setState(() => error = friendlyError(e)); }
+  }
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Director • Demo Accounts'), actions: [
+      IconButton(onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
+    ]),
+    floatingActionButton: FloatingActionButton.extended(onPressed: saving ? null : createDemo,
+      icon: const Icon(Icons.add), label: Text(saving ? 'Saving…' : 'Create demo')),
+    body: loading ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 90), children: [
+      const Card(child: Padding(padding: EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Explore every TAJIR area', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        SizedBox(height: 6),
+        Text('Demo accounts use sample information only. They cannot change live stock, payments, orders or financial records.'),
+      ]))),
+      if (error != null) Padding(padding: const EdgeInsets.all(8), child: Text(error!, style: const TextStyle(color: Colors.red))),
+      ...demos.map((demo) {
+        final template = _demoRoleTemplates[demo['role_code']]!;
+        return Card(child: ListTile(
+          leading: CircleAvatar(child: Icon(template['icon'] as IconData)),
+          title: Text(demo['display_name'].toString()),
+          subtitle: Text((template['label'] as String) + ' • DEMO'),
+          trailing: PopupMenuButton<String>(
+            onSelected: (v) { if (v == 'reset') resetDemo(demo); if (v == 'delete') deleteDemo(demo); },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'reset', child: Text('Reset sample data')),
+              PopupMenuItem(value: 'delete', child: Text('Delete demo account')),
+            ],
+          ),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DemoRoleDashboardPage(demo: demo))),
+        ));
+      }),
+      if (demos.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(18), child: Text('No demo accounts yet. Use Create demo to add one for any dashboard.'))),
+    ]),
+  );
+}
+
+class DemoRoleDashboardPage extends StatelessWidget {
+  final Map<String, dynamic> demo;
+  const DemoRoleDashboardPage({super.key, required this.demo});
+  @override Widget build(BuildContext context) {
+    final template = _demoRoleTemplates[demo['role_code']]!;
+    final data = Map<String, dynamic>.from(demo['demo_data'] ?? {});
+    final metrics = Map<String, dynamic>.from(data['metrics'] ?? template['metrics']);
+    final sections = List<String>.from(data['sections'] ?? template['sections']);
+    final activity = List<Map<String, dynamic>>.from(
+      (data['activity'] ?? template['activity'] ?? const <Map<String, dynamic>>[])
+          .map((item) => Map<String, dynamic>.from(item)),
+    );
+    return Scaffold(
+      appBar: AppBar(title: Text(template['label'] as String)),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        Container(width: double.infinity, padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(color: brandGreen, borderRadius: BorderRadius.circular(16)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Row(children: [Icon(Icons.science_outlined, color: Colors.white), SizedBox(width: 8),
+              Text('DEMO DASHBOARD', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]),
+            const SizedBox(height: 12),
+            Text(demo['display_name'].toString(), style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.bold)),
+            const Text('Sample data • No live account access', style: TextStyle(color: Colors.white70)),
+          ]),
+        ),
+        const SizedBox(height: 16),
+        const Text('Dashboard summary', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2,
+          childAspectRatio: 1.8, crossAxisSpacing: 10, mainAxisSpacing: 10,
+          children: metrics.entries.map((entry) => Card(child: Padding(padding: const EdgeInsets.all(12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text(entry.key, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+              const SizedBox(height: 5),
+              Text(entry.value.toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            ]),
+          ))).toList(),
+        ),
+        const SizedBox(height: 18),
+        const Text('Recent activity', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        ...activity.map((item) => Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: brandGreen.withOpacity(.10),
+              child: const Icon(Icons.receipt_long_outlined, color: brandGreen),
+            ),
+            title: Text((item['title'] ?? 'Sample activity').toString(),
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text((item['detail'] ?? '').toString()),
+            trailing: Text((item['status'] ?? 'Sample').toString(),
+              style: const TextStyle(fontSize: 11, color: brandGreen, fontWeight: FontWeight.bold)),
+          ),
+        )),
+        const SizedBox(height: 10),
+        const Text('Areas to explore', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+        ...sections.map((section) => Card(child: ListTile(
+          leading: const Icon(Icons.check_circle_outline, color: brandGreen),
+          title: Text(section),
+          subtitle: const Text('Preview only • no live action'),
+          trailing: const Icon(Icons.lock_outline, size: 18),
+        ))),
+        const SizedBox(height: 12),
+        const Text('Isolated demonstration only. No action here submits real orders, approves users, changes stock, books tractors or records payments.',
+          style: TextStyle(color: Colors.black54, fontSize: 12)),
+      ]),
+    );
+  }
+}
+
+class DirectorAppUpdatesPage extends StatelessWidget {
+  const DirectorAppUpdatesPage({super.key});
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Director • App Updates')),
+    body: ListView(padding: const EdgeInsets.all(16), children: [
+      const Card(child: Padding(padding: EdgeInsets.all(16), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.system_update_alt, size: 38, color: brandGreen),
+          SizedBox(height: 10),
+          Text('Automatic TAJIR updates', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          SizedBox(height: 8),
+          Text('New production builds are published automatically when the approved Android build completes. Installed TAJIR apps check GitHub Releases when opened, when resumed and every five minutes while running. Android will ask the user to approve installation.'),
+        ],
+      ))),
+      Text('Installed version: $tajirVersionName (build $tajirBuildNumber)'),
+      const SizedBox(height: 10),
+      const Text('No manual APK link is required. Keep the app installed and use the update prompt when one is available.'),
+    ]),
+  );
+}
+
+int _tajirDismissedUpdateVersion = 0;
+bool _tajirUpdateDialogOpen = false;
+
+Future<int> _tajirDownloadedUpdateVersion = Future<int>.value(0);
+
+Future<void> checkForTajirUpdate(BuildContext context) async {
+  if (_tajirUpdateDialogOpen || !context.mounted) return;
+  _tajirUpdateDialogOpen = true;
+  HttpClient? client;
+  try {
+    client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    final request = await client.getUrl(Uri.parse(
+      'https://api.github.com/repos/ngenok645-byte/Tajir-android1/releases/latest',
+    ));
+    request.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
+    request.headers.set(HttpHeaders.userAgentHeader, 'TAJIR-Android');
+    final response = await request.close();
+    if (response.statusCode != HttpStatus.ok) return;
+    final payload = jsonDecode(await response.transform(utf8.decoder).join());
+    if (payload is! Map<String, dynamic> || !context.mounted) return;
+    final tag = (payload['tag_name'] ?? '').toString();
+    final match = RegExp(r'^tajir-(\d+)$').firstMatch(tag);
+    final latest = int.tryParse(match?.group(1) ?? '') ?? 0;
+    if (latest <= tajirBuildNumber) return;
+    final previousDownload = await _tajirDownloadedUpdateVersion;
+    if (previousDownload == latest) return;
+    final assets = payload['assets'];
+    if (assets is! List) return;
+    final apkAssets = assets.whereType<Map>().where((a) =>
+      (a['name'] ?? '').toString().toLowerCase().endsWith('.apk')).toList();
+    if (apkAssets.isEmpty) return;
+    final apkUrl = (apkAssets.first['browser_download_url'] ?? '').toString();
+    final uri = Uri.tryParse(apkUrl);
+    if (uri == null || uri.scheme != 'https') return;
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('A new TAJIR version was found. Downloading it automatically...')),
+      );
+    }
+    final downloadClient = HttpClient()..connectionTimeout = const Duration(seconds: 30);
+    try {
+      final downloadResponse = await (await downloadClient.getUrl(uri)).close();
+      if (downloadResponse.statusCode != HttpStatus.ok) {
+        throw HttpException('TAJIR update download failed.');
+      }
+      final file = File(Directory.systemTemp.path + '/tajir-update.apk');
+      await downloadResponse.pipe(file.openWrite());
+      if (!await file.exists() || await file.length() < 100000) {
+        throw const FormatException('Downloaded TAJIR update is incomplete.');
+      }
+      _tajirDownloadedUpdateVersion = Future<int>.value(latest);
+      if (!context.mounted) return;
+      final version = (payload['name'] ?? 'Build $latest').toString();
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('TAJIR $version is ready'),
+          content: const Text(
+            'The update has downloaded automatically. Select Install to open Android\'s secure installer. Your existing app data is retained when Android accepts the update.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                try {
+                  await _tajirUpdateChannel.invokeMethod<void>(
+                    'installApk', {'path': file.path},
+                  );
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Could not open Android installer: ' + friendlyError(e))),
+                    );
+                  }
+                }
+              },
+              child: const Text('Install update'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      downloadClient.close(force: true);
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('TAJIR update check failed: ' + friendlyError(e))),
+      );
+    }
+  } finally {
+    client?.close(force: true);
+    _tajirUpdateDialogOpen = false;
+  }
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
 }
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance];
-  @override void initState() { super.initState(); loadAccess(); }
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage(), const DirectorAccountCentrePage(), const DirectorDemoAccountsPage(), const DirectorAppUpdatesPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Account Centre', if (director) 'Demo Accounts', if (director) 'App Updates'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.science_outlined, if (director) Icons.system_update];
+  Timer? _updateCheckTimer;
+
+  @override void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    loadAccess();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) checkForTajirUpdate(context);
+    });
+    // Check for newly published releases while the app remains open.
+    _updateCheckTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      if (mounted) checkForTajirUpdate(context);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      checkForTajirUpdate(context);
+    }
+  }
+
+  @override
+  void dispose() {
+    _updateCheckTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
   Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
       final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
-      if (mounted) setState(() { director = allowed; if (!allowed && index == 6) index = 0; });
+      if (mounted) setState(() { director = allowed; if (!allowed && index >= 6) index = 0; });
     } catch (_) { if (mounted) setState(() => director = false); }
   }
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
@@ -879,13 +2421,50 @@ class _HomeShellState extends State<HomeShell> {
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
+      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Director Account Centre'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
+      if (director) ListTile(leading: const Icon(Icons.science_outlined), title: const Text('Demo Accounts'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
+      if (director) ListTile(leading: const Icon(Icons.system_update), title: const Text('App Updates'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
       const SizedBox(height: 8),
     ])));
   }
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      appBar: AppBar(
+        title: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 34, height: 34,
+            decoration: BoxDecoration(
+              color: brandGreen,
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: const Icon(Icons.agriculture, color: Colors.white, size: 21),
+          ),
+          const SizedBox(width: 10),
+          Text(_directorAccessingAccount == null ? 'TAJIR' : 'ADMIN ACCESS • $_directorAccessingAccount'),
+        ]),
+        actions: [
+          if (_directorRestoreRefreshToken != null)
+            IconButton(
+              tooltip: 'Return to Director account',
+              onPressed: () => returnToDirectorAccount(context),
+              icon: const Icon(Icons.admin_panel_settings),
+            ),
+          IconButton(
+            tooltip: 'Account security',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AccountSecurityPage()),
+            ),
+            icon: const Icon(Icons.lock_reset_rounded),
+          ),
+          IconButton(
+            tooltip: 'Sign out',
+            onPressed: () => Supabase.instance.client.auth.signOut(),
+            icon: const Icon(Icons.logout_rounded),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
       body: Row(children: [
         if (wide) NavigationRail(selectedIndex: index, onDestinationSelected: selectPage, labelType: NavigationRailLabelType.all, destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i])))),
         Expanded(child: IndexedStack(index: index, children: pages)),
@@ -1007,12 +2586,48 @@ class _DashboardPageState extends State<DashboardPage> {
   ]));
 }
 class MetricCard extends StatelessWidget {
-  final String title, value; final IconData icon;
+  final String title, value;
+  final IconData icon;
   const MetricCard({super.key, required this.title, required this.value, required this.icon});
-  @override Widget build(BuildContext context) => SizedBox(width: 250, child: Card(child: Padding(padding: const EdgeInsets.all(16), child: Row(children: [
-    Icon(icon, color: brandGreen, size: 30), const SizedBox(width: 12),
-    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(color: Colors.black54)), Text(value, style: const TextStyle(fontWeight: FontWeight.bold))])),
-  ]))));
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 250,
+    child: Card(
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Row(children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF4ED),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: brandGreen, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(
+                color: Color(0xFF68776E),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              )),
+              const SizedBox(height: 4),
+              Text(value, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF173B2C),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                )),
+            ],
+          )),
+        ]),
+      ),
+    ),
+  );
 }
 
 class PurchasePage extends StatefulWidget {
@@ -1239,7 +2854,14 @@ class _PurchasePageState extends State<PurchasePage> {
       DropdownButtonFormField<String>(
         value: product,
         items: const ['Maize', 'Beans', 'Fertilizer']
-            .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+            .map((x) => DropdownMenuItem(
+              value: x,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(productIcon(x), color: brandGreen, size: 22),
+                const SizedBox(width: 10),
+                Text(x),
+              ]),
+            ))
             .toList(),
         onChanged: (v) {
           if (v == null) return;
@@ -1253,7 +2875,11 @@ class _PurchasePageState extends State<PurchasePage> {
         value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
         items: variants.map((v) => DropdownMenuItem<String>(
           value: v['id'] as String,
-          child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(productIcon('$product ${v['variant_name']}'), color: brandGreen, size: 21),
+            const SizedBox(width: 8),
+            Flexible(child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}')),
+          ]),
         )).toList(),
         onChanged: (v) => setState(() => selectedVariantId = v),
         decoration: InputDecoration(
@@ -1513,7 +3139,14 @@ class _SalePageState extends State<SalePage> {
       DropdownButtonFormField<String>(
         value: product,
         items: const ['Maize', 'Beans', 'Fertilizer']
-            .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+            .map((x) => DropdownMenuItem(
+              value: x,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(productIcon(x), color: brandGreen, size: 22),
+                const SizedBox(width: 10),
+                Text(x),
+              ]),
+            ))
             .toList(),
         onChanged: (v) {
           if (v == null) return;
@@ -1527,7 +3160,11 @@ class _SalePageState extends State<SalePage> {
         value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
         items: variants.map((v) => DropdownMenuItem<String>(
           value: v['id'] as String,
-          child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(productIcon('$product ${v['variant_name']}'), color: brandGreen, size: 21),
+            const SizedBox(width: 8),
+            Flexible(child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}')),
+          ]),
         )).toList(),
         onChanged: (v) => setState(() => selectedVariantId = v),
         decoration: InputDecoration(
@@ -1697,9 +3334,18 @@ class _StockPageState extends State<StockPage>{
             final id=item['purchase_item_id']?.toString()??'';
             final qty=(item['quantity'] as num?)?.toDouble()??0;
             return Padding(padding:const EdgeInsets.symmetric(vertical:6),child:Row(children:[
-              Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+              Expanded(child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[
+                CircleAvatar(
+                  radius:19,
+                  backgroundColor:brandGreen.withOpacity(.10),
+                  child:Icon(productIcon((item['product_name']??item['name']??item['product']??'Product').toString()),color:brandGreen,size:21),
+                ),
+                const SizedBox(width:10),
+                Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+                Text((item['product_name']??item['name']??item['product']??'Stock item').toString(),style:const TextStyle(fontWeight:FontWeight.w600)),
                 Text('Received: ${qty.toStringAsFixed(2)} ${item['unit']??''}'),
                 Text('Item ID: ${id.length>8?id.substring(0,8):id}',style:const TextStyle(fontSize:11,color:Colors.black54)),
+                ])),
               ])),
               SizedBox(width:118,child:TextField(
                 controller:acceptedControllers[id],
@@ -1720,7 +3366,10 @@ class _StockPageState extends State<StockPage>{
       const Text('Available stock',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
       if(products.isEmpty&&!loading)const Card(child:Padding(padding:EdgeInsets.all(14),child:Text('No approved stock balances yet.'))),
       ...products.map((p)=>Card(child:ListTile(
-        leading:const Icon(Icons.inventory_2,color:brandGreen),
+        leading:CircleAvatar(
+          backgroundColor:brandGreen.withOpacity(.10),
+          child:Icon(productIcon((p['product_name']??p['name']??'Product').toString()),color:brandGreen),
+        ),
         title:Text('${p['product_name']??p['name']??'Product'}'),
         subtitle:Text('Branch: ${p['branch_name']??'Ntulele'}'),
         trailing:Text('${p['quantity_available']??''} ${p['unit']??''}'),
@@ -2378,7 +4027,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
   Widget dropdown(String label,String? value,List<String> values,ValueChanged<String?> change)=>Padding(
     padding:const EdgeInsets.only(bottom:10),
     child:DropdownButtonFormField<String>(value:value,decoration:InputDecoration(labelText:label,border:const OutlineInputBorder()),
-      items:values.map((v)=>DropdownMenuItem(value:v,child:Text(labelCase(v)))).toList(),onChanged:change)
+      items:values.map((v)=>DropdownMenuItem(value:v,child:label=='Service type'?Row(mainAxisSize:MainAxisSize.min,children:[Icon(tractorServiceIcon(v),color:brandGreen),const SizedBox(width:8),Text(labelCase(v))]):Text(labelCase(v)))).toList(),onChanged:change)
   );
   Widget button(String label,VoidCallback fn)=>SizedBox(width:double.infinity,child:FilledButton(onPressed:saving?null:fn,child:Text(saving?'Saving…':label)));
   Widget branchPicker()=>Padding(padding:const EdgeInsets.fromLTRB(14,8,14,4),child:DropdownButtonFormField<String>(
@@ -2465,7 +4114,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     button('Save booking and quotation',bookJob),
     const Divider(height:30),Text('Bookings ('+jobs.length.toString()+')',style:const TextStyle(fontWeight:FontWeight.bold)),
     ...jobs.map((j)=>Card(child:ListTile(
-      leading:const Icon(Icons.event_available,color:brandGreen),
+      leading:Icon(tractorServiceIcon(j['service_type'].toString()),color:brandGreen,size:30),
       title:Text(j['job_number'].toString()+' • '+j['farmer_name'].toString()),
       subtitle:Text(labelCase(j['service_type'].toString())+' • '+j['service_location'].toString()+' • '+dateTimeText((DateTime.tryParse((j['booked_for']??j['created_at']).toString())??DateTime.now()).toLocal())+' • '+numberOf(j,'estimated_hours').toStringAsFixed(1)+' hrs'),
       trailing:Text(money(numberOf(j,'total_charge'))+'\n'+labelCase(j['status'].toString()),textAlign:TextAlign.end),
@@ -3166,6 +4815,7 @@ class _PreviewHomeState extends State<PreviewHome> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.dashboard), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.shopping_cart), label: 'Buy'),
+
           NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'Sell'),
           NavigationDestination(icon: Icon(Icons.inventory), label: 'Stock'),
           NavigationDestination(icon: Icon(Icons.people), label: 'Customers'),
