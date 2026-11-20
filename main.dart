@@ -405,11 +405,114 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> showForgotPinHelp() async {
-    await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
-      title: const Text('Forgot your PIN?'),
-      content: const Text('For your security, a forgotten staff PIN must be reset by the TAJIR Director after checking your identity. Contact the Director or an authorised account administrator. Do not share your old PIN with anyone.'),
-      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
-    ));
+    final recoveryPhone = TextEditingController(text: phone.text.trim());
+    final code = TextEditingController();
+    final newPin = TextEditingController();
+    final confirm = TextEditingController();
+    bool codeSent = false;
+    bool working = false;
+    String? recoveryError;
+    String? recoveryMessage;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Reset staff PIN'),
+          content: SingleChildScrollView(child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('A six-digit verification code will be sent to the registered staff phone number.'),
+              const SizedBox(height: 12),
+              TextField(controller: recoveryPhone, keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'Registered staff phone', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
+              if (codeSent) ...[
+                const SizedBox(height: 12),
+                TextField(controller: code, keyboardType: TextInputType.number, maxLength: 6,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(labelText: 'Six-digit SMS code', border: OutlineInputBorder(), counterText: '')),
+                const SizedBox(height: 10),
+                TextField(controller: newPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(labelText: 'New four-digit PIN', border: OutlineInputBorder(), counterText: '')),
+                const SizedBox(height: 10),
+                TextField(controller: confirm, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(labelText: 'Confirm new PIN', border: OutlineInputBorder(), counterText: '')),
+              ],
+              if (recoveryMessage != null) Padding(padding: const EdgeInsets.only(top: 10),
+                child: Text(recoveryMessage!, style: const TextStyle(color: brandGreen))),
+              if (recoveryError != null) Padding(padding: const EdgeInsets.only(top: 10),
+                child: Text(recoveryError!, style: const TextStyle(color: Colors.red))),
+            ],
+          )),
+          actions: [
+            TextButton(onPressed: working ? null : () => Navigator.pop(dialogContext), child: const Text('Close')),
+            if (!codeSent)
+              FilledButton(
+                onPressed: working ? null : () async {
+                  setDialogState(() { working = true; recoveryError = null; recoveryMessage = null; });
+                  try {
+                    final result = await Supabase.instance.client.functions.invoke(
+                      'tajir-staff-pin-recovery',
+                      body: {'action': 'request', 'phone': recoveryPhone.text.trim()},
+                    );
+                    final data = result.data;
+                    if (result.status != 200 || data is! Map || data['success'] != true) {
+                      throw FormatException(data is Map ? (data['error']?.toString() ?? 'Could not request a code.') : 'Could not request a code.');
+                    }
+                    setDialogState(() {
+                      codeSent = true;
+                      recoveryMessage = 'If this is an active staff account, a code will arrive by SMS. It expires in five minutes.';
+                    });
+                  } catch (e) {
+                    setDialogState(() => recoveryError = friendlyError(e));
+                  }
+                  setDialogState(() => working = false);
+                },
+                child: Text(working ? 'Sending…' : 'Send verification code'),
+              )
+            else
+              FilledButton(
+                onPressed: working ? null : () async {
+                  if (code.text.trim().length != 6 || int.tryParse(code.text.trim()) == null ||
+                      newPin.text.trim().length != 4 || int.tryParse(newPin.text.trim()) == null ||
+                      newPin.text.trim() != confirm.text.trim()) {
+                    setDialogState(() => recoveryError = 'Enter the six-digit code and matching four-digit PINs.');
+                    return;
+                  }
+                  setDialogState(() { working = true; recoveryError = null; recoveryMessage = null; });
+                  try {
+                    final result = await Supabase.instance.client.functions.invoke(
+                      'tajir-staff-pin-recovery',
+                      body: {
+                        'action': 'verify',
+                        'phone': recoveryPhone.text.trim(),
+                        'code': code.text.trim(),
+                        'new_pin': newPin.text.trim(),
+                      },
+                    );
+                    final data = result.data;
+                    if (result.status != 200 || data is! Map || data['success'] != true) {
+                      throw FormatException(data is Map ? (data['error']?.toString() ?? 'PIN reset failed.') : 'PIN reset failed.');
+                    }
+                    if (mounted) setState(() => error = 'Your staff PIN has been reset. Sign in using your new PIN.');
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  } catch (e) {
+                    setDialogState(() => recoveryError = friendlyError(e));
+                  }
+                  if (dialogContext.mounted) setDialogState(() => working = false);
+                },
+                child: Text(working ? 'Verifying…' : 'Verify code and reset PIN'),
+              ),
+          ],
+        ),
+      ),
+    );
+    recoveryPhone.dispose();
+    code.dispose();
+    newPin.dispose();
+    confirm.dispose();
   }
 
   Future<void> submit() async {
