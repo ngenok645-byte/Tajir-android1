@@ -401,10 +401,14 @@ class _LoginPageState extends State<LoginPage> {
           email: tajirLoginEmail(normalized),
           password: staffAuthPassword(pin.text),
         );
-        // LoginPage is pushed above AuthGate. Clear the login route so the
-        // authenticated router can immediately display the user's dashboard.
+        // Replace the entire unauthenticated navigation stack. Re-entering
+        // AuthGate after Supabase confirms the session forces AccountRouter to
+        // resolve the signed-in user's role and open the correct dashboard.
         if (mounted) {
-          Navigator.of(context).popUntil((route) => route.isFirst);
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const AuthGate()),
+            (route) => false,
+          );
         }
       }
     } on AuthException catch (e) {
@@ -534,7 +538,9 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         await signInCustomerWithPin(db, normalized, pin.text);
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
+          MaterialPageRoute(builder: (_) => const AuthGate()),
+          (route) => false,
+        );
       } else {
         await signInCustomerWithPin(db, normalized, pin.text);
         final result = await db.rpc('get_my_account_status');
@@ -543,7 +549,10 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
           throw const FormatException('No customer account is linked to this phone number. Please register first.');
         }
         if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AuthGate()),
+          (route) => false,
+        );
       }
     } on AuthException catch (e) {
       if (mounted) setState(() => message = friendlyError(e));
