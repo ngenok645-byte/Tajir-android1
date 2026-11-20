@@ -1217,6 +1217,7 @@ class AccountRouter extends StatelessWidget {
         return RoleWorkspacePage(roleCode: entry.key, roleName: entry.value);
       }
     }
+    if (roleCodes.contains('worker')) return const WorkerWorkspacePage();
     if (roleCodes.any(staffRoles.contains)) return const HomeShell();
     return const AccountAccessIssuePage();
   }
@@ -1608,6 +1609,178 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         if (error.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 12),
           child: Text(error, style: const TextStyle(color: Colors.red))),
         if (!loading && error.isEmpty) ...workspaceContent(),
+        if (!loading && error.isNotEmpty) OutlinedButton.icon(onPressed: load, icon: const Icon(Icons.refresh), label: const Text('Try again')),
+      ],
+    )),
+  );
+}
+
+class WorkerWorkspacePage extends StatefulWidget {
+  const WorkerWorkspacePage({super.key});
+  @override State<WorkerWorkspacePage> createState() => _WorkerWorkspacePageState();
+}
+
+class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
+  final db = Supabase.instance.client;
+  bool loading = true, busy = false;
+  String error = '';
+  String? branchId;
+  List<Map<String,dynamic>> branches = [], tasks = [], attendance = [];
+
+  String get uid => db.auth.currentUser!.id;
+  Map<String,dynamic>? get activeShift {
+    for (final row in attendance) {
+      if (row['check_out_at'] == null) return row;
+    }
+    return null;
+  }
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = ''; });
+    try {
+      final assigned = await db.from('user_branch_assignments')
+        .select('branch_id,branches(name)')
+        .eq('user_id', uid)
+        .isFilter('ended_at', null);
+      branches = List<Map<String,dynamic>>.from(assigned);
+      if (branchId == null || !branches.any((b) => b['branch_id'].toString() == branchId)) {
+        branchId = branches.isEmpty ? null : branches.first['branch_id'].toString();
+      }
+      final taskRows = await db.from('staff_tasks')
+        .select('id,task_number,title,description,due_at,status,branch_id')
+        .eq('assigned_to', uid)
+        .order('created_at', ascending: false);
+      tasks = List<Map<String,dynamic>>.from(taskRows);
+      final attendanceRows = await db.from('staff_attendance')
+        .select('id,branch_id,check_in_at,check_out_at')
+        .eq('user_id', uid)
+        .order('check_in_at', ascending: false)
+        .limit(20);
+      attendance = List<Map<String,dynamic>>.from(attendanceRows);
+    } catch (e) {
+      error = 'Could not load your worker records: ' + friendlyError(e);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String branchName(Map<String,dynamic> row) {
+    final nested = row['branches'];
+    if (nested is Map && nested['name'] != null) return nested['name'].toString();
+    return 'Assigned branch';
+  }
+
+  Future<void> recordAttendance(bool checkIn) async {
+    if (busy) return;
+    if (checkIn && branchId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ask the Director to assign you to an active branch before checking in.')));
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      if (checkIn) {
+        await db.rpc('staff_check_in', params: {'p_branch_id': branchId});
+      } else {
+        await db.rpc('staff_check_out');
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(checkIn ? 'Attendance check-in recorded.' : 'Attendance check-out recorded.')));
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> updateTask(Map<String,dynamic> task, String status) async {
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      await db.from('staff_tasks').update({'status': status})
+        .eq('id', task['id']).eq('assigned_to', uid);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Task updated to ' + status.replaceAll('_',' ') + '.')));
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Worker dashboard'), actions: [
+      IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
+        MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
+      IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
+      IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
+    ]),
+    body: RefreshIndicator(onRefresh: load, child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(18),
+      children: [
+        const Text('My work and attendance', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        const Text('Only tasks and attendance linked to your signed-in account are shown.'),
+        if (loading) const LinearProgressIndicator(),
+        if (error.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(error, style: const TextStyle(color: Colors.red))),
+        if (!loading && error.isEmpty) ...[
+          const SizedBox(height: 12),
+          const Text('Attendance', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          if (activeShift == null && branches.isNotEmpty) DropdownButtonFormField<String>(
+            value: branchId,
+            decoration: const InputDecoration(labelText: 'Assigned branch'),
+            items: branches.map((b) => DropdownMenuItem<String>(
+              value: b['branch_id'].toString(), child: Text(branchName(b)))).toList(),
+            onChanged: busy ? null : (value) => setState(() => branchId = value),
+          ),
+          if (branches.isEmpty) const Text('No active branch assignment was found. Contact the Director before recording attendance.'),
+          if (activeShift == null)
+            FilledButton.icon(onPressed: busy || branchId == null ? null : () => recordAttendance(true),
+              icon: const Icon(Icons.login), label: const Text('Check in')),
+          if (activeShift != null) Card(child: ListTile(
+            leading: const Icon(Icons.timer, color: brandGreen),
+            title: const Text('You are checked in'),
+            subtitle: Text('Since ' + (activeShift!['check_in_at'] ?? '').toString()),
+            trailing: FilledButton(onPressed: busy ? null : () => recordAttendance(false), child: const Text('Check out')),
+          )),
+          const SizedBox(height: 16),
+          Row(children: [
+            const Expanded(child: Text('Assigned tasks', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+            Chip(label: Text(tasks.length.toString())),
+          ]),
+          if (tasks.isEmpty) const Text('No tasks have been assigned to you yet.'),
+          ...tasks.map((task) {
+            final status = (task['status'] ?? 'pending').toString();
+            Widget? action;
+            if (status == 'pending') {
+              action = FilledButton.tonal(onPressed: busy ? null : () => updateTask(task, 'in_progress'), child: const Text('Start task'));
+            } else if (status == 'in_progress') {
+              action = FilledButton(onPressed: busy ? null : () => updateTask(task, 'submitted'), child: const Text('Submit task'));
+            }
+            return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text((task['task_number'] ?? 'Task').toString() + ' • ' + (task['title'] ?? '').toString(),
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+                if ((task['description'] ?? '').toString().isNotEmpty) Text(task['description'].toString()),
+                Text('Status: ' + status + ' • Due: ' + (task['due_at'] ?? 'Not specified').toString()),
+                if (action != null) Align(alignment: Alignment.centerRight, child: action),
+              ],
+            )));
+          }),
+          const SizedBox(height: 16),
+          const Text('Recent attendance history', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          if (attendance.isEmpty) const Text('No attendance records yet.'),
+          ...attendance.map((row) => Card(child: ListTile(
+            leading: const Icon(Icons.event_available_outlined),
+            title: Text(branches.where((b) => b['branch_id'].toString() == row['branch_id'].toString()).isEmpty
+              ? 'Branch attendance' : branchName(branches.firstWhere((b) => b['branch_id'].toString() == row['branch_id'].toString()))),
+            subtitle: Text('In: ' + (row['check_in_at'] ?? '').toString() + '\nOut: ' + (row['check_out_at'] ?? 'Still checked in').toString()),
+          ))),
+        ],
         if (!loading && error.isNotEmpty) OutlinedButton.icon(onPressed: load, icon: const Icon(Icons.refresh), label: const Text('Try again')),
       ],
     )),
