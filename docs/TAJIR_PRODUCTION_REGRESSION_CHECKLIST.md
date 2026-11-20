@@ -56,6 +56,18 @@ This checklist is the acceptance baseline for every production change. A feature
 - [ ] Seller listings appear in the buyer catalogue only when active and permitted.
 - [ ] Buyer and seller permissions are independently respected for dual-role accounts.
 
+
+## Director-controlled client product pricing (KG / bags)
+- [ ] Only Director-authorised users can create or change official TAJIR product/variant selling prices.
+- [ ] Client product selection offers only the units enabled for that product (KG, bag, or both).
+- [ ] Client enters quantity only; there is no client control to edit official unit price, discount or payable total.
+- [ ] Client sees current approved unit price, selected unit, quantity and correctly calculated KES total.
+- [ ] Per-product/per-branch bag weight and unit conversion are respected; no universal 90 kg assumption is applied to every product.
+- [ ] Server recalculates the order total from authoritative price and quantity; altered client-submitted price/total is rejected or ignored.
+- [ ] Price edits are role-protected, audited and effective-dated; accepted orders retain their original price snapshot.
+- [ ] Missing, inactive, stale or unsupported pricing blocks order submission rather than creating a zero-price order.
+- [ ] Totals and rounding match between client, server order, director dashboard and receipt.
+
 ## Business workflows
 - [ ] Purchases validate quantities, prices, suppliers, and totals.
 - [ ] Purchase-related expenses are itemized and included exactly once in costs.
