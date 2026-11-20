@@ -547,7 +547,8 @@ class AuthChoicePage extends StatelessWidget {
 }
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  final String accountType;
+  const LoginPage({super.key, this.accountType = 'TAJIR team / service account'});
   @override State<LoginPage> createState() => _LoginPageState();
 }
 
