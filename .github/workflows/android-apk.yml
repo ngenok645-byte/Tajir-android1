@@ -76,10 +76,10 @@ jobs:
 
           path = Path("android/settings.gradle.kts")
           source = path.read_text()
-          pm = re.search(r"pluginManagement\\s*\\{", source)
+          pm = re.search(r"pluginManagement\s*\{, source)
           if not pm:
               raise SystemExit("pluginManagement block not found in generated Android settings")
-          repos = re.search(r"repositories\\s*\\{", source[pm.end():])
+          repos = re.search(r"repositories\s*\{, source[pm.end():])
           if not repos:
               raise SystemExit("pluginManagement repositories block not found")
           start = pm.end() + repos.end() - 1
@@ -98,7 +98,7 @@ jobs:
           block = source[start:end + 1]
           additions = [item for item in ("google()", "mavenCentral()", "gradlePluginPortal()") if item not in block]
           if additions:
-              source = source[:start + 1] + "\\n        " + "\\n        ".join(additions) + source[start + 1:]
+              source = source[:start + 1] + "\n        " + "\n        ".join(additions) + source[start + 1:]
               path.write_text(source)
           print("Android plugin repositories verified.")
           PY
