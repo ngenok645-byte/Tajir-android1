@@ -1639,7 +1639,7 @@ class AccountRouter extends StatelessWidget {
     // unapproved provider into an operational workspace, even if a role row exists.
     final ownerApplication = await db.from('tractor_owner_profiles')
       .select('status').eq('profile_id', user.id).maybeSingle();
-    if (ownerApplication != null && ownerApplication['status'] != 'approved') {
+    if (ownerApplication != null && ownerApplication['status'] != 'verified') {
       return ProviderPendingPage(roleName: 'Tractor owner', status: ownerApplication['status'].toString());
     }
     final mechanicApplication = await db.from('mechanic_profiles')
