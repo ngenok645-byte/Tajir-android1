@@ -565,7 +565,9 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
       final normalized = normalizeKenyanPhone(phone.text.trim());
       final customerPin = pin.text.trim();
       final confirmationPin = confirmPin.text.trim();
-      if (!RegExp(r'^\\d{4}
+      if (!RegExp(r'^\d{4}$').hasMatch(customerPin)) {
+        throw const FormatException('Enter all four PIN digits (numbers only).');
+      }
       if (createAccount) {
         if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
         if (customerPin != confirmationPin) throw const FormatException('The PIN entries do not match.');
