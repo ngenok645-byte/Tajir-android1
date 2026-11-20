@@ -26,6 +26,15 @@ The live `tajir-customer-register` Edge Function creates a customer account from
 - Keep recovery codes separate from registration verification.
 - Do not create a login session or account until phone verification succeeds.
 
+**Implementation started in the isolated audit branch** `tajir-audit-hardening-20261120`:
+- Added a service-role-only, RLS-protected phone challenge table migration.
+- Added a rate-limited SMS request/verify Edge Function with five-minute expiry, one-time challenge consumption, keyed code hashes and attempt limits.
+- Added verified-phone requirements to the customer and provider registration endpoints and Director PIN setup endpoint.
+- Added SMS verification steps to customer, provider and first-time Director setup screens.
+- Added a SQL permissions/RLS regression check and Deno type-check steps to the branch workflow.
+
+These changes are source-only at this stage. They have **not** been deployed to the live Supabase project, and they are not considered complete until the migration and Edge Functions pass a staging test, including expired, incorrect, replayed and wrong-phone challenge cases.
+
 ### 2. Provider functions are in GitHub but not deployed to live Supabase
 
 The integration branch contains `tajir-provider-register` and `tajir-provider-review`. They were not present in the live project's active Edge Function list at audit time. The APK built from this branch can therefore display the provider application flow, but the live registration/review actions will fail until secure, tested functions are deployed.
@@ -153,7 +162,9 @@ Resolve findings by inspecting the actual function/table permissions and testing
 - [x] Integration branch identified and isolated from `main`.
 - [x] Successful CI build #499 located; APK artifact downloaded and SHA-256 checked.
 - [x] Live role catalog, migration history, payment enum, key RPCs, relevant RLS policies and active Edge Functions inspected.
-- [ ] Phone ownership verification implemented and tested.
+- [x] Phone ownership verification code, migration, registration UI and security-check source added to isolated audit branch.
+- [ ] Phone ownership verification Deno/Flutter CI and staging tests passed.
+- [ ] Phone verification migration and Edge Functions deployed to live Supabase.
 - [ ] Provider functions deployed and tested.
 - [ ] Tractor-owner booking lifecycle implemented end-to-end.
 - [ ] Six-option accounting and all workbook cost fields implemented.
