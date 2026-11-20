@@ -154,6 +154,26 @@ class TajirCallButton extends StatelessWidget {
   }
 }
 
+
+class TajirDirectorContacts extends StatelessWidget {
+  const TajirDirectorContacts({super.key});
+  Future<void> _call(BuildContext context, String phone) async {
+    try { await callTajirPhone(phone); }
+    catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+  }
+  @override Widget build(BuildContext context) => Card(
+    margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+    child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Row(children: [Icon(Icons.support_agent, color: brandGreen), SizedBox(width: 8), Expanded(child: Text('TAJIR Director contacts', style: TextStyle(fontWeight: FontWeight.bold)))]),
+        ListTile(dense: true, contentPadding: EdgeInsets.zero, title: const Text('Director'), subtitle: const Text('0700020140'),
+          trailing: IconButton(tooltip: 'Call Director', onPressed: () => _call(context, '0700020140'), icon: const Icon(Icons.call, color: brandGreen))),
+        ListTile(dense: true, contentPadding: EdgeInsets.zero, title: const Text('Mercy • Director'), subtitle: const Text('0713971207'),
+          trailing: IconButton(tooltip: 'Call Mercy', onPressed: () => _call(context, '0713971207'), icon: const Icon(Icons.call, color: brandGreen))),
+      ])),
+  );
+}
+
  
 /// Turns technical backend/network failures into clear messages for everyday users.
 /// Never display raw HTTP/database error codes in the app.
@@ -1099,9 +1119,11 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
      IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
     ],
    ),
-   body:onSection
-    ?sectionPage(selectedSection!)
-    :ListView(padding:const EdgeInsets.all(12),children:[
+   body:Column(children:[
+    const TajirDirectorContacts(),
+    Expanded(child:onSection
+     ?sectionPage(selectedSection!)
+     :ListView(padding:const EdgeInsets.all(12),children:[
       Row(children:[
        Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse all products available in the marketplace',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0)),
        const SizedBox(width:8),
@@ -1128,7 +1150,8 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
         icon: const Icon(Icons.add_moderator_outlined),
         label: const Text('Add or retry National ID registration'),
       )
-    ])
+    ]))
+   ])
   );
  }
 }
@@ -1810,7 +1833,8 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(18),
       children: [
-        Text('${widget.roleName} workspace', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        const TajirDirectorContacts(),
+       Text('${widget.roleName} workspace', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         const Text('Your records are limited by your signed-in account permissions.'),
         if (loading) const LinearProgressIndicator(),
         if (error.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 12),
@@ -1929,6 +1953,7 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(18),
       children: [
+        const TajirDirectorContacts(),
         const Text('My work and attendance', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         const Text('Only tasks and attendance linked to your signed-in account are shown.'),
         if (loading) const LinearProgressIndicator(),
@@ -2084,9 +2109,12 @@ class _HomeShellState extends State<HomeShell> {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
       appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
-      body: Row(children: [
-        if (wide) NavigationRail(selectedIndex: index, onDestinationSelected: selectPage, labelType: NavigationRailLabelType.all, destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i])))),
-        Expanded(child: IndexedStack(index: index, children: pages)),
+      body: Column(children: [
+        const TajirDirectorContacts(),
+        Expanded(child: Row(children: [
+          if (wide) NavigationRail(selectedIndex: index, onDestinationSelected: selectPage, labelType: NavigationRailLabelType.all, destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i])))),
+          Expanded(child: IndexedStack(index: index, children: pages)),
+        ])),
       ]),
       bottomNavigationBar: wide ? null : NavigationBar(
         selectedIndex: index < 4 ? index : 4,
