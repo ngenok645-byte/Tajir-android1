@@ -52,17 +52,27 @@ Future<void> callTajirPhone(String phone) async {
 }
 
 class TajirCallButton extends StatelessWidget {
-  final String phone;
+  final String profileId;
   final String label;
-  final bool compact;
-  const TajirCallButton({super.key, required this.phone, this.label = 'Call', this.compact = false});
+  const TajirCallButton({super.key, required this.profileId, this.label = 'Call'});
 
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
-      onPressed: phone.trim().isEmpty ? null : () async {
+      onPressed: profileId.trim().isEmpty ? null : () async {
         try {
-          await callTajirPhone(phone);
+          // Always resolve the number from the selected user's registered profile.
+          // Never dial a stale customer/provider contact field.
+          final row = await Supabase.instance.client
+              .from('profiles')
+              .select('phone')
+              .eq('id', profileId)
+              .maybeSingle();
+          final registeredPhone = row?['phone']?.toString().trim() ?? '';
+          if (registeredPhone.isEmpty) {
+            throw const FormatException('This account has no registered phone number.');
+          }
+          await callTajirPhone(registeredPhone);
         } catch (e) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -2368,7 +2378,8 @@ class _CustomersPageState extends State<CustomersPage> {
         content:SizedBox(width:480,child:SingleChildScrollView(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Text('Phone: ${customer['phone']??'—'}'),
           const SizedBox(height: 8),
-          TajirCallButton(phone: customer['phone']?.toString() ?? '', label: 'Call customer'),
+          if ((customer['profile_id']?.toString() ?? '').isNotEmpty)
+            TajirCallButton(profileId: customer['profile_id'].toString(), label: 'Call customer'),
           Text('Email: ${customer['email']??'—'}'),
           Text('Customer type: ${customer['customer_type']??'—'}'),
           Text('Account status: ${customer['active']==true?'Active':'Inactive'}'),
