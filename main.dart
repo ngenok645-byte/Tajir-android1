@@ -1857,6 +1857,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
 
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(widget.roleName), actions: [
+      IconButton(tooltip: 'TAJIR Directory', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DirectorySearchPage())), icon: const Icon(Icons.search)),
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
@@ -1976,6 +1977,7 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
 
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Worker dashboard'), actions: [
+      IconButton(tooltip: 'TAJIR Directory', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DirectorySearchPage())), icon: const Icon(Icons.search)),
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
