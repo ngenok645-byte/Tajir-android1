@@ -5,8 +5,8 @@
 - Supabase project: `zgqwjlyyinaapfmiomjo`
 - Applied migration count: **79**
 - Latest applied migration: `20261120151131` — `keep_directory_search_private_schema_private`
-- Public base tables: **undefined**
-- Public functions: **undefined**
+- Public base tables: **74**
+- Public functions: **42**
 - This is a metadata snapshot only. It contains no customer records, phone numbers, National ID values or secret values.
 
 ## Live account roles
@@ -71,6 +71,18 @@ The complete payment workflow requested by the product plan is broader than the 
 - Product variants include `bag_weight_kg`; the audit branch integrates product-specific bag weights and retains the 90 kg maize fallback.
 - The customer product-request trigger expects quantity in kilograms and calculates price per kg.
 - The full app must avoid applying the maize 90 kg conversion to fertilizer or other products unless their variant has its own configured bag weight.
+
+
+### New audit-branch integration work
+
+- The Flutter customer catalogue now reads Director-managed branch prices per kg and displays the configured bag equivalent. Maize retains the 90 kg fallback; other products use their own configured variant weight.
+- Buyers now have a separate marketplace-listings screen using `marketplace_listing_selling_prices`. Sellers submit product, quantity, unit and location without setting the public price; their own Director-managed buying price is shown privately.
+- A Director pricing screen now manages branch product prices and both marketplace price records.
+- Migration `20261121120000_marketplace_director_price_guard_and_request_snapshot.sql` sets the public legacy `price_per_unit` field to zero, snapshots the Director-approved selling price and request total server-side, and provides an atomic Director-only price RPC. It was syntax-tested in a transaction and rolled back; it has not been deployed.
+- The Tractor Owner registration router now recognizes the live `verified` status. The earlier UI expected `approved`, which would have kept verified tractor owners out of their dashboard.
+- Migration `20261121130000_tractor_owner_booking_contact_workflow.sql` links service jobs to verified Tractor Owners, adds owner accept/decline and quote handling, records owner customer-contact attempts, and exposes owner/customer-scoped booking RPCs. It was syntax-tested in a transaction and rolled back; it has not been deployed.
+- The app now gives Tractor Owners an incoming booking inbox and customer call action. Customers can call the Tractor Owner after acceptance. The Driver dashboard does not expose the customer phone or take over the owner’s customer-contact role.
+- Driver invitation/owner-to-driver assignment and the complete marketplace offer-to-fulfilment lifecycle still require implementation and testing.
 
 ## Repository reconciliation warning
 
