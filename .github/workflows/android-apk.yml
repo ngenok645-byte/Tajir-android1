@@ -94,31 +94,44 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
           import shutil
 
           gradle = Path("android/app/build.gradle.kts")
-          source = gradle.read_text()
-          source, ns = re.subn(r'(^\\s*namespace\\s*=\\s*)"[^"]+"', r'\\1"com.tajir.app"', source, count=1, flags=re.M)
-          source, app = re.subn(r'(^\\s*applicationId\\s*=\\s*)"[^"]+"', r'\\1"com.tajir.app"', source, count=1, flags=re.M)
-          if ns != 1 or app != 1:
+          lines = gradle.read_text().splitlines()
+          changed = {"namespace": False, "applicationId": False}
+          for i, line in enumerate(lines):
+              stripped = line.strip()
+              for key in changed:
+                  if stripped.startswith(key + " ="):
+                      indent = line[:len(line) - len(line.lstrip())]
+                      lines[i] = indent + key + ' = "com.tajir.app"'
+                      changed[key] = True
+          if not all(changed.values()):
               raise SystemExit("Could not preserve the established com.tajir.app namespace/applicationId.")
-          gradle.write_text(source)
+          gradle.write_text("\n".join(lines) + "\n")
 
           activities = list(Path("android/app/src/main/kotlin").rglob("MainActivity.kt"))
           if len(activities) != 1:
               raise SystemExit(f"Expected one MainActivity.kt, found {len(activities)}")
           old = activities[0]
-          source = old.read_text()
-          source, changed = re.subn(r'^package\\s+[A-Za-z0-9_.]+', 'package com.tajir.app', source, count=1, flags=re.M)
-          if changed != 1:
-              raise SystemExit("Could not set MainActivity package to com.tajir.app")
+          lines = old.read_text().splitlines()
+          if not lines or not lines[0].startswith("package "):
+              raise SystemExit("MainActivity package declaration not found")
+          lines[0] = "package com.tajir.app"
           target = Path("android/app/src/main/kotlin/com/tajir/app/MainActivity.kt")
           target.parent.mkdir(parents=True, exist_ok=True)
-          target.write_text(source)
+          target.write_text("\n".join(lines) + "\n")
           if old != target:
               old.unlink()
-          print("TAJIR package identity preserved: com.tajir.app")
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text()
+          if 'android:label="tajir_app"' in text:
+              text = text.replace('android:label="tajir_app"', 'android:label="TAJIR"')
+          elif 'android:label="TAJIR"' not in text:
+              raise SystemExit("Could not set the launcher label to TAJIR")
+          manifest.write_text(text)
+          print("TAJIR package identity and launcher label preserved.")
           PY
 
       - name: Ensure Android plugin dependencies resolve from Maven Central
@@ -279,11 +292,11 @@ jobs:
       - name: Configure production signing when protected secrets are available
         working-directory: TAJIR_flutter_app
         env:
-          TAJIR_KEYSTORE_BASE64: ${{ secrets.TAJIR_KEYSTORE_BASE64 }}
-          TAJIR_KEYSTORE_PASSWORD: ${{ secrets.TAJIR_KEYSTORE_PASSWORD }}
-          TAJIR_KEY_ALIAS: ${{ secrets.TAJIR_KEY_ALIAS }}
-          TAJIR_KEY_PASSWORD: ${{ secrets.TAJIR_KEY_PASSWORD }}
-          TAJIR_PUBLISH_RELEASE: ${{ inputs.publish_release }}
+          TAJIR_KEYSTORE_BASE64: \${{ secrets.TAJIR_KEYSTORE_BASE64 }}
+          TAJIR_KEYSTORE_PASSWORD: \${{ secrets.TAJIR_KEYSTORE_PASSWORD }}
+          TAJIR_KEY_ALIAS: \${{ secrets.TAJIR_KEY_ALIAS }}
+          TAJIR_KEY_PASSWORD: \${{ secrets.TAJIR_KEY_PASSWORD }}
+          TAJIR_PUBLISH_RELEASE: \${{ inputs.publish_release }}
         run: |
           if [ -z "$TAJIR_KEYSTORE_BASE64" ] || [ -z "$TAJIR_KEYSTORE_PASSWORD" ] || [ -z "$TAJIR_KEY_ALIAS" ] || [ -z "$TAJIR_KEY_PASSWORD" ]; then
             if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$TAJIR_PUBLISH_RELEASE" = "true" ]; then
@@ -302,35 +315,39 @@ jobs:
           EOF
           python - <<'PY'
           from pathlib import Path
-          import re
+
           p = Path("android/app/build.gradle.kts")
-          s = p.read_text()
-          if "import java.util.Properties" not in s:
-              s = "import java.util.Properties\\nimport java.io.FileInputStream\\n" + s
-          marker = re.search(r"plugins\\s*\\{", s)
-          if not marker:
+          source = p.read_text()
+          if "import java.util.Properties" not in source:
+              source = "import java.util.Properties\nimport java.io.FileInputStream\n" + source
+
+          marker = source.find("plugins {")
+          if marker < 0:
               raise SystemExit("Generated Gradle plugins block not found")
           depth = 0
           end = None
-          for i in range(marker.end() - 1, len(s)):
-              if s[i] == "{": depth += 1
-              elif s[i] == "}":
+          for i in range(marker + len("plugins"), len(source)):
+              if source[i] == "{":
+                  depth += 1
+              elif source[i] == "}":
                   depth -= 1
                   if depth == 0:
                       end = i + 1
                       break
           if end is None:
               raise SystemExit("Could not locate end of plugins block")
-          props = '''
+
+          properties = '''
           val keystoreProperties = Properties()
           val keystorePropertiesFile = rootProject.file("key.properties")
           if (keystorePropertiesFile.exists()) {
               keystoreProperties.load(FileInputStream(keystorePropertiesFile))
           }
           '''
-          s = s[:end] + "\\n" + props + s[end:]
-          if "signingConfigs {" not in s:
-              s = s.replace("    buildTypes {", """    signingConfigs {
+          source = source[:end] + "\n" + properties + source[end:]
+
+          if "signingConfigs {" not in source:
+              source = source.replace("    buildTypes {", """    signingConfigs {
                   create("release") {
                       keyAlias = keystoreProperties["keyAlias"] as String
                       keyPassword = keystoreProperties["keyPassword"] as String
@@ -339,10 +356,13 @@ jobs:
                   }
               }
               buildTypes {""", 1)
-          s, count = re.subn(r'signingConfig\\s*=\\s*signingConfigs\\.getByName\\("debug"\\)', 'signingConfig = signingConfigs.getByName("release")', s, count=1)
-          if count != 1:
-              raise SystemExit("Could not switch release build to the protected signing key")
-          p.write_text(s)
+
+          old = 'signingConfig = signingConfigs.getByName("debug")'
+          new = 'signingConfig = signingConfigs.getByName("release")'
+          if old not in source:
+              raise SystemExit("Could not find the generated debug signing configuration")
+          source = source.replace(old, new, 1)
+          p.write_text(source)
           print("Production signing configured from protected GitHub secrets.")
           PY
 
