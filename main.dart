@@ -807,6 +807,7 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
   bool isCustomer = false, loading = true, busy = false;
   String? error;
   bool get directorAssumedAccount => _directorAccessingAccount != null;
+  bool get directorCanResetStaffPin => directorAssumedAccount && !isCustomer;
   @override void initState() { super.initState(); loadAccount(); }
   @override void dispose() { currentPin.dispose(); newPin.dispose(); confirmPin.dispose(); super.dispose(); }
   Future<void> loadAccount() async {
@@ -819,9 +820,9 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
   Future<void> savePin() async {
     final oldPin = currentPin.text.trim(), nextPin = newPin.text.trim();
     if (nextPin.length != 4 || int.tryParse(nextPin) == null) { setState(() => error = 'Enter a new four-digit PIN.'); return; }
-    if (!directorAssumedAccount && (oldPin.length != 4 || int.tryParse(oldPin) == null)) { setState(() => error = 'Enter your current four-digit PIN.'); return; }
+    if (!directorCanResetStaffPin && (oldPin.length != 4 || int.tryParse(oldPin) == null)) { setState(() => error = 'Enter your current four-digit PIN.'); return; }
     if (nextPin != confirmPin.text.trim()) { setState(() => error = 'The new PIN entries do not match.'); return; }
-    if (!directorAssumedAccount && oldPin == nextPin) { setState(() => error = 'Choose a different PIN from your current PIN.'); return; }
+    if (!directorCanResetStaffPin && oldPin == nextPin) { setState(() => error = 'Choose a different PIN from your current PIN.'); return; }
     setState(() { busy = true; error = null; });
     try {
       final db = Supabase.instance.client;
@@ -858,18 +859,18 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
     appBar: AppBar(title: const Text('Account security')),
     body: loading ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(20), children: [
       const Icon(Icons.shield_outlined, size: 52, color: brandGreen),
-      Text(directorAssumedAccount ? 'Set a new PIN for ${_directorAccessingAccount}' : 'Change your four-digit PIN', textAlign: TextAlign.center, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
-      Text(directorAssumedAccount ? 'Director account access is active. Set a new PIN for this account without requesting the old PIN.' : 'Your PIN is private. Do not share it with anyone.', textAlign: TextAlign.center),
+      Text(directorCanResetStaffPin ? 'Set a new PIN for ${_directorAccessingAccount}' : directorAssumedAccount ? 'Customer PIN reset' : 'Change your four-digit PIN', textAlign: TextAlign.center, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
+      Text(directorCanResetStaffPin ? 'Director account access is active. Set a new PIN for this staff account without requesting the old PIN.' : directorAssumedAccount ? 'Customer PINs are managed separately. Return to the Director account centre to reset this customer PIN.' : 'Your PIN is private. Do not share it with anyone.', textAlign: TextAlign.center),
       const SizedBox(height: 20),
       if (!directorAssumedAccount) TextField(controller: currentPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Current PIN', border: OutlineInputBorder(), counterText: '')),
       if (!directorAssumedAccount) const SizedBox(height: 10),
       TextField(controller: newPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'New four-digit PIN', border: OutlineInputBorder(), counterText: '')),
-      const SizedBox(height: 10),
-      TextField(controller: confirmPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Confirm new PIN', border: OutlineInputBorder(), counterText: '')),
+      if (!directorAssumedAccount || directorCanResetStaffPin) const SizedBox(height: 10),
+      if (!directorAssumedAccount || directorCanResetStaffPin) TextField(controller: confirmPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Confirm new PIN', border: OutlineInputBorder(), counterText: '')),
       if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
       const SizedBox(height: 14),
-      FilledButton(onPressed: busy ? null : savePin, child: Text(busy ? 'Saving…' : 'Change PIN')),
-      TextButton(onPressed: busy ? null : forgotPin, child: const Text('Forgot PIN?')),
+      if (!directorAssumedAccount || directorCanResetStaffPin) FilledButton(onPressed: busy ? null : savePin, child: Text(busy ? 'Saving…' : directorCanResetStaffPin ? 'Set account PIN' : 'Change PIN')),
+      if (!directorAssumedAccount) TextButton(onPressed: busy ? null : forgotPin, child: const Text('Forgot PIN?')),
     ]),
   );
 }
