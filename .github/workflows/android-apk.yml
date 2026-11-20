@@ -12,6 +12,10 @@ name: Build TAJIR Android APK
     branches:
       - main
 
+concurrency:
+  group: tajir-android-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
