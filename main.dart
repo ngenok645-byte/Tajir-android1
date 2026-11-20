@@ -1735,7 +1735,7 @@ Future<void> checkForTajirUpdate(BuildContext context) async {
     final payload = jsonDecode(await response.transform(utf8.decoder).join());
     if (payload is! Map<String, dynamic> || !context.mounted) return;
     final tag = (payload['tag_name'] ?? '').toString();
-    final match = RegExp(r'^tajir-(\d+).firstMatch(tag);
+    final match = RegExp(r'^tajir-(\d+)$').firstMatch(tag);
     final latest = int.tryParse(match?.group(1) ?? '') ?? 0;
     if (latest <= tajirBuildNumber) return;
     final previousDownload = await _tajirDownloadedUpdateVersion;
