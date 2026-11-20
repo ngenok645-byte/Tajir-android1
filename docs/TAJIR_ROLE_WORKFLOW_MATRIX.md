@@ -35,7 +35,7 @@ These roles should be created or assigned by an authorized Director, not by a pu
 | Tractor Owner | Apply with verified phone; Director approves the provider profile and branch/access assignment |
 | Mechanic | Apply with verified phone; Director approves the provider profile and service access |
 | Auto-spares Owner | Apply with verified phone; Director approves the shop and branch/access assignment |
-| Driver | Created/linked by the Tractor Owner or authorized Director; assigned to a tractor/job |
+| Driver | Intended to be invited/linked by the Tractor Owner or authorized Director, then assigned to a tractor/job. Driver invitation and owner-to-driver assignment UI/RPC are still pending. |
 | Worker | Created/assigned by the Director or authorized Branch Manager |
 | Accountant / Branch Manager / Supplier | Provisioned or approved by the Director |
 | Director | Only the two authorized Director identities; first-time PIN setup must prove control of the registered phone |
