@@ -44,6 +44,45 @@ Future<void> openTajirUpdate(String url) async {
   await tajirUpdateChannel.invokeMethod<void>('openUrl', {'url': url});
 }
 
+Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = false}) async {
+  final found = await checkTajirUpdate();
+  if (!context.mounted) return;
+  if (found == null) {
+    if (showCurrent) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('TAJIR is up to date.')),
+      );
+    }
+    return;
+  }
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('TAJIR update available'),
+      content: Text('A newer version (${found['version']}) is ready. Update to get the latest improvements and fixes.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Later')),
+        FilledButton.icon(
+          onPressed: () async {
+            Navigator.pop(dialogContext);
+            try {
+              await openTajirUpdate(found['url'].toString());
+            } catch (_) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Could not open the update link. Please try again.')),
+                );
+              }
+            }
+          },
+          icon: const Icon(Icons.download),
+          label: const Text('Download update'),
+        ),
+      ],
+    ),
+  );
+}
+
 Future<void> callTajirPhone(String phone) async {
   final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
   if (digits.replaceAll(RegExp(r'[^0-9]'), '').length < 9) {
@@ -1512,7 +1551,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   Map<String,dynamic>? profile;
   List<Map<String,dynamic>> primary = [], secondary = [], requests = [];
 
-  @override void initState() { super.initState(); load(); }
+  @override void initState() { super.initState(); load(); WidgetsBinding.instance.addPostFrameCallback((_) => promptForTajirUpdate(context)); }
 
   String get uid => db.auth.currentUser!.id;
   String money(dynamic value) => 'KES ${(double.tryParse((value ?? 0).toString()) ?? 0).toStringAsFixed(2)}';
@@ -1857,6 +1896,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
 
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(widget.roleName), actions: [
+      IconButton(tooltip: 'Check for updates', onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update)),
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
@@ -1899,7 +1939,7 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
     return null;
   }
 
-  @override void initState() { super.initState(); load(); }
+  @override void initState() { super.initState(); load(); WidgetsBinding.instance.addPostFrameCallback((_) => promptForTajirUpdate(context)); }
 
   Future<void> load() async {
     if (mounted) setState(() { loading = true; error = ''; });
@@ -1977,6 +2017,7 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
 
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Worker dashboard'), actions: [
+      IconButton(tooltip: 'Check for updates', onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update)),
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
