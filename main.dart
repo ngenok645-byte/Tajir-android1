@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
+bool tajirCallInProgress = false;
 const tajirUpdateChannel = MethodChannel('tajir/update');
 const tajirVersion = String.fromEnvironment('TAJIR_VERSION', defaultValue: '0');
 
@@ -44,11 +45,14 @@ Future<void> openTajirUpdate(String url) async {
 }
 
 Future<void> callTajirPhone(String phone) async {
+  tajirCallInProgress = true;
   final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
   if (digits.replaceAll(RegExp(r'[^0-9]'), '').length < 9) {
+    tajirCallInProgress = false;
     throw const FormatException('This contact does not have a valid phone number.');
   }
-  await tajirUpdateChannel.invokeMethod<void>('callPhone', {'phone': digits});
+  try { await tajirUpdateChannel.invokeMethod<void>('callPhone', {'phone': digits}); }
+  catch (_) { tajirCallInProgress = false; rethrow; }
 }
 
 Future<void> showTajirNationalId(BuildContext context, String profileId) async {
@@ -282,18 +286,38 @@ class TajirApp extends StatefulWidget {
   State<TajirApp> createState() => _TajirAppState();
 }
 
-class _TajirAppState extends State<TajirApp> {
-  // Keep the authenticated session when a client switches apps, locks the
-  // phone, or closes TAJIR. Supabase persists and refreshes the session.
-  // A user is signed out only by choosing the app's explicit Sign out action
-  // or when the authentication provider invalidates the session.
+class _TajirAppState extends State<TajirApp> with WidgetsBindingObserver {
+  bool signingOutForBackground = false;
+  @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); }
+  @override void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
   @override
-  Widget build(BuildContext context) => MaterialApp(
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Keep the session alive while the user is in the phone dialler for a TAJIR contact.
+    if (state == AppLifecycleState.resumed && tajirCallInProgress) {
+      tajirCallInProgress = false;
+      return;
+    }
+    if (state == AppLifecycleState.paused && tajirCallInProgress) return;
+    // Sign out only after TAJIR is backgrounded. "inactive" is deliberately
+    // ignored because Android can emit it for calls, permission prompts and dialogs.
+    if (state == AppLifecycleState.paused && !signingOutForBackground) {
+      try {
+        final auth = Supabase.instance.client.auth;
+        if (auth.currentSession == null) return;
+        signingOutForBackground = true;
+        auth.signOut().then((_) {}, onError: (_) {}).whenComplete(() {
+          signingOutForBackground = false;
+        });
+      } catch (_) {
+        signingOutForBackground = false;
+      }
+    }
+  }
+  @override Widget build(BuildContext context) => MaterialApp(
     title: 'TAJIR', debugShowCheckedModeBanner: false, theme: appTheme,
     home: const AuthGate(),
   );
 }
-
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -1246,6 +1270,9 @@ class CustomerMarketPage extends StatefulWidget{
 }
 class _CustomerMarketPageState extends State<CustomerMarketPage>{
  List<Map<String,dynamic>> rows=[];bool busy=true;String? error;
+ final Map<String,double> cartKg={};
+ final Map<String,TextEditingController> kgControllers={};
+ double get cartTotal=>rows.fold(0.0,(sum,r){if(r['_is_marketplace_listing']==true)return sum;final id=(r['product_variant_id']??'').toString();final q=cartKg[id]??0;final p=double.tryParse((r['selling_price_per_kg']??0).toString())??0;return sum+q*p;});
  @override void initState(){super.initState();load();}
  Future<void> load()async{
   if(mounted)setState(()=>busy=true);
@@ -1253,65 +1280,97 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    final db=Supabase.instance.client;
    dynamic r;
    if(widget.mode=='buy'){
-    // The buyer catalogue is TAJIR's actual branch stock, not seller listings.
-    r=await db.rpc('customer_list_tajir_products');
+    final tajir=await db.rpc('customer_list_tajir_products');
+    final branchPriceRows=await db.from('branch_product_selling_prices').select('branch_id,product_variant_id,selling_price_per_kg');
+    final kgPrices={for(final p in List<Map<String,dynamic>>.from(branchPriceRows)) p['branch_id'].toString()+':'+p['product_variant_id'].toString():p['selling_price_per_kg']};
+    final weightRows=await db.from('product_variants').select('id,bag_weight_kg');
+    final weights={for(final p in List<Map<String,dynamic>>.from(weightRows)) p['id'].toString():p['bag_weight_kg']};
+    final pricedTajir=List<Map<String,dynamic>>.from(tajir).map((x){final unit=(x['unit']??'kg').toString().toLowerCase();final w=double.tryParse((weights[x['product_variant_id'].toString()]??0).toString())??0;final stock=double.tryParse((x['quantity_available']??0).toString())??0;return {...x,'selling_price_per_kg':kgPrices[x['branch_id'].toString()+':'+x['product_variant_id'].toString()],'available_kg':unit=='kg'?stock:stock*w};}).toList();
+    final marketplace=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status').eq('status','active').order('created_at',ascending:false);
+    final marketplacePriceRows=await db.from('marketplace_listing_selling_prices').select('listing_id,selling_price_kes');
+    final prices={for(final p in List<Map<String,dynamic>>.from(marketplacePriceRows)) p['listing_id'].toString():p['selling_price_kes']};
+    final marketItems=List<Map<String,dynamic>>.from(marketplace).map((x)=>{...x,'_is_marketplace_listing':true,'selling_price_kes':prices[x['id'].toString()]}).toList();
+    r=[...pricedTajir,...marketItems];
    }else if(widget.mode=='sell'){
-    r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final listings=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final selling=await db.from('marketplace_listing_selling_prices').select('listing_id,selling_price_kes');
+    final buying=await db.from('marketplace_listing_buying_prices').select('listing_id,buying_price_kes');
+    final sp={for(final p in List<Map<String,dynamic>>.from(selling)) p['listing_id'].toString():p['selling_price_kes']};
+    final bp={for(final p in List<Map<String,dynamic>>.from(buying)) p['listing_id'].toString():p['buying_price_kes']};
+    r=List<Map<String,dynamic>>.from(listings).map((x)=>{...x,'selling_price_kes':sp[x['id'].toString()],'buying_price_kes':bp[x['id'].toString()]}).toList();
    }else{
-    final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
-    final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,note,status,created_at,products(name),product_variants(variant_name)').order('created_at',ascending:false);
-    r=[
-     ...List<Map<String,dynamic>>.from(marketplaceRows),
-     ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
-    ]..sort((a,b)=>DateTime.parse(b['created_at'].toString()).compareTo(DateTime.parse(a['created_at'].toString())));
+    final requests=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
+    final offers=await db.from('marketplace_listing_offers').select('id,listing_id,buyer_customer_id,quantity,offer_price_kes,message,status,director_counter_price_kes,created_at,listing:marketplace_listings!marketplace_listing_offers_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
+    final tajir=await db.from('customer_product_requests').select('id,quantity_requested,note,status,created_at,products(name),product_variants(variant_name)').order('created_at',ascending:false);
+    r=[...List<Map<String,dynamic>>.from(requests),...List<Map<String,dynamic>>.from(offers).map((x)=>{...x,'_is_marketplace_offer':true}),...List<Map<String,dynamic>>.from(tajir).map((x)=>{...x,'_is_tajir_request':true})]..sort((a,b)=>DateTime.parse(b['created_at'].toString()).compareTo(DateTime.parse(a['created_at'].toString())));
    }
    if(mounted){
     var loaded=List<Map<String,dynamic>>.from(r);
     if(widget.mode=='buy'){
-     final unique=<String,Map<String,dynamic>>{};
-     for(final item in loaded){
-      final key=(item['product_variant_id']??'').toString();
-      if(key.isNotEmpty)unique.putIfAbsent(key,()=>item);
-     }
-     loaded=unique.values.toList()..sort((x,y)=>(x['product_name']??'').toString().compareTo((y['product_name']??'').toString()));
+     final unique=<String,Map<String,dynamic>>{};final other=<Map<String,dynamic>>[];
+     for(final item in loaded){if(item['_is_marketplace_listing']==true){other.add(item);continue;}final key=(item['product_variant_id']??'').toString();if(key.isNotEmpty)unique.putIfAbsent(key,()=>item);}
+     loaded=[...unique.values,...other]..sort((x,y)=>(x['product_name']??'').toString().compareTo((y['product_name']??'').toString()));
     }
     setState(()=>{rows=loaded,error=null});
    }
   }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
   if(mounted)setState(()=>busy=false);
  }
- Future<void> requestTajirProduct(Map<String,dynamic> item)async{
-  final quantity=TextEditingController(text:'1');
-  final note=TextEditingController();
-  final variant=(item['variant_name']??'').toString();
-  final product=(item['product_name']??'Product').toString();
-  final title=variant.isNotEmpty&&variant.toLowerCase()!=product.toLowerCase()?product+' • '+variant:product;
-  final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
-   title:Text('Select $title'),
-   content:Column(mainAxisSize:MainAxisSize.min,children:[
-    TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity you need')),
-    const SizedBox(height:8),
-    TextField(controller:note,maxLines:2,decoration:const InputDecoration(labelText:'Note (optional)')),
-   ]),
-   actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send request'))],
-  ));
-  if(ok==true){
-   try{
-    final amount=double.tryParse(quantity.text.trim());
-    if(amount==null||amount<=0)throw const FormatException('Enter a quantity greater than zero.');
-    await Supabase.instance.client.from('customer_product_requests').insert({
-     'customer_id':widget.customer['id'],
-     'product_id':item['product_id'],
-     'product_variant_id':item['product_variant_id'],
-     'quantity_requested':amount,
-     'note':note.text.trim().isEmpty?null:note.text.trim(),
-    });
-    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your product request has been sent. TAJIR will confirm availability.')));
-   }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
-  }
-  quantity.dispose();note.dispose();
+ void setKgQuantity(Map<String,dynamic> item,String value){
+  final id=item['product_variant_id'].toString(),q=double.tryParse(value.trim())??0;
+  setState(()=>{if(q<=0)cartKg.remove(id) else cartKg[id]=q});
  }
- Future<void> createListing()async{final p=TextEditingController(),q=TextEditingController(),u=TextEditingController(text:'bag'),v=TextEditingController(),l=TextEditingController(),d=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:const Text('List product'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:p,decoration:const InputDecoration(labelText:'Product')),TextField(controller:d,decoration:const InputDecoration(labelText:'Description')),TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),TextField(controller:u,decoration:const InputDecoration(labelText:'Unit')),TextField(controller:v,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Price per unit KES')),TextField(controller:l,decoration:const InputDecoration(labelText:'Location'))])),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Publish'))]));if(ok==true){try{await Supabase.instance.client.from('marketplace_listings').insert({'seller_customer_id':widget.customer['id'],'product_name':p.text.trim(),'description':d.text.trim(),'quantity':double.parse(q.text),'unit':u.text.trim().isEmpty?'bag':u.text.trim(),'price_per_unit':double.parse(v.text),'location':l.text.trim(),'status':'active'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}p.dispose();q.dispose();u.dispose();v.dispose();l.dispose();d.dispose();}
+ Future<void> submitTajirCart()async{
+  final selected=rows.where((r)=>r['_is_marketplace_listing']!=true&&(cartKg[(r['product_variant_id']??'').toString()]??0)>0).toList();
+  if(selected.isEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a quantity in kg for at least one product.')));return;}
+  try{
+   final db=Supabase.instance.client;
+   for(final item in selected){
+    final qty=cartKg[item['product_variant_id'].toString()]!,stock=(item['available_kg'] as num?)?.toDouble()??0;
+    if(qty>stock)throw FormatException('Requested '+item['product_name'].toString()+' quantity exceeds available stock.');
+    if(item['selling_price_per_kg']==null)throw FormatException('Selling price per kg is not set for '+item['product_name'].toString()+'.');
+   }
+   for(final item in selected){await db.from('customer_product_requests').insert({'customer_id':widget.customer['id'],'branch_id':item['branch_id'],'product_id':item['product_id'],'product_variant_id':item['product_variant_id'],'quantity_requested':cartKg[item['product_variant_id'].toString()],'note':'Cart order; quantity in kg'});}
+   final total=cartTotal;
+   if(mounted){setState(()=>cartKg.clear());for(final c in kgControllers.values){c.clear();}ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Order submitted. Total: KES '+total.toStringAsFixed(2))));}
+   await load();
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+ }
+ Future<void> createListing()async{
+  final p=TextEditingController(),q=TextEditingController(),u=TextEditingController(text:'bag'),l=TextEditingController(),d=TextEditingController();
+  final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:const Text('List product'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+   TextField(controller:p,decoration:const InputDecoration(labelText:'Product')),
+   TextField(controller:d,decoration:const InputDecoration(labelText:'Description')),
+   TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),
+   TextField(controller:u,decoration:const InputDecoration(labelText:'Unit')),
+   TextField(controller:l,decoration:const InputDecoration(labelText:'Location')),
+   const SizedBox(height:8),const Text('TAJIR Director will set the public selling price and your confidential buying price after review.',style:TextStyle(color:Colors.black54))
+  ])),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Publish'))]));
+  if(ok==true){try{
+   final amount=double.tryParse(q.text.trim());
+   if(p.text.trim().length<2||amount==null||amount<=0||l.text.trim().length<2)throw const FormatException('Enter a product, valid quantity and location.');
+   await Supabase.instance.client.from('marketplace_listings').insert({'seller_customer_id':widget.customer['id'],'product_name':p.text.trim(),'description':d.text.trim(),'quantity':amount,'unit':u.text.trim().isEmpty?'bag':u.text.trim(),'price_per_unit':0,'location':l.text.trim(),'status':'active'});
+   await load();if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Product listed. TAJIR Director will set the prices.')));
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  p.dispose();q.dispose();u.dispose();l.dispose();d.dispose();
+ }
+ Future<void> submitMarketplaceOffer(Map<String,dynamic> item)async{
+  final q=TextEditingController(text:'1'),price=TextEditingController(),message=TextEditingController();
+  final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:Text('Make an offer • '+item['product_name'].toString()),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+   Text('Director-set price: '+(item['selling_price_kes']==null?'Not set yet':'KES '+item['selling_price_kes'].toString())),
+   TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),
+   TextField(controller:price,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Your offer per unit (KES)')),
+   TextField(controller:message,maxLines:2,decoration:const InputDecoration(labelText:'Message (optional)'))
+  ])),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Submit offer'))]));
+  if(ok==true){try{
+   final amount=double.tryParse(q.text.trim()),offer=double.tryParse(price.text.trim());
+   if(amount==null||amount<=0||amount>(item['quantity'] as num).toDouble())throw const FormatException('Enter a valid quantity within available stock.');
+   if(offer==null||offer<=0)throw const FormatException('Enter an offer price greater than zero.');
+   await Supabase.instance.client.from('marketplace_listing_offers').insert({'listing_id':item['id'],'buyer_customer_id':widget.customer['id'],'quantity':amount,'offer_price_kes':offer,'message':message.text.trim().isEmpty?null:message.text.trim()});
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Offer sent to TAJIR for review.')));await load();
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  q.dispose();price.dispose();message.dispose();
+ }
  Future<void> requestBuy(Map<String,dynamic> item)async{final q=TextEditingController(text:'1');final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:Text('Buy '+item['product_name'].toString()),content:TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send request'))]));if(ok==true){try{final n=double.parse(q.text);if(n<=0||n>(item['quantity'] as num).toDouble())throw const FormatException('Quantity exceeds available stock.');await Supabase.instance.client.from('marketplace_purchase_requests').insert({'listing_id':item['id'],'buyer_customer_id':widget.customer['id'],'quantity':n});if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Purchase request sent.')));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}q.dispose();}
  Future<void> change(Map<String,dynamic> r,String value,bool listing)async{try{await Supabase.instance.client.from(listing?'marketplace_listings':'marketplace_purchase_requests').update({'status':value}).eq('id',r['id']);await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
  @override Widget build(BuildContext context)=>RefreshIndicator(
@@ -1324,17 +1383,24 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    if(busy)const LinearProgressIndicator(),
    if(error!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(error!,style:const TextStyle(color:Colors.red))),
    if(!busy&&rows.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(widget.mode=='buy'?'No TAJIR stock is currently available. Please check again or contact your branch.':'No marketplace records yet.')),
+   if(widget.mode=='buy')Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[const Text('Your order',style:TextStyle(fontWeight:FontWeight.bold,fontSize:17)),Text('Selected products: '+cartKg.values.where((v)=>v>0).length.toString()),Text('Overall total: KES '+cartTotal.toStringAsFixed(2),style:const TextStyle(fontWeight:FontWeight.bold,fontSize:18)),FilledButton.icon(onPressed:cartKg.values.any((v)=>v>0)?submitTajirCart:null,icon:const Icon(Icons.shopping_cart_checkout),label:const Text('Submit order'))]))),
    ...rows.map((r){
+    if(widget.mode=='buy'&&r['_is_marketplace_listing']==true){
+     final price=r['selling_price_kes'];
+     return Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.storefront_outlined)),title:Text(r['product_name'].toString()),subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • '+(price==null?'Price awaiting Director':'KES '+price.toString())+' • '+r['location'].toString()),trailing:FilledButton.tonal(onPressed:price==null?null:()=>submitMarketplaceOffer(r),child:const Text('Make offer'))));
+    }
     if(widget.mode=='buy'){
-     final variant=(r['variant_name']??'').toString();
-     final product=(r['product_name']??'Product').toString();
+     final variant=(r['variant_name']??'').toString(),product=(r['product_name']??'Product').toString();
      final title=variant.isNotEmpty&&variant.toLowerCase()!=product.toLowerCase()?product+' • '+variant:product;
-     return Card(child:ListTile(
-      leading:const CircleAvatar(child:Icon(Icons.inventory_2_outlined)),
-      title:Text(title),
-      subtitle:Text('Choose this product to send a request'),
-      trailing:FilledButton.tonal(onPressed:()=>requestTajirProduct(r),child:const Text('Select'))
-     ));
+     final id=r['product_variant_id'].toString(),price=r['selling_price_per_kg'];
+     final controller=kgControllers.putIfAbsent(id,()=>TextEditingController());
+     final qty=cartKg[id]??0,unitPrice=double.tryParse((price??0).toString())??0;
+     return Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      Text(title,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:16)),
+      Text('Available: '+(r['available_kg']??0).toString()+' kg'),
+      Text(price==null?'Selling price not set':'KES '+unitPrice.toStringAsFixed(2)+' / kg',style:const TextStyle(fontWeight:FontWeight.w600)),
+      Row(children:[SizedBox(width:125,child:TextField(controller:controller,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity (kg)'),onChanged:(v)=>setKgQuantity(r,v))),const Spacer(),Text('Amount: KES '+(qty*unitPrice).toStringAsFixed(2),style:const TextStyle(fontWeight:FontWeight.bold))])
+     ])));
     }
     if(widget.mode=='requests'){
      if(r['_is_tajir_request']==true){
@@ -1351,6 +1417,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      }
      final l=(r['listing'] as Map?)?.cast<String,dynamic>()??{};
      final seller=l['seller_customer_id']==widget.customer['id'];
+     if(r['_is_marketplace_offer']==true)return Card(child:ListTile(leading:const Icon(Icons.local_offer_outlined),title:Text((l['product_name']??'Marketplace offer').toString()),subtitle:Text(r['quantity'].toString()+' '+(l['unit']??'').toString()+' • Offer KES '+r['offer_price_kes'].toString()+' • '+r['status'].toString()+(r['director_counter_price_kes']==null?'':' • Counter KES '+r['director_counter_price_kes'].toString())),trailing:const Icon(Icons.hourglass_top)));
      return Card(child:ListTile(
       title:Text((l['product_name']??'Purchase request').toString()),
       subtitle:Text(r['quantity'].toString()+' '+(l['unit']??'').toString()+' • '+r['status'].toString()),
@@ -1359,7 +1426,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     }
     return Card(child:ListTile(
      title:Text(r['product_name'].toString()),
-     subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • KES '+r['price_per_unit'].toString()+' • '+r['location'].toString()),
+     subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • Selling: '+(r['selling_price_kes']==null?'Awaiting Director':'KES '+r['selling_price_kes'].toString())+' • Buying: '+(r['buying_price_kes']==null?'Not set':'KES '+r['buying_price_kes'].toString())+' • '+r['location'].toString()),
      trailing:PopupMenuButton<String>(onSelected:(v)=>change(r,v,true),itemBuilder:(_)=>const [PopupMenuItem(value:'active',child:Text('Active')),PopupMenuItem(value:'paused',child:Text('Pause')),PopupMenuItem(value:'sold',child:Text('Sold'))])
     ));
    })
@@ -1800,6 +1867,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
 
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(widget.roleName), actions: [
+      IconButton(tooltip: 'TAJIR Directory', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DirectorySearchPage())), icon: const Icon(Icons.search)),
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
@@ -1919,6 +1987,7 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
 
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Worker dashboard'), actions: [
+      IconButton(tooltip: 'TAJIR Directory', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DirectorySearchPage())), icon: const Icon(Icons.search)),
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
@@ -2024,6 +2093,80 @@ class BrandMark extends StatelessWidget {
   ]);
 }
 
+class DirectorySearchPage extends StatefulWidget {
+  const DirectorySearchPage({super.key});
+  @override State<DirectorySearchPage> createState() => _DirectorySearchPageState();
+}
+class _DirectorySearchPageState extends State<DirectorySearchPage> {
+  final query = TextEditingController();
+  bool busy = false;
+  String? error;
+  List<Map<String,dynamic>> results = [];
+  @override void dispose() { query.dispose(); super.dispose(); }
+
+  Future<void> search() async {
+    final value = query.text.trim();
+    if (value.length < 4) {
+      setState(() { error = 'Enter at least 4 characters of a phone number or TAJIR ID.'; results = []; });
+      return;
+    }
+    setState(() { busy = true; error = null; results = []; });
+    try {
+      final response = await Supabase.instance.client.rpc('tajir_directory_search', params: {'p_query': value});
+      final rows = List<Map<String,dynamic>>.from(response ?? const []);
+      if (mounted) setState(() { results = rows; if (rows.isEmpty) error = 'No matching TAJIR account was found.'; });
+    } catch (e) {
+      if (mounted) setState(() => error = friendlyError(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(16),
+    children: [
+      const Text('TAJIR DIRECTORY', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      const Text('Find clients and service providers using their registered phone number or full-name TAJIR ID. Private details are protected by account permissions.'),
+      const SizedBox(height: 16),
+      TextField(
+        controller: query,
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => search(),
+        decoration: InputDecoration(
+          labelText: 'Phone number or TAJIR ID',
+          hintText: 'e.g. 0712345678 or TJ-JOHN-DOE-12AB34CD',
+          prefixIcon: const Icon(Icons.search),
+          border: const OutlineInputBorder(),
+          suffixIcon: IconButton(
+            tooltip: 'Clear search',
+            onPressed: () { query.clear(); setState(() { results = []; error = null; }); },
+            icon: const Icon(Icons.close),
+          ),
+        ),
+      ),
+      const SizedBox(height: 10),
+      FilledButton.icon(
+        onPressed: busy ? null : search,
+        icon: busy ? const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)) : const Icon(Icons.search),
+        label: const Text('Search directory'),
+      ),
+      if (busy) const Padding(padding: EdgeInsets.all(18), child: Center(child:CircularProgressIndicator())),
+      if (error != null) Padding(padding: const EdgeInsets.only(top:12), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+      ...results.map((row) => Card(
+        margin: const EdgeInsets.only(top:10),
+        child: ListTile(
+          leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+          title: Text((row['display_name'] ?? 'Unnamed account').toString(), style: const TextStyle(fontWeight: FontWeight.w700)),
+          subtitle: Padding(padding: const EdgeInsets.only(top:5), child: Text('${row['tajir_id']}\n${row['account_type']} • ${row['account_status']}\nPhone: ${row['phone_masked']}')),
+          isThreeLine: true,
+          trailing: const Icon(Icons.verified_user_outlined),
+        ),
+      )),
+    ],
+  );
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
@@ -2056,17 +2199,41 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
+  // Both authorised TAJIR management contacts are displayed to every role.
+  static const String directorContactName = 'TAJIR Director';
+  static const String directorContactPhone = '0700020140';
+  static const String mercyContactName = 'Mercy';
+  static const String mercyContactPhone = '0713971207';
+
+  Future<void> contactDirector() async {
+    try {
+      await callTajirPhone(directorContactPhone);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to open the Director call screen: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> contactMercy() async {
+    try { await callTajirPhone(mercyContactPhone); }
+    catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Unable to open Mercy call screen: $e'))); }
+  }
+
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(7), onOpenStaff: () => selectPage(8), onOpenMarketplace: () => selectPage(9)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const DirectorySearchPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage(), if (director) const BranchKgPricingPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services','TAJIR Directory', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Marketplace Pricing', if (director) 'Branch Prices (KES/kg)'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture,Icons.search, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change, if (director) Icons.scale];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
+  @override void dispose() { super.dispose(); }
   Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
       final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
-      if (mounted) setState(() { director = allowed; if (!allowed && index == 6) index = 0; });
+      if (mounted) setState(() { director = allowed; if (!allowed && index > 6) index = 0; });
     } catch (_) { if (mounted) setState(() => director = false); }
   }
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
@@ -2074,18 +2241,40 @@ class _HomeShellState extends State<HomeShell> {
     showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
-      if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
-      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
+      ListTile(leading: const Icon(Icons.search), title: const Text('TAJIR Directory'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
+      if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
+      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
+      if (director) ListTile(leading: const Icon(Icons.price_change), title: const Text('Marketplace Pricing & Offers'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
+      if (director) ListTile(leading: const Icon(Icons.scale), title: const Text('Branch Prices (KES/kg)'), selected: index == 10, onTap: () { Navigator.pop(sheetContext); selectPage(10); }),
       const SizedBox(height: 8),
     ])));
   }
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
-      body: Row(children: [
+      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: 'Call TAJIR Director • 0700020140', onPressed: contactDirector, icon: const Icon(Icons.support_agent)), IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      body: Column(children: [
+        Material(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 10,
+              runSpacing: 8,
+              children: [
+                const Text('CONTACT TAJIR MANAGEMENT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: .5)),
+                OutlinedButton.icon(onPressed: contactDirector, icon: const Icon(Icons.call, size: 18), label: const Text('Director  0700020140')),
+                OutlinedButton.icon(onPressed: contactMercy, icon: const Icon(Icons.call, size: 18), label: const Text('Mercy  0713971207')),
+              ],
+            ),
+          ),
+        ),
+        Expanded(child: Row(children: [
         if (wide) NavigationRail(selectedIndex: index, onDestinationSelected: selectPage, labelType: NavigationRailLabelType.all, destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i])))),
         Expanded(child: IndexedStack(index: index, children: pages)),
+        ])),
       ]),
       bottomNavigationBar: wide ? null : NavigationBar(
         selectedIndex: index < 4 ? index : 4,
@@ -2109,7 +2298,8 @@ class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenItems;
   final VoidCallback? onOpenFinancial;
   final VoidCallback? onOpenStaff;
-  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff});
+  final VoidCallback? onOpenMarketplace;
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenMarketplace});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -2202,6 +2392,13 @@ class _DashboardPageState extends State<DashboardPage> {
         subtitle: const Text('Read-only directory of registered staff and assigned roles'),
         trailing: const Icon(Icons.chevron_right),
         onTap: widget.onOpenStaff,
+      )),
+      Card(child: ListTile(
+        leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.price_change, color: brandGreen)),
+        title: const Text('Marketplace Pricing & Offers', style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('Set public selling prices, confidential buying prices and review buyer offers'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: widget.onOpenMarketplace,
       )),
     ],
     const SizedBox(height: 18),
@@ -4575,4 +4772,112 @@ class _PreviewHomeState extends State<PreviewHome> {
       ),
     );
   }
+}
+
+
+class MarketplacePricingPage extends StatefulWidget {
+ const MarketplacePricingPage({super.key});
+ @override State<MarketplacePricingPage> createState()=>_MarketplacePricingPageState();
+}
+class _MarketplacePricingPageState extends State<MarketplacePricingPage> {
+ bool busy=true;String? error;List<Map<String,dynamic>> listings=[],offers=[];
+ @override void initState(){super.initState();load();}
+ Future<void> load()async{
+  if(mounted)setState(()=>busy=true);
+  try{
+   final db=Supabase.instance.client;
+   final l=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status,created_at').order('created_at',ascending:false);
+   final sp=await db.from('marketplace_listing_selling_prices').select('listing_id,selling_price_kes');
+   final bp=await db.from('marketplace_listing_buying_prices').select('listing_id,buying_price_kes');
+   final sm={for(final x in List<Map<String,dynamic>>.from(sp)) x['listing_id'].toString():x['selling_price_kes']};
+   final bm={for(final x in List<Map<String,dynamic>>.from(bp)) x['listing_id'].toString():x['buying_price_kes']};
+   final o=await db.from('marketplace_listing_offers').select('id,listing_id,buyer_customer_id,quantity,offer_price_kes,message,status,director_counter_price_kes,created_at,listing:marketplace_listings!marketplace_listing_offers_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
+   if(mounted)setState((){
+    listings=List<Map<String,dynamic>>.from(l).map((x)=>{...x,'selling_price_kes':sm[x['id'].toString()],'buying_price_kes':bm[x['id'].toString()]}).toList();
+    offers=List<Map<String,dynamic>>.from(o);error=null;
+   });
+  }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
+  if(mounted)setState(()=>busy=false);
+ }
+ Future<void> editPrices(Map<String,dynamic> item)async{
+  final selling=TextEditingController(text:item['selling_price_kes']?.toString()??'');
+  final buying=TextEditingController(text:item['buying_price_kes']?.toString()??'');
+  final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:Text('Set prices • '+item['product_name'].toString()),content:Column(mainAxisSize:MainAxisSize.min,children:[
+   TextField(controller:selling,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Public selling price per unit (KES)')),
+   TextField(controller:buying,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Confidential buying price per unit (KES)')),
+   const SizedBox(height:8),const Text('Buyers see only the selling price. Only this seller and Directors can see the buying price.',style:TextStyle(color:Colors.black54))
+  ]),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Save prices'))]));
+  if(ok==true){try{
+   final sp=double.tryParse(selling.text.trim()),bp=double.tryParse(buying.text.trim());
+   if(sp==null||sp<=0||bp==null||bp<=0)throw const FormatException('Enter both prices greater than zero.');
+   final db=Supabase.instance.client,now=DateTime.now().toUtc().toIso8601String(),uid=db.auth.currentUser!.id,id=item['id'];
+   await db.from('marketplace_listing_selling_prices').upsert({'listing_id':id,'selling_price_kes':sp,'updated_by':uid,'updated_at':now});
+   await db.from('marketplace_listing_buying_prices').upsert({'listing_id':id,'buying_price_kes':bp,'updated_by':uid,'updated_at':now});
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Marketplace prices saved.')));await load();
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  selling.dispose();buying.dispose();
+ }
+ Future<void> reviewOffer(Map<String,dynamic> offer,String action)async{
+  double? counter;
+  if(action=='counter'){
+   final c=TextEditingController();
+   final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:const Text('Counter offer'),content:TextField(controller:c,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Counter price per unit (KES)')),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send counter'))]));
+   if(ok!=true){c.dispose();return;}counter=double.tryParse(c.text.trim());c.dispose();if(counter==null||counter!<=0){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid counter price.')));return;}
+  }
+  try{
+   final now=DateTime.now().toUtc().toIso8601String();
+   final values=<String,dynamic>{'status':action=='accept'?'accepted':action=='reject'?'rejected':'countered','reviewed_by':Supabase.instance.client.auth.currentUser!.id,'reviewed_at':now,'updated_at':now};
+   if(counter!=null)values['director_counter_price_kes']=counter;
+   await Supabase.instance.client.from('marketplace_listing_offers').update(values).eq('id',offer['id']);await load();
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+ }
+ @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+  const Text('Marketplace pricing & offers',style:TextStyle(fontSize:23,fontWeight:FontWeight.bold)),
+  const Text('Director controls both prices. Buyers see the public selling price; each seller sees only their own confidential buying price.'),
+  if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
+  const SizedBox(height:12),Text('Seller listings ('+listings.length.toString()+')',style:const TextStyle(fontSize:19,fontWeight:FontWeight.bold)),
+  if(!busy&&listings.isEmpty)const Text('No seller listings are available.'),
+  ...listings.map((r)=>Card(child:ListTile(leading:const Icon(Icons.inventory_2_outlined),title:Text(r['product_name'].toString()),subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • '+r['location'].toString()+' • '+r['status'].toString()+'\nPublic: '+(r['selling_price_kes']??'Not set').toString()+' • Buying: '+(r['buying_price_kes']??'Not set').toString()),isThreeLine:true,trailing:IconButton(tooltip:'Set prices',icon:const Icon(Icons.edit),onPressed:()=>editPrices(r))))),
+  const SizedBox(height:16),Text('Buyer offers ('+offers.length.toString()+')',style:const TextStyle(fontSize:19,fontWeight:FontWeight.bold)),
+  if(!busy&&offers.isEmpty)const Text('No buyer offers yet.'),
+  ...offers.map((o){final l=(o['listing'] as Map?)?.cast<String,dynamic>()??{};final pending=o['status']=='pending';return Card(child:ListTile(leading:const Icon(Icons.local_offer_outlined),title:Text((l['product_name']??'Listing').toString()),subtitle:Text(o['quantity'].toString()+' '+(l['unit']??'').toString()+' • Offer KES '+o['offer_price_kes'].toString()+' per unit • '+o['status'].toString()+(o['message']==null?'':'\n'+o['message'].toString())),isThreeLine:true,trailing:pending?PopupMenuButton<String>(onSelected:(v)=>reviewOffer(o,v),itemBuilder:(_)=>const [PopupMenuItem(value:'accept',child:Text('Accept offer')),PopupMenuItem(value:'reject',child:Text('Reject offer')),PopupMenuItem(value:'counter',child:Text('Counter offer'))]):null));})
+ ]));
+}
+
+class BranchKgPricingPage extends StatefulWidget {
+ const BranchKgPricingPage({super.key});
+ @override State<BranchKgPricingPage> createState()=>_BranchKgPricingPageState();
+}
+class _BranchKgPricingPageState extends State<BranchKgPricingPage>{
+ bool busy=true;String? error;List<Map<String,dynamic>> branches=[],products=[],prices=[];
+ @override void initState(){super.initState();load();}
+ Future<void> load()async{
+  setState(()=>busy=true);
+  try{
+   final db=Supabase.instance.client;
+   final a=await db.from('branches').select('id,name').eq('is_active',true).order('name');
+   final p=await db.from('products').select('id,name,product_variants(id,variant_name,base_unit)').eq('is_active',true).order('name');
+   final v=await db.from('branch_product_selling_prices').select('branch_id,product_variant_id,selling_price_per_kg');
+   if(mounted)setState(()=>{branches=List<Map<String,dynamic>>.from(a),products=List<Map<String,dynamic>>.from(p),prices=List<Map<String,dynamic>>.from(v),error=null});
+  }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
+  if(mounted)setState(()=>busy=false);
+ }
+ Future<void> edit(Map<String,dynamic> b,Map<String,dynamic> p,Map<String,dynamic> v)async{
+  final matches=prices.where((x)=>x['branch_id']==b['id']&&x['product_variant_id']==v['id']).toList();
+  final c=TextEditingController(text:matches.isEmpty?'':matches.first['selling_price_per_kg'].toString());
+  final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:Text('Price • '+p['name'].toString()+' '+v['variant_name'].toString()),content:TextField(controller:c,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Selling price per kg (KES)')),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Save'))]));
+  if(ok==true){try{final value=double.tryParse(c.text.trim());if(value==null||value<=0)throw const FormatException('Enter a price greater than zero.');final db=Supabase.instance.client;await db.from('branch_product_selling_prices').upsert({'branch_id':b['id'],'product_variant_id':v['id'],'selling_price_per_kg':value,'updated_by':db.auth.currentUser!.id,'updated_at':DateTime.now().toUtc().toIso8601String()},onConflict:'branch_id,product_variant_id');await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  c.dispose();
+ }
+ @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+  const Text('Branch selling prices',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
+  const Text('Set a separate customer selling price per kilogram for each product at each branch.'),
+  if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
+  ...branches.map((b)=>ExpansionTile(title:Text(b['name'].toString()),children:[
+   ...products.expand((p)=>List<Map<String,dynamic>>.from(p['product_variants']??[]).map((v){
+    final found=prices.where((x)=>x['branch_id']==b['id']&&x['product_variant_id']==v['id']).toList(),value=found.isEmpty?null:found.first['selling_price_per_kg'];
+    return ListTile(title:Text(p['name'].toString()+' • '+v['variant_name'].toString()),subtitle:Text(value==null?'Price not set':'KES '+value.toString()+' / kg'),trailing:IconButton(icon:const Icon(Icons.edit),onPressed:()=>edit(b,p,v)));
+   }))
+  ]))
+ ]));
 }

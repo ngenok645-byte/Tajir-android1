@@ -13,7 +13,7 @@ name: Build TAJIR Android APK
       - main
 
 concurrency:
-  group: tajir-android-${{ github.ref }}
+  group: tajir-android-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -95,12 +95,16 @@ jobs:
                       break
           if end is None:
               raise SystemExit("Could not parse pluginManagement repositories block")
-          block = source[start:end + 1]
-          additions = [item for item in ("google()", "mavenCentral()", "gradlePluginPortal()") if item not in block]
-          if additions:
-              source = source[:start + 1] + "\n        " + "\n        ".join(additions) + source[start + 1:]
-              path.write_text(source)
-          print("Android plugin repositories verified.")
+          # Prefer Maven Central for Kotlin artifacts; Gradle keeps transitive
+          # dependencies tied to the repository that supplied their POM.
+          repositories = """{
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }"""
+          source = source[:start] + repositories + source[end + 1:]
+          path.write_text(source)
+          print("Android plugin repositories ordered: Google, Maven Central, Gradle Plugin Portal.")
           PY
 
       - name: Install TAJIR update-link platform channel
@@ -250,6 +254,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish versioned update release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
