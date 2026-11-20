@@ -886,7 +886,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
       leading:const CircleAvatar(child:Icon(Icons.inventory_2_outlined)),
       title:Text(title),
       subtitle:Text('Available: '+quantity+' '+(r['unit']??'').toString()+' • Branch: '+(r['branch_name']??'').toString()),
-      trailing:const Text('In stock',style:TextStyle(color:brandGreen,fontWeight:FontWeight.w600))
+      trailing:Text((double.tryParse(quantity)??0)>0?'In stock':'Out of stock',style:TextStyle(color:(double.tryParse(quantity)??0)>0?brandGreen:Colors.black54,fontWeight:FontWeight.w600))
      ));
     }
     if(widget.mode=='requests'){
