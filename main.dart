@@ -2322,7 +2322,14 @@ class _PurchasePageState extends State<PurchasePage> {
       DropdownButtonFormField<String>(
         value: product,
         items: const ['Maize', 'Beans', 'Fertilizer']
-            .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+            .map((x) => DropdownMenuItem(
+              value: x,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(productIcon(x), color: brandGreen, size: 22),
+                const SizedBox(width: 10),
+                Text(x),
+              ]),
+            ))
             .toList(),
         onChanged: (v) {
           if (v == null) return;
@@ -2336,7 +2343,11 @@ class _PurchasePageState extends State<PurchasePage> {
         value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
         items: variants.map((v) => DropdownMenuItem<String>(
           value: v['id'] as String,
-          child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(productIcon('$product ${v['variant_name']}'), color: brandGreen, size: 21),
+            const SizedBox(width: 8),
+            Flexible(child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}')),
+          ]),
         )).toList(),
         onChanged: (v) => setState(() => selectedVariantId = v),
         decoration: InputDecoration(
@@ -2596,7 +2607,14 @@ class _SalePageState extends State<SalePage> {
       DropdownButtonFormField<String>(
         value: product,
         items: const ['Maize', 'Beans', 'Fertilizer']
-            .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+            .map((x) => DropdownMenuItem(
+              value: x,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(productIcon(x), color: brandGreen, size: 22),
+                const SizedBox(width: 10),
+                Text(x),
+              ]),
+            ))
             .toList(),
         onChanged: (v) {
           if (v == null) return;
@@ -2610,7 +2628,11 @@ class _SalePageState extends State<SalePage> {
         value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
         items: variants.map((v) => DropdownMenuItem<String>(
           value: v['id'] as String,
-          child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(productIcon('$product ${v['variant_name']}'), color: brandGreen, size: 21),
+            const SizedBox(width: 8),
+            Flexible(child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}')),
+          ]),
         )).toList(),
         onChanged: (v) => setState(() => selectedVariantId = v),
         decoration: InputDecoration(
@@ -2780,10 +2802,19 @@ class _StockPageState extends State<StockPage>{
             final id=item['purchase_item_id']?.toString()??'';
             final qty=(item['quantity'] as num?)?.toDouble()??0;
             return Padding(padding:const EdgeInsets.symmetric(vertical:6),child:Row(children:[
-              Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+              Expanded(child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[
+                CircleAvatar(
+                  radius:19,
+                  backgroundColor:brandGreen.withOpacity(.10),
+                  child:Icon(productIcon((item['product_name']??item['name']??item['product']??'Product').toString()),color:brandGreen,size:21),
+                ),
+                const SizedBox(width:10),
+                Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+                Text((item['product_name']??item['name']??item['product']??'Stock item').toString(),style:const TextStyle(fontWeight:FontWeight.w600)),
                 Text('Received: ${qty.toStringAsFixed(2)} ${item['unit']??''}'),
                 Text('Item ID: ${id.length>8?id.substring(0,8):id}',style:const TextStyle(fontSize:11,color:Colors.black54)),
-              ])),
+                ])),
+              ]),
               SizedBox(width:118,child:TextField(
                 controller:acceptedControllers[id],
                 keyboardType:const TextInputType.numberWithOptions(decimal:true),
@@ -2803,7 +2834,10 @@ class _StockPageState extends State<StockPage>{
       const Text('Available stock',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
       if(products.isEmpty&&!loading)const Card(child:Padding(padding:EdgeInsets.all(14),child:Text('No approved stock balances yet.'))),
       ...products.map((p)=>Card(child:ListTile(
-        leading:const Icon(Icons.inventory_2,color:brandGreen),
+        leading:CircleAvatar(
+          backgroundColor:brandGreen.withOpacity(.10),
+          child:Icon(productIcon((p['product_name']??p['name']??'Product').toString()),color:brandGreen),
+        ),
         title:Text('${p['product_name']??p['name']??'Product'}'),
         subtitle:Text('Branch: ${p['branch_name']??'Ntulele'}'),
         trailing:Text('${p['quantity_available']??''} ${p['unit']??''}'),
