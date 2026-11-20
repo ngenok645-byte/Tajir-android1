@@ -5,3 +5,12 @@ verify_jwt = false
 
 [functions.tajir-provider-review]
 verify_jwt = true
+
+[functions.tajir-phone-verification]
+verify_jwt = false
+
+[functions.tajir-customer-register]
+verify_jwt = false
+
+[functions.tajir-director-setup]
+verify_jwt = false
