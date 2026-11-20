@@ -1347,6 +1347,63 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           child: Align(alignment: Alignment.centerRight, child: actions)),
       ])));
 
+  Future<void> addSparePart() async {
+    if (profile == null || profile!['status'] != 'approved') {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your spare-parts shop must be approved before adding stock.')));
+      return;
+    }
+    final name = TextEditingController();
+    final reference = TextEditingController();
+    final description = TextEditingController();
+    final quantity = TextEditingController();
+    final unit = TextEditingController(text: 'pieces');
+    final price = TextEditingController();
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Add spare part to inventory'),
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: name, decoration: const InputDecoration(labelText: 'Part name')),
+            TextField(controller: reference, decoration: const InputDecoration(labelText: 'Part reference / SKU')),
+            TextField(controller: description, decoration: const InputDecoration(labelText: 'Description')),
+            TextField(controller: quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Quantity')),
+            TextField(controller: unit, decoration: const InputDecoration(labelText: 'Unit (pieces, litres, etc.)')),
+            TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Selling price (KES)')),
+          ])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save stock')),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      final qty = double.tryParse(quantity.text.trim());
+      final amount = double.tryParse(price.text.trim());
+      if (name.text.trim().length < 2 || qty == null || qty < 0 || amount == null || amount < 0 || unit.text.trim().isEmpty) {
+        throw const FormatException('Enter a part name, valid quantity, unit and non-negative selling price.');
+      }
+      setState(() => busy = true);
+      await db.from('auto_spares_inventory').insert({
+        'shop_id': profile!['id'],
+        'part_name': name.text.trim(),
+        'part_reference': reference.text.trim().isEmpty ? null : reference.text.trim(),
+        'description': description.text.trim().isEmpty ? null : description.text.trim(),
+        'quantity': qty,
+        'unit': unit.text.trim(),
+        'price_kes': amount,
+        'status': qty > 0 ? 'active' : 'out_of_stock',
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Spare part added to inventory.')));
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    } finally {
+      name.dispose(); reference.dispose(); description.dispose(); quantity.dispose(); unit.dispose(); price.dispose();
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Future<void> updateMechanicJobStatus(Map<String,dynamic> row, String nextStatus) async {
     if (busy) return;
     setState(() => busy = true);
@@ -1451,6 +1508,11 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         break;
       case 'auto_spares_owner':
         out.add(sectionTitle('Spare-parts inventory', primary.length));
+        out.add(Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
+          onPressed: busy || profile == null || profile!['status'] != 'approved' ? null : addSparePart,
+          icon: const Icon(Icons.add_box_outlined),
+          label: const Text('Add spare part'),
+        )));
         if (primary.isEmpty) out.add(const Text('No spare parts have been added to your shop yet.'));
         for (final r in primary) {
           out.add(recordCard('${r['part_name'] ?? 'Spare part'}',
