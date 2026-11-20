@@ -56,8 +56,7 @@ begin
 end; $$;
 
 revoke all on function private.tajir_directory_search(text) from public, anon;
-grant usage on schema private to authenticated;
-grant execute on function private.tajir_directory_search(text) to authenticated;
+revoke all on function private.tajir_directory_search(text) from public, anon, authenticated;
 
 create or replace function public.tajir_directory_search(p_query text)
 returns table (account_id uuid, tajir_id text, display_name text, account_type text, account_status text, phone_masked text)
