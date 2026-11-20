@@ -1052,18 +1052,109 @@ class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPag
  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[const Text('Tractor booking history',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(!busy&&rows.isEmpty)const Text('No bookings yet.'),...rows.map((r)=>Card(child:ListTile(leading:Icon(tractorServiceIcon(r['service_type'].toString()),color:brandGreen,size:30),title:Text(r['service_type'].toString()+' • '+r['job_number'].toString()),subtitle:Text(r['service_location'].toString()+' • '+r['status'].toString()),trailing:Text('KES '+r['total_charge'].toString()))))]));
 }
 
-class AccountRouter extends StatelessWidget {
+class AccountRouter extends StatefulWidget {
   const AccountRouter({super.key});
-  @override Widget build(BuildContext context) => FutureBuilder<dynamic>(
-    future: Supabase.instance.client.rpc('get_my_account_status'),
+  @override State<AccountRouter> createState() => _AccountRouterState();
+}
+
+class _AccountRouterState extends State<AccountRouter> {
+  late Future<dynamic> _accountStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAccountStatus();
+  }
+
+  void _loadAccountStatus() {
+    _accountStatus = Supabase.instance.client.rpc('get_my_account_status');
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<dynamic>(
+    future: _accountStatus,
     builder: (context, snapshot) {
-      if (snapshot.connectionState != ConnectionState.done) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      if (snapshot.hasError) return const HomeShell();
-      final rows = List<Map<String,dynamic>>.from(snapshot.data ?? const []);
-      if (rows.isNotEmpty && rows.first['is_customer'] == true) {
-        return const CustomerPortalPage();
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
       }
-      return const HomeShell();
+
+      // Never send an account to the staff/Director workspace when its role
+      // check failed. That would turn a backend outage into an access fallback.
+      if (snapshot.hasError) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('TAJIR account check')),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock_outline, size: 52, color: brandGreen),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'We could not verify your account access.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Your account has not been opened. Check your internet connection and try again. If this continues, contact the TAJIR Director.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: () => setState(_loadAccountStatus),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Try again'),
+                  ),
+                  TextButton(
+                    onPressed: () => Supabase.instance.client.auth.signOut(),
+                    child: const Text('Sign out'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
+
+      try {
+        final rows = List<Map<String, dynamic>>.from(snapshot.data ?? const []);
+        if (rows.isNotEmpty && rows.first['is_customer'] == true) {
+          return const CustomerPortalPage();
+        }
+        return const HomeShell();
+      } catch (_) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('TAJIR account check')),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock_outline, size: 52, color: brandGreen),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Your account information could not be read safely.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: () => setState(_loadAccountStatus),
+                    child: const Text('Try again'),
+                  ),
+                  TextButton(
+                    onPressed: () => Supabase.instance.client.auth.signOut(),
+                    child: const Text('Sign out'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
     },
   );
 }
