@@ -1251,7 +1251,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           .eq('profile_id', uid).maybeSingle();
         if (profileRow != null) {
           final rows = await db.from('tractor_repair_jobs')
-            .select('job_number,issue_description,location,status,requested_at,estimated_cost_kes')
+            .select('id,job_number,issue_description,location,status,requested_at,estimated_cost_kes')
             .eq('mechanic_id', profileRow['id']).order('requested_at', ascending: false);
           next = List<Map<String, dynamic>>.from(rows);
         }
@@ -1298,6 +1298,23 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
       if (mounted) setState(() { records = next; busy = false; });
     } catch (e) {
       if (mounted) setState(() { error = friendlyError(e); busy = false; });
+    }
+  }
+
+  Future<void> _updateMechanicJob(Map<String, dynamic> row, String nextStatus) async {
+    try {
+      await Supabase.instance.client.rpc('update_my_mechanic_job_status', params: {
+        'p_job_id': row['id'],
+        'p_status': nextStatus,
+      });
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Repair job updated to ${nextStatus.replaceAll('_', ' ')}.')),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
     }
   }
 
@@ -1395,7 +1412,24 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
                       const PopupMenuItem(value: 'submitted', child: Text('Submit completed task')),
                   ],
                 )
-              : null,
+              : widget.role == 'mechanic' && row['id'] != null
+                  ? PopupMenuButton<String>(
+                      tooltip: 'Update repair job',
+                      onSelected: (value) => _updateMechanicJob(row, value),
+                      itemBuilder: (_) => [
+                        if (row['status'] == 'requested')
+                          const PopupMenuItem(value: 'accepted', child: Text('Accept job')),
+                        if (row['status'] == 'accepted')
+                          const PopupMenuItem(value: 'in_progress', child: Text('Start repair')),
+                        if (row['status'] == 'in_progress') ...[
+                          const PopupMenuItem(value: 'waiting_parts', child: Text('Waiting for parts')),
+                          const PopupMenuItem(value: 'completed', child: Text('Mark completed')),
+                        ],
+                        if (row['status'] == 'waiting_parts')
+                          const PopupMenuItem(value: 'in_progress', child: Text('Resume repair')),
+                      ],
+                    )
+                  : null,
           ),
         )),
         const SizedBox(height: 18),
