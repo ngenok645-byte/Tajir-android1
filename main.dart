@@ -625,9 +625,9 @@ class CustomerPortalPage extends StatefulWidget {
  @override State<CustomerPortalPage> createState()=>_CustomerPortalPageState();
 }
 class _CustomerPortalPageState extends State<CustomerPortalPage>{
- Map<String,dynamic>? c;bool busy=true;String? error;
+ Map<String,dynamic>? c;bool busy=true;bool showRepairsAndSpares=false;String? error;
  @override void initState(){super.initState();load();}
- Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',db.auth.currentUser!.id).maybeSingle();if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');if(mounted)setState(()=>c=Map<String,dynamic>.from(r));}catch(e){if(mounted)setState(()=>error=friendlyError(e));}if(mounted)setState(()=>busy=false);}
+ Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;final userId=db.auth.currentUser!.id;final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',userId).maybeSingle();if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');final roles=await db.from('user_role_assignments').select('app_roles(code)').eq('user_id',userId).eq('is_active',true);final roleCodes=roles.map((x)=>(x['app_roles'] is Map?(x['app_roles'] as Map)['code']:'').toString().toLowerCase()).toSet();final owner=await db.from('tractor_owner_profiles').select('id').eq('profile_id',userId).maybeSingle();final permitted=roleCodes.contains('director')||roleCodes.contains('admin')||roleCodes.contains('driver')||owner!=null;if(mounted)setState(()=>{c=Map<String,dynamic>.from(r),showRepairsAndSpares=permitted});}catch(e){if(mounted)setState(()=>error=friendlyError(e));}if(mounted)setState(()=>busy=false);}
  @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;
  final tabs=<Widget>[
   const Tab(icon:Icon(Icons.shopping_basket_outlined),text:'Buy'),
@@ -636,14 +636,14 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
   const Tab(icon:Icon(Icons.agriculture),text:'Tractor'),
   const Tab(icon:Icon(Icons.calendar_month_outlined),text:'Bookings'),
   const Tab(icon:Icon(Icons.location_on_outlined),text:'Branch'),
-  const Tab(icon:Icon(Icons.build_circle_outlined),text:'Repairs & Spares'),
+  if(showRepairsAndSpares) const Tab(icon:Icon(Icons.build_circle_outlined),text:'Repairs & Spares'),
  ];
  final pages=<Widget>[
   CustomerMarketPage(customer:c!,mode:'buy',fertilizerOnly:!buy),
   sell?CustomerMarketPage(customer:c!,mode:'sell'):const CustomerLockedPage(title:'Sell products',message:'The Director has not enabled selling on your account yet.',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined),
   CustomerMarketPage(customer:c!,mode:'requests'),
   CustomerTractorPage(),CustomerTractorBookingsPage(),const BranchRequestPanel(),
-  RepairMarketplacePage(),
+  if(showRepairsAndSpares) const RepairMarketplacePage(),
  ];
  const tractorTabIndex=3;
  return DefaultTabController(length:tabs.length,child:Builder(builder:(tabContext)=>Scaffold(
