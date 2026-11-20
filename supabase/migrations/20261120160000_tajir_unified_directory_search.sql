@@ -44,13 +44,13 @@ begin
     where c.permanently_deleted_at is null or c.id is null
   )
   select d.id,
-    'TJ-' || upper(trim(both '-' from left(regexp_replace(trim(d.nm),'[^A-Za-z0-9]+','-','g'),18))) || '-' || upper(substr(replace(d.id::text,'-',''),1,8)),
+    'TJ-' || upper(trim(both '-' from regexp_replace(trim(d.nm),'[^A-Za-z0-9]+','-','g'))) || '-' || upper(substr(replace(d.id::text,'-',''),1,8)),
     d.nm,coalesce(nullif(d.typ,''),'Registered account'),d.stat,
     case when v_director then coalesce(d.ph,'Not provided')
          when d.ph is null then 'Not provided'
          else '••••••' || right(regexp_replace(d.ph,'[^0-9]','','g'),3) end
   from directory_rows d
-  where regexp_replace(upper('TJ-' || trim(both '-' from left(regexp_replace(trim(d.nm),'[^A-Za-z0-9]+','-','g'),18)) || '-' || substr(replace(d.id::text,'-',''),1,8)),'[^A-Za-z0-9]','','g') = v_q
+  where regexp_replace(upper('TJ-' || trim(both '-' from regexp_replace(trim(d.nm),'[^A-Za-z0-9]+','-','g')) || '-' || substr(replace(d.id::text,'-',''),1,8)),'[^A-Za-z0-9]','','g') = v_q
      or (v_digits<>'' and regexp_replace(coalesce(d.ph,''),'[^0-9]','','g') like '%'||v_digits)
   order by d.nm limit 50;
 end; $$;
