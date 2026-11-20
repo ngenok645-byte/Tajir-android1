@@ -2676,7 +2676,7 @@ class _DirectorPricingPageState extends State<DirectorPricingPage> with SingleTi
     if(saving)return;
     final value=double.tryParse(branchPrice.text.trim());
     if(selectedBranchId==null||selectedVariantId==null||value==null||value<=0){setState(()=>error='Select a branch and product variant, then enter a price greater than zero.');return;}
-    setState(()=>{saving=true,error=null});
+    setState(() { saving = true; error = null; });
     try{
       await db.from('branch_product_selling_prices').upsert({'branch_id':selectedBranchId,'product_variant_id':selectedVariantId,'selling_price_per_kg':value,'updated_by':db.auth.currentUser!.id},onConflict:'branch_id,product_variant_id');
       if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Branch selling price saved.')));
@@ -2688,7 +2688,7 @@ class _DirectorPricingPageState extends State<DirectorPricingPage> with SingleTi
     if(saving)return;
     final buying=double.tryParse(listingBuyingPrice.text.trim()), selling=double.tryParse(listingSellingPrice.text.trim());
     if(selectedListingId==null||buying==null||selling==null||buying<=0||selling<=0){setState(()=>error='Select a listing and enter both prices greater than zero.');return;}
-    setState(()=>{saving=true,error=null});
+    setState(() { saving = true; error = null; });
     try{
       await db.rpc('director_set_marketplace_listing_prices',params:{'p_listing_id':selectedListingId,'p_buying_price_kes':buying,'p_selling_price_kes':selling});
       if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Marketplace buying and selling prices saved.')));
@@ -2706,9 +2706,9 @@ class _DirectorPricingPageState extends State<DirectorPricingPage> with SingleTi
       const Text('Branch customer prices',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
       const Text('Set the public selling price in KES per kilogram. The app calculates the equivalent bag price using that variant’s configured bag weight.'),
       const SizedBox(height:14),
-      DropdownButtonFormField<String>(value:selectedBranchId,decoration:const InputDecoration(labelText:'Branch',border:OutlineInputBorder()),items:branches.map((b)=>DropdownMenuItem(value:b['id'].toString(),child:Text(b['name'].toString()))).toList(),onChanged:saving?null:(v)=>setState(()=>{selectedBranchId=v,_syncBranchPrice()})),
+      DropdownButtonFormField<String>(value:selectedBranchId,decoration:const InputDecoration(labelText:'Branch',border:OutlineInputBorder()),items:branches.map((b)=>DropdownMenuItem(value:b['id'].toString(),child:Text(b['name'].toString()))).toList(),onChanged:saving?null:(v)=>setState(() { selectedBranchId = v; _syncBranchPrice(); })),
       const SizedBox(height:12),
-      DropdownButtonFormField<String>(value:selectedVariantId,decoration:const InputDecoration(labelText:'Product variant',border:OutlineInputBorder()),items:variants.map((v){final p=(v['products'] as Map?)?.cast<String,dynamic>()??{};final label='${p['name']??'Product'} • ${v['variant_name']}';return DropdownMenuItem(value:v['id'].toString(),child:Text(label));}).toList(),onChanged:saving?null:(v)=>setState(()=>{selectedVariantId=v,_syncBranchPrice()})),
+      DropdownButtonFormField<String>(value:selectedVariantId,decoration:const InputDecoration(labelText:'Product variant',border:OutlineInputBorder()),items:variants.map((v){final p=(v['products'] as Map?)?.cast<String,dynamic>()??{};final label='${p['name']??'Product'} • ${v['variant_name']}';return DropdownMenuItem(value:v['id'].toString(),child:Text(label));}).toList(),onChanged:saving?null:(v)=>setState(() { selectedVariantId = v; _syncBranchPrice(); })),
       if(product.isNotEmpty)Padding(padding:const EdgeInsets.only(top:8),child:Text('Product: ${product['name']}')),
       if(weight!=null&&weight>0)Padding(padding:const EdgeInsets.symmetric(vertical:10),child:Text('Configured bag weight: ${weight.toStringAsFixed(2)} kg')),
       const SizedBox(height:8),
@@ -2725,7 +2725,7 @@ class _DirectorPricingPageState extends State<DirectorPricingPage> with SingleTi
       const Text('Marketplace listing prices',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
       const Text('The buying price is private to the seller and Director. The selling price is shown to Buyers. Both are set by the Director.'),
       const SizedBox(height:14),
-      DropdownButtonFormField<String>(value:selectedListingId,decoration:const InputDecoration(labelText:'Seller listing',border:OutlineInputBorder()),items:listings.map((l)=>DropdownMenuItem(value:l['id'].toString(),child:Text('${l['product_name']} • ${l['quantity']} ${l['unit']}'))).toList(),onChanged:saving?null:(v)=>setState(()=>{selectedListingId=v,_syncListingPrices()})),
+      DropdownButtonFormField<String>(value:selectedListingId,decoration:const InputDecoration(labelText:'Seller listing',border:OutlineInputBorder()),items:listings.map((l)=>DropdownMenuItem(value:l['id'].toString(),child:Text('${l['product_name']} • ${l['quantity']} ${l['unit']}'))).toList(),onChanged:saving?null:(v)=>setState(() { selectedListingId = v; _syncListingPrices(); })),
       if(selected!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text('Location: ${selected['location']} • Status: ${selected['status']}')),
       const SizedBox(height:8),
       TextField(controller:listingBuyingPrice,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Buying price per listing unit (KES)',border:OutlineInputBorder())),
