@@ -250,6 +250,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish versioned update release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
