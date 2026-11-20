@@ -471,52 +471,73 @@ class AuthChoicePage extends StatelessWidget {
     required String title, required String subtitle, required String button,
     required VoidCallback onPressed}) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Icon(icon, size: 42, color: brandGreen),
-          const SizedBox(height: 8),
-          Text(title, textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 6),
-          Text(subtitle, textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 13, color: Colors.black54)),
-          const SizedBox(height: 12),
-          FilledButton(onPressed: onPressed, child: Text(button)),
-        ]),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        leading: CircleAvatar(backgroundColor: brandGreen.withOpacity(.10),
+          child: Icon(icon, color: brandGreen)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text(subtitle)),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onPressed,
       ),
     );
+  }
+
+  void _openLogin(BuildContext context, String role) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => LoginPage(accountType: role)));
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(child: Center(child: SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 460),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
+      padding: const EdgeInsets.all(18),
+      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 480),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const BrandMark(),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           const Text('Welcome to TAJIR',
+            textAlign: TextAlign.center,
             style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold)),
           const SizedBox(height: 6),
-          const Text('Sign in or create your account.',
+          const Text('Choose the account type you use. TAJIR will verify your registered role before opening your dashboard.',
             textAlign: TextAlign.center),
-          const SizedBox(height: 18),
+          const SizedBox(height: 20),
+          const Text('TEAM & SERVICE PROVIDERS',
+            style: TextStyle(fontWeight: FontWeight.bold, color: brandGreen)),
+          const SizedBox(height: 6),
           _choice(context, icon: Icons.admin_panel_settings_outlined,
-            title: 'STAFF',
-            subtitle: 'Director and authorised staff accounts.',
-            button: 'Staff sign in',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const LoginPage()))),
-          const SizedBox(height: 10),
+            title: 'Director / Branch Manager / Accountant / Worker',
+            subtitle: 'Sign in to your authorised TAJIR team account.',
+            button: 'Sign in', onPressed: () => _openLogin(context, 'Team account')),
           _choice(context, icon: Icons.agriculture,
-            title: 'CLIENTS & FARM SERVICES',
-            subtitle: 'Buyers, sellers, farmers, tractor owners, drivers and other service users.',
-            button: 'Client sign in / register',
-            onPressed: () => Navigator.of(context).push(
+            title: 'Tractor owner',
+            subtitle: 'Manage tractors, bookings, repair requests and owner services.',
+            button: 'Sign in', onPressed: () => _openLogin(context, 'Tractor owner')),
+          _choice(context, icon: Icons.local_shipping_outlined,
+            title: 'Tractor driver',
+            subtitle: 'View assigned jobs and update job progress.',
+            button: 'Sign in', onPressed: () => _openLogin(context, 'Tractor driver')),
+          _choice(context, icon: Icons.build_circle_outlined,
+            title: 'Mechanic',
+            subtitle: 'Manage repair assignments and parts requests.',
+            button: 'Sign in', onPressed: () => _openLogin(context, 'Mechanic')),
+          _choice(context, icon: Icons.handyman_outlined,
+            title: 'Auto-spares provider',
+            subtitle: 'Manage shop inventory and incoming parts requests.',
+            button: 'Sign in', onPressed: () => _openLogin(context, 'Auto-spares provider')),
+          const SizedBox(height: 14),
+          const Divider(),
+          const Text('CUSTOMERS & TRADERS',
+            style: TextStyle(fontWeight: FontWeight.bold, color: brandGreen)),
+          const SizedBox(height: 6),
+          _choice(context, icon: Icons.storefront_outlined,
+            title: 'Farmer / Buyer / Seller / Customer',
+            subtitle: 'Create a customer account or sign in to trade and access farm services.',
+            button: 'Continue', onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const CustomerAuthPage()))),
           const SizedBox(height: 8),
-          const Text('New to TAJIR? Choose Client to create an account. Staff accounts are created by the Director.',
+          const Text('New customer? Choose the customer option to register. Team and service-provider accounts must be created or authorised by a Director. Choosing a role here does not grant permissions; TAJIR checks the role assigned to your account.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: Colors.black54)),
         ]),
@@ -705,7 +726,7 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const BrandMark(),
             const SizedBox(height: 24),
-            Text(setupDirector ? 'Set up Director access' : 'Staff sign in',
+            Text(setupDirector ? 'Set up Director access' : '${widget.accountType} sign in',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 18),
             TextField(controller: phone, keyboardType: TextInputType.phone,
@@ -721,7 +742,7 @@ class _LoginPageState extends State<LoginPage> {
               const SizedBox(height: 6),
               Text(setupDirector
                 ? 'One-time setup is only for a pre-approved Director. Workers must ask a Director to create their staff account.'
-                : 'Enter the phone number and PIN you used when your staff account was set up.',
+                : 'Enter the phone number and PIN registered to your account. TAJIR checks your assigned role and opens the correct dashboard automatically.',
                 textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
             if (error != null) Padding(padding: const EdgeInsets.only(top: 12),
               child: Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
