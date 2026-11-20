@@ -625,11 +625,10 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
     try {
       final db = Supabase.instance.client;
       final normalized = normalizeKenyanPhone(phone.text);
-      if (createAccount && !RegExp(r'^\d{4}$').hasMatch(pin.text)) {
-        throw const FormatException('New customer PIN must contain exactly four digits.');
-      }
-      if (!createAccount && !RegExp(r'^\d{4}$').hasMatch(pin.text)) {
-        throw const FormatException('Enter your four-digit PIN.');
+      final customerPin = pin.text.trim();
+      final confirmationPin = confirmPin.text.trim();
+      if (!RegExp(r'^[0-9]{4}$').hasMatch(customerPin)) {
+        throw const FormatException('Enter all four PIN digits (numbers only).');
       }
       if (createAccount) {
         if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
@@ -644,30 +643,26 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
           throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'Customer registration failed.') : 'Customer registration failed.');
         }
         await signInCustomerWithPin(db, normalized, customerPin);
-        if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AuthGate()),
-          (route) => false,
-        );
       } else {
-        await signInCustomerWithPin(db, normalized, pin.text);
+        await signInCustomerWithPin(db, normalized, customerPin);
         final result = await db.rpc('get_my_account_status');
         final rows = List<Map<String,dynamic>>.from(result);
         if (rows.isEmpty || rows.first['is_customer'] != true) {
           throw const FormatException('No customer account is linked to this phone number. Please register first.');
         }
-        if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AuthGate()),
-          (route) => false,
-        );
       }
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
     } on AuthException catch (e) {
       if (mounted) setState(() => message = friendlyError(e));
     } catch (e) {
       if (mounted) setState(() => message = friendlyError(e).replaceFirst('FormatException: ', ''));
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
-    if (mounted) setState(() => busy = false);
   }
 
   @override Widget build(BuildContext context) => Scaffold(
@@ -705,7 +700,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             TextField(controller: pin, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], obscureText: true, maxLength: 4,
               decoration: InputDecoration(labelText: createAccount ? 'Four-digit PIN' : 'PIN', border: const OutlineInputBorder(), counterText: '')),
             if (createAccount) const SizedBox(height: 12),
-            if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+            if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], obscureText: true, maxLength: 4,
               decoration: const InputDecoration(labelText: 'Confirm four-digit PIN', border: OutlineInputBorder(), counterText: '')),
             if (message != null) Padding(padding: const EdgeInsets.only(top: 12),
               child: Text(message!, style: const TextStyle(color: Colors.red))),
