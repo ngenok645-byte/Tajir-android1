@@ -2554,9 +2554,9 @@ class _HomeShellState extends State<HomeShell> {
 
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const DirectorProductPricesPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Product Prices'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -2572,6 +2572,7 @@ class _HomeShellState extends State<HomeShell> {
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
+      if (director) ListTile(leading: const Icon(Icons.price_change), title: const Text('Product Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       const SizedBox(height: 8),
     ])));
   }
@@ -2608,7 +2609,8 @@ class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenItems;
   final VoidCallback? onOpenFinancial;
   final VoidCallback? onOpenStaff;
-  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff});
+  final VoidCallback? onOpenPrices;
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -2696,6 +2698,16 @@ class _DashboardPageState extends State<DashboardPage> {
     if(director) ...[
       const SizedBox(height: 8),
       Card(child: ListTile(
+        leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.price_change, color: brandGreen)),
+        title: const Text('Official product prices', style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('Set independent BUY and SELL prices for each product and branch'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: widget.onOpenPrices,
+      )),
+    ],
+    if(director) ...[
+      const SizedBox(height: 8),
+      Card(child: ListTile(
         leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.manage_accounts, color: brandGreen)),
         title: const Text('Staff & Accounts', style: TextStyle(fontWeight: FontWeight.bold)),
         subtitle: const Text('Read-only directory of registered staff and assigned roles'),
@@ -2744,6 +2756,57 @@ class _DashboardPageState extends State<DashboardPage> {
       ])),
     ),
   ]));
+}
+
+
+class DirectorProductPricesPage extends StatefulWidget {
+ const DirectorProductPricesPage({super.key});
+ @override State<DirectorProductPricesPage> createState()=>_DirectorProductPricesPageState();
+}
+class _DirectorProductPricesPageState extends State<DirectorProductPricesPage>{
+ bool loading=true,saving=false;String message='';List<Map<String,dynamic>> branches=[],variants=[];String? branchId,variantId;
+ final buy=TextEditingController(),sell=TextEditingController();
+ @override void initState(){super.initState();load();}
+ @override void dispose(){buy.dispose();sell.dispose();super.dispose();}
+ Future<void> load()async{
+  setState(()=>loading=true);
+  try{final db=Supabase.instance.client;
+   branches=List<Map<String,dynamic>>.from(await db.from('branches').select('id,name').eq('is_active',true).order('name'));
+   variants=List<Map<String,dynamic>>.from(await db.from('product_variants').select('id,variant_name,products(name)').eq('is_active',true).order('variant_name'));
+   branchId??=branches.isEmpty?null:branches.first['id'].toString();variantId??=variants.isEmpty?null:variants.first['id'].toString();await loadSelected();
+  }catch(e){message='Could not load product prices: '+friendlyError(e);}
+  if(mounted)setState(()=>loading=false);
+ }
+ Future<void> loadSelected()async{
+  buy.clear();sell.clear();if(branchId==null||variantId==null)return;
+  try{final row=await Supabase.instance.client.from('branch_product_selling_prices').select('selling_price_per_kg,buying_price_per_kg').eq('branch_id',branchId!).eq('product_variant_id',variantId!).maybeSingle();
+   if(row!=null){buy.text=(row['selling_price_per_kg']??'').toString();sell.text=(row['buying_price_per_kg']??'').toString();}
+  }catch(e){message='Could not load selected prices: '+friendlyError(e);}if(mounted)setState((){});
+ }
+ Future<void> save()async{
+  final b=double.tryParse(buy.text.trim()),v=double.tryParse(sell.text.trim());
+  if(branchId==null||variantId==null||b==null||v==null||b<0||v<0){setState(()=>message='Enter both prices as valid non-negative KES per KG values.');return;}
+  setState(()=>saving=true);
+  try{await Supabase.instance.client.from('branch_product_selling_prices').upsert({'branch_id':branchId,'product_variant_id':variantId,'selling_price_per_kg':b,'buying_price_per_kg':v,'updated_by':Supabase.instance.client.auth.currentUser!.id},onConflict:'branch_id,product_variant_id');
+   setState(()=>message='Official prices saved. BUY and SELL remain independent.');
+  }catch(e){setState(()=>message='Could not save prices: '+friendlyError(e));}if(mounted)setState(()=>saving=false);
+ }
+ @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(18),children:[
+  const Text('Official customer prices',style:TextStyle(fontSize:23,fontWeight:FontWeight.bold)),
+  const Text('Director-only • Set separate prices per branch and product variant. All prices are KES per KG.'),
+  if(loading)const LinearProgressIndicator(),
+  DropdownButtonFormField<String>(value:branches.any((x)=>x['id']==branchId)?branchId:null,decoration:const InputDecoration(labelText:'Branch'),items:branches.map((x)=>DropdownMenuItem(value:x['id'].toString(),child:Text(x['name'].toString()))).toList(),onChanged:(v)async{branchId=v;await loadSelected();}),
+  const SizedBox(height:10),
+  DropdownButtonFormField<String>(value:variants.any((x)=>x['id']==variantId)?variantId:null,decoration:const InputDecoration(labelText:'Product / variant'),items:variants.map((x){final p=(x['products'] as Map?)?.cast<String,dynamic>()??{};return DropdownMenuItem(value:x['id'].toString(),child:Text('${p['name']??'Product'} • ${x['variant_name']}'));}).toList(),onChanged:(v)async{variantId=v;await loadSelected();}),
+  const SizedBox(height:12),
+  TextField(controller:buy,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'BUY price — customer pays TAJIR (KES per KG)',prefixText:'KES ',border:OutlineInputBorder())),
+  const SizedBox(height:12),
+  TextField(controller:sell,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'SELL price — TAJIR pays customer (KES per KG)',prefixText:'KES ',border:OutlineInputBorder())),
+  const SizedBox(height:8),
+  const Text('1 bag = 90 KG. The app calculates bag prices and totals automatically. Changing one price never changes the other.',style:TextStyle(color:Colors.black54)),
+  const SizedBox(height:16),FilledButton.icon(onPressed:saving||loading?null:save,icon:const Icon(Icons.save),label:Text(saving?'Saving…':'Save official prices')),
+  if(message.isNotEmpty)Padding(padding:const EdgeInsets.only(top:12),child:Text(message)),
+ ]));
 }
 
 class StaffAccountsPage extends StatefulWidget {
