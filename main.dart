@@ -2778,15 +2778,15 @@ class _HomeShellState extends State<HomeShell> {
 
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const DirectorPricingPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Client Pricing'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
       final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
-      if (mounted) setState(() { director = allowed; if (!allowed && index == 6) index = 0; });
+      if (mounted) setState(() { director = allowed; if (!allowed && index >= 6) index = 0; });
     } catch (_) { if (mounted) setState(() => director = false); }
   }
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
@@ -2796,6 +2796,7 @@ class _HomeShellState extends State<HomeShell> {
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
+      if (director) ListTile(leading: const Icon(Icons.price_change), title: const Text('Client Pricing'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       const SizedBox(height: 8),
     ])));
   }
