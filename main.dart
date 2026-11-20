@@ -2311,8 +2311,8 @@ class _HomeShellState extends State<HomeShell> {
   int index = 0;
   bool director = false;
   List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Provider Applications'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.verified_user];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -2327,7 +2327,7 @@ class _HomeShellState extends State<HomeShell> {
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
-      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
+      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),\n      if (director) ListTile(leading: const Icon(Icons.verified_user), title: const Text('Provider Applications'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       const SizedBox(height: 8),
     ])));
   }
@@ -2358,6 +2358,108 @@ class _HomeShellState extends State<HomeShell> {
 }
 
 void _noDashboardAction() {}
+
+class ProviderApplicationsPage extends StatefulWidget {
+  const ProviderApplicationsPage({super.key});
+  @override State<ProviderApplicationsPage> createState() => _ProviderApplicationsPageState();
+}
+
+class _ProviderApplicationsPageState extends State<ProviderApplicationsPage> {
+  final db = Supabase.instance.client;
+  bool loading = true, saving = false;
+  String? error;
+  List<Map<String, dynamic>> applications = [];
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = null; });
+    try {
+      final results = await Future.wait([
+        db.from('tractor_owner_profiles').select('id,profile_id,full_name,phone,company_name,status,created_at').inFilter('status', ['pending','rejected']).order('created_at', ascending: false),
+        db.from('mechanic_profiles').select('id,profile_id,business_name,phone,location,services,status,created_at').inFilter('status', ['pending','rejected']).order('created_at', ascending: false),
+        db.from('auto_spares_profiles').select('id,profile_id,shop_name,phone,location,status,created_at').inFilter('status', ['pending','rejected']).order('created_at', ascending: false),
+      ]);
+      final rows = <Map<String, dynamic>>[];
+      for (final r in results[0]) {
+        rows.add({...Map<String,dynamic>.from(r), '_table':'tractor_owner_profiles', '_role':'tractor_owner', '_title':'Tractor owner', '_name':r['company_name'] ?? r['full_name']});
+      }
+      for (final r in results[1]) {
+        rows.add({...Map<String,dynamic>.from(r), '_table':'mechanic_profiles', '_role':'mechanic', '_title':'Mechanic', '_name':r['business_name']});
+      }
+      for (final r in results[2]) {
+        rows.add({...Map<String,dynamic>.from(r), '_table':'auto_spares_profiles', '_role':'auto_spares_owner', '_title':'Auto-spares shop', '_name':r['shop_name']});
+      }
+      rows.sort((a,b) => (b['created_at'] as String).compareTo(a['created_at'] as String));
+      applications = rows;
+    } catch (e) {
+      error = 'Could not load provider applications: ${friendlyError(e)}';
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> review(Map<String,dynamic> row, String decision) async {
+    if (saving) return;
+    setState(() => saving = true);
+    try {
+      final userId = row['profile_id'].toString();
+      final roleCode = row['_role'].toString();
+      final role = await db.from('app_roles').select('id').eq('code', roleCode).single();
+      if (decision == 'approved') {
+        // Activate the assigned role first. The provider status gate keeps the
+        // account out of its workspace until the approval status is committed.
+        await db.from('user_role_assignments').update({'is_active': true})
+          .eq('user_id', userId).eq('role_id', role['id']);
+      } else {
+        await db.from('user_role_assignments').update({'is_active': false})
+          .eq('user_id', userId).eq('role_id', role['id']);
+      }
+      await db.from(row['_table'].toString()).update({'status': decision})
+        .eq('id', row['id']);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(decision == 'approved' ? 'Provider approved. Their role is now active.' : 'Application rejected. The provider role remains disabled.')));
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Review failed: ${friendlyError(e)}')));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: load,
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      const Text('Provider applications', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 6),
+      const Text('Review identity and service details before enabling provider access. Approval activates the assigned role; rejection keeps it disabled.'),
+      if (loading) const LinearProgressIndicator(),
+      if (error != null) Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text(error!, style: const TextStyle(color: Colors.red))),
+      if (!loading && applications.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 24), child: Text('There are no pending or rejected provider applications.')),
+      ...applications.map((row) => Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.verified_user_outlined, color: brandGreen),
+          const SizedBox(width: 8),
+          Expanded(child: Text(row['_title'].toString(), style: const TextStyle(fontWeight: FontWeight.bold))),
+          Chip(label: Text(row['status'].toString().toUpperCase())),
+        ]),
+        Text(row['_name'].toString(), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+        Text('Contact: ${row['phone'] ?? 'Not provided'}'),
+        if ((row['location'] ?? '').toString().isNotEmpty) Text('Location: ${row['location']}'),
+        if ((row['services'] as List?)?.isNotEmpty == true) Text('Services: ${(row['services'] as List).join(', ')}'),
+        if (row['_role'] == 'tractor_owner' && (row['full_name'] ?? '').toString().isNotEmpty) Text('Applicant: ${row['full_name']}'),
+        const SizedBox(height: 8),
+        Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+          TextButton(onPressed: saving ? null : () => review(row, 'rejected'), child: const Text('Reject')),
+          const SizedBox(width: 8),
+          FilledButton.icon(onPressed: saving ? null : () => review(row, 'approved'), icon: const Icon(Icons.check), label: const Text('Approve')),
+        ]),
+      ])))),
+    ]),
+  );
+}
 
 class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenTractor;
