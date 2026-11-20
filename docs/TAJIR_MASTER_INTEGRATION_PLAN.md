@@ -215,3 +215,14 @@ TAJIR is one connected platform with role-specific workspaces. A dashboard is a 
 - RLS and server-side order RPC/Edge Function validation must prevent customers and non-director roles from writing official price fields or bypassing the approved price. Hiding a UI control is not security.
 
 Acceptance scenarios: (1) Director sets maize prices per KG and per configured bag; client selects either unit and sees the correct total. (2) Product-specific bag weight and fractional quantity rules are respected. (3) A director price change applies to new orders while accepted order snapshots remain unchanged. (4) A tampered client-supplied price/total is rejected or ignored and the server calculates the authoritative total. (5) Non-directors cannot edit official prices. (6) Missing/inactive/stale pricing blocks submission. (7) Client, server order, director dashboard and receipt totals agree.
+
+
+## Consistent National ID identity details
+
+- Every TAJIR account must use the same two identity fields: **National ID number** and **full name exactly as printed on the National ID**. Keep the account/display name as a separate field; do not assume it is the ID name.
+- Apply the same identity capture and display rules to customer, director, branch manager, accountant, worker, tractor owner, driver, mechanic and auto-spares accounts.
+- Store the full ID number and ID name encrypted in the private schema. Keep a keyed HMAC for duplicate detection; never expose plaintext through normal profile queries or public directory views.
+- An authenticated user may register/view their own identity. Only an authorised Director may view another account's identity. No ordinary staff role may view another user's ID.
+- A National ID number must be unique across the legacy customer identity store and the new all-role identity store. Existing customers must re-enter the full ID name exactly as printed; do not silently substitute their account name.
+- Corrections to a verified ID number must go through an authorised support/director correction workflow with an audit trail; ordinary users may not replace a different ID number.
+- The app must not claim government verification. It records user-submitted identity details unless a separate approved verification provider is integrated.
