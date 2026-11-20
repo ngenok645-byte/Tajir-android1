@@ -1067,7 +1067,7 @@ class _AccountRouterState extends State<AccountRouter> {
   }
 
   void _loadAccountStatus() {
-    _accountStatus = Supabase.instance.client.rpc('get_my_account_status');
+    _accountStatus = Supabase.instance.client.rpc('get_my_account_access');
   }
 
   @override
@@ -1120,10 +1120,39 @@ class _AccountRouterState extends State<AccountRouter> {
 
       try {
         final rows = List<Map<String, dynamic>>.from(snapshot.data ?? const []);
-        if (rows.isNotEmpty && rows.first['is_customer'] == true) {
+        if (rows.isEmpty) return const CustomerPendingPage();
+        final access = rows.first;
+        final profileStatus = (access['profile_status'] ?? '').toString();
+        if (profileStatus != 'active') return const CustomerPendingPage();
+        final roles = List<String>.from(access['role_codes'] ?? const []);
+        if (roles.contains('director') || roles.contains('accountant') ||
+            roles.contains('branch_manager') || roles.contains('supplier')) {
+          return const HomeShell();
+        }
+        final tractorStatus = access['tractor_owner_status']?.toString();
+        if (tractorStatus != null) {
+          if (tractorStatus != 'approved') return const CustomerPendingPage();
+          return const RoleWorkspacePage(role: 'tractor_owner');
+        }
+        if (access['is_driver'] == true) {
+          return const RoleWorkspacePage(role: 'driver');
+        }
+        final mechanicStatus = access['mechanic_status']?.toString();
+        if (mechanicStatus != null) {
+          if (mechanicStatus != 'approved') return const CustomerPendingPage();
+          return const RoleWorkspacePage(role: 'mechanic');
+        }
+        final sparesStatus = access['auto_spares_status']?.toString();
+        if (sparesStatus != null) {
+          if (sparesStatus != 'approved') return const CustomerPendingPage();
+          return const RoleWorkspacePage(role: 'auto_spares');
+        }
+        if (roles.contains('worker')) return const RoleWorkspacePage(role: 'worker');
+        if (access['is_customer'] == true) {
+          if (access['customer_active'] != true) return const CustomerPendingPage();
           return const CustomerPortalPage();
         }
-        return const HomeShell();
+        return const CustomerPendingPage();
       } catch (_) {
         return Scaffold(
           appBar: AppBar(title: const Text('TAJIR account check')),
@@ -1156,6 +1185,189 @@ class _AccountRouterState extends State<AccountRouter> {
         );
       }
     },
+  );
+}
+
+class RoleWorkspacePage extends StatefulWidget {
+  final String role;
+  const RoleWorkspacePage({super.key, required this.role});
+  @override State<RoleWorkspacePage> createState() => _RoleWorkspacePageState();
+}
+
+class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
+  bool busy = true;
+  String? error;
+  List<Map<String, dynamic>> records = [];
+  String displayName = 'TAJIR account';
+
+  String get heading => switch (widget.role) {
+    'worker' => 'Worker workspace',
+    'tractor_owner' => 'Tractor owner workspace',
+    'driver' => 'Driver workspace',
+    'mechanic' => 'Mechanic workspace',
+    'auto_spares' => 'Auto-spares workspace',
+    _ => 'TAJIR workspace',
+  };
+
+  IconData get roleIcon => switch (widget.role) {
+    'worker' => Icons.badge_outlined,
+    'tractor_owner' => Icons.agriculture,
+    'driver' => Icons.local_shipping_outlined,
+    'mechanic' => Icons.build_circle_outlined,
+    'auto_spares' => Icons.storefront_outlined,
+    _ => Icons.dashboard,
+  };
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    if (mounted) setState(() { busy = true; error = null; });
+    try {
+      final db = Supabase.instance.client;
+      final uid = db.auth.currentUser?.id;
+      if (uid == null) throw const FormatException('Your session has ended. Please sign in again.');
+      final profile = await db.from('profiles').select('display_name').eq('id', uid).maybeSingle();
+      displayName = (profile?['display_name'] ?? 'TAJIR account').toString();
+      List<Map<String, dynamic>> next = [];
+
+      if (widget.role == 'worker') {
+        final rows = await db.from('staff_tasks')
+          .select('task_number,title,description,due_at,status,completed_at')
+          .eq('assigned_to', uid).order('created_at', ascending: false);
+        next = List<Map<String, dynamic>>.from(rows);
+      } else if (widget.role == 'mechanic') {
+        final profileRow = await db.from('mechanic_profiles').select('id')
+          .eq('profile_id', uid).maybeSingle();
+        if (profileRow != null) {
+          final rows = await db.from('tractor_repair_jobs')
+            .select('job_number,issue_description,location,status,requested_at,estimated_cost_kes')
+            .eq('mechanic_id', profileRow['id']).order('requested_at', ascending: false);
+          next = List<Map<String, dynamic>>.from(rows);
+        }
+      } else if (widget.role == 'auto_spares') {
+        final profileRow = await db.from('auto_spares_profiles').select('id')
+          .eq('profile_id', uid).maybeSingle();
+        if (profileRow != null) {
+          final rows = await db.from('auto_spares_inventory')
+            .select('part_name,part_reference,quantity,unit,price_kes,status')
+            .eq('shop_id', profileRow['id']).order('part_name');
+          next = List<Map<String, dynamic>>.from(rows);
+        }
+      } else if (widget.role == 'tractor_owner') {
+        final owner = await db.from('tractor_owner_profiles').select('id')
+          .eq('profile_id', uid).maybeSingle();
+        if (owner != null) {
+          final rows = await db.from('tractor_owner_assets')
+            .select('id,tractor_id,verification_status')
+            .eq('owner_id', owner['id']).order('created_at', ascending: false);
+          next = List<Map<String, dynamic>>.from(rows);
+        }
+      } else if (widget.role == 'driver') {
+        final vehicles = await db.from('vehicles')
+          .select('registration_number,make,model,active,branch_id')
+          .eq('driver_id', uid).order('registration_number');
+        next.addAll(List<Map<String, dynamic>>.from(vehicles).map((v) => {
+          'record_type': 'Assigned vehicle',
+          'title': v['registration_number'] ?? 'Vehicle',
+          'details': '${v['make'] ?? ''} ${v['model'] ?? ''}'.trim(),
+          'status': v['active'] == true ? 'Active' : 'Inactive',
+        }));
+        final jobs = await db.from('tractor_service_jobs')
+          .select('job_number,service_type,service_location,status,booked_for,completed_at')
+          .eq('operator_id', uid).order('created_at', ascending: false);
+        next.addAll(List<Map<String, dynamic>>.from(jobs).map((j) => {
+          'record_type': 'Assigned job',
+          'title': '${j['job_number'] ?? 'Job'} • ${j['service_type'] ?? 'Tractor service'}',
+          'details': j['service_location'] ?? 'Location not provided',
+          'status': j['status'] ?? 'Assigned',
+          'booked_for': j['booked_for'],
+        }));
+      }
+
+      if (mounted) setState(() { records = next; busy = false; });
+    } catch (e) {
+      if (mounted) setState(() { error = friendlyError(e); busy = false; });
+    }
+  }
+
+  String _title(Map<String, dynamic> row) {
+    for (final key in ['title','task_number','job_number','part_name','registration_number','tractor_id']) {
+      final value = row[key];
+      if (value != null && value.toString().trim().isNotEmpty) return value.toString();
+    }
+    return row['record_type']?.toString() ?? 'Account record';
+  }
+
+  String _subtitle(Map<String, dynamic> row) {
+    final values = <String>[];
+    for (final key in ['description','issue_description','location','service_location','details','verification_status','status','quantity','unit','price_kes','estimated_cost_kes','due_at','booked_for']) {
+      final value = row[key];
+      if (value != null && value.toString().trim().isNotEmpty) values.add('${key.replaceAll('_', ' ')}: $value');
+    }
+    return values.isEmpty ? 'No additional details' : values.join(' • ');
+  }
+
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(heading),
+      actions: [
+        IconButton(tooltip: 'Refresh', onPressed: load, icon: const Icon(Icons.refresh)),
+        IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)),
+        IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(),
+          icon: const Icon(Icons.logout)),
+      ],
+    ),
+    body: RefreshIndicator(onRefresh: load, child: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [Color(0xFF0E5630), Color(0xFF269653)]),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(children: [
+            CircleAvatar(radius: 27, backgroundColor: Colors.white24,
+              child: Icon(roleIcon, color: Colors.white, size: 30)),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('WELCOME, ${displayName.toUpperCase()}',
+                style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              Text(heading, style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.bold)),
+              const Text('Your account and assigned records', style: TextStyle(color: Colors.white70)),
+            ])),
+          ]),
+        ),
+        const SizedBox(height: 18),
+        Row(children: [
+          Expanded(child: Text('My ${widget.role == 'auto_spares' ? 'inventory' : widget.role == 'mechanic' ? 'repair jobs' : widget.role == 'worker' ? 'assigned tasks' : widget.role == 'driver' ? 'assignments' : 'tractors'}',
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold))),
+          Text('${records.length} records', style: const TextStyle(color: Colors.black54)),
+        ]),
+        if (busy) const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
+        if (error != null) Padding(padding: const EdgeInsets.all(12), child: Text(error!, style: const TextStyle(color: Colors.red))),
+        if (!busy && error == null && records.isEmpty)
+          const Padding(padding: EdgeInsets.all(22), child: Text('No records have been assigned or recorded yet. Pull down to refresh.')),
+        ...records.map((row) => Card(
+          child: ListTile(
+            leading: CircleAvatar(backgroundColor: brandGreen.withOpacity(.1),
+              child: Icon(roleIcon, color: brandGreen)),
+            title: Text(_title(row)),
+            subtitle: Text(_subtitle(row), maxLines: 3, overflow: TextOverflow.ellipsis),
+            isThreeLine: true,
+          ),
+        )),
+        const SizedBox(height: 18),
+        Card(
+          color: brandGreen.withOpacity(.07),
+          child: const Padding(padding: EdgeInsets.all(16), child: Text(
+            'Your workspace only displays records linked to your signed-in account. Contact the TAJIR Director if your assignments or business records are missing.',
+          )),
+        ),
+      ],
+    )),
   );
 }
 
