@@ -1071,11 +1071,10 @@ class AccountRouter extends StatelessWidget {
       'mechanic': 'Mechanic',
       'auto_spares_owner': 'Auto-spares Owner',
     };
-    final matchedServiceRole = serviceRoles.entries
-        .where((entry) => roleCodes.contains(entry.key))
-        .firstOrNull;
-    if (matchedServiceRole != null) {
-      return RoleWorkspacePage(roleCode: matchedServiceRole.key, roleName: matchedServiceRole.value);
+    for (final entry in serviceRoles.entries) {
+      if (roleCodes.contains(entry.key)) {
+        return RoleWorkspacePage(roleCode: entry.key, roleName: entry.value);
+      }
     }
     if (roleCodes.any(staffRoles.contains)) return const HomeShell();
     return const AccountAccessIssuePage();
