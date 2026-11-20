@@ -864,7 +864,18 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
     ]..sort((a,b)=>DateTime.parse(b['created_at'].toString()).compareTo(DateTime.parse(a['created_at'].toString())));
    }
-   if(mounted)setState(()=>{rows=List<Map<String,dynamic>>.from(r),error=null});
+   if(mounted){
+    var loaded=List<Map<String,dynamic>>.from(r);
+    if(widget.mode=='buy'){
+     final unique=<String,Map<String,dynamic>>{};
+     for(final item in loaded){
+      final key=(item['product_variant_id']??'').toString();
+      if(key.isNotEmpty)unique.putIfAbsent(key,()=>item);
+     }
+     loaded=unique.values.toList()..sort((x,y)=>(x['product_name']??'').toString().compareTo((y['product_name']??'').toString()));
+    }
+    setState(()=>{rows=loaded,error=null});
+   }
   }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
   if(mounted)setState(()=>busy=false);
  }
