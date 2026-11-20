@@ -43,6 +43,40 @@ Future<void> openTajirUpdate(String url) async {
   await tajirUpdateChannel.invokeMethod<void>('openUrl', {'url': url});
 }
 
+Future<void> callTajirPhone(String phone) async {
+  final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+  if (digits.replaceAll(RegExp(r'[^0-9]'), '').length < 9) {
+    throw const FormatException('This contact does not have a valid phone number.');
+  }
+  await tajirUpdateChannel.invokeMethod<void>('callPhone', {'phone': digits});
+}
+
+class TajirCallButton extends StatelessWidget {
+  final String phone;
+  final String label;
+  final bool compact;
+  const TajirCallButton({super.key, required this.phone, this.label = 'Call', this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: phone.trim().isEmpty ? null : () async {
+        try {
+          await callTajirPhone(phone);
+        } catch (e) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(friendlyError(e))),
+            );
+          }
+        }
+      },
+      icon: const Icon(Icons.call),
+      label: Text(label),
+    );
+  }
+}
+
  
 /// Turns technical backend/network failures into clear messages for everyday users.
 /// Never display raw HTTP/database error codes in the app.
@@ -2333,6 +2367,8 @@ class _CustomersPageState extends State<CustomersPage> {
         title:Text(customer['full_name']?.toString()??'Customer'),
         content:SizedBox(width:480,child:SingleChildScrollView(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Text('Phone: ${customer['phone']??'—'}'),
+          const SizedBox(height: 8),
+          TajirCallButton(phone: customer['phone']?.toString() ?? '', label: 'Call customer'),
           Text('Email: ${customer['email']??'—'}'),
           Text('Customer type: ${customer['customer_type']??'—'}'),
           Text('Account status: ${customer['active']==true?'Active':'Inactive'}'),
