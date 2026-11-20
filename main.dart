@@ -1246,6 +1246,9 @@ class CustomerMarketPage extends StatefulWidget{
 }
 class _CustomerMarketPageState extends State<CustomerMarketPage>{
  List<Map<String,dynamic>> rows=[];bool busy=true;String? error;
+ final Map<String,double> cartKg={};
+ final Map<String,TextEditingController> kgControllers={};
+ double get cartTotal=>rows.fold(0.0,(sum,r){if(r['_is_marketplace_listing']==true)return sum;final id=(r['product_variant_id']??'').toString();final q=cartKg[id]??0;final p=double.tryParse((r['selling_price_per_kg']??0).toString())??0;return sum+q*p;});
  @override void initState(){super.initState();load();}
  Future<void> load()async{
   if(mounted)setState(()=>busy=true);
@@ -1254,11 +1257,16 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    dynamic r;
    if(widget.mode=='buy'){
     final tajir=await db.rpc('customer_list_tajir_products');
+    final priceRows=await db.from('branch_product_selling_prices').select('branch_id,product_variant_id,selling_price_per_kg');
+    final kgPrices={for(final p in List<Map<String,dynamic>>.from(priceRows)) p['branch_id'].toString()+':'+p['product_variant_id'].toString():p['selling_price_per_kg']};
+    final weightRows=await db.from('product_variants').select('id,bag_weight_kg');
+    final weights={for(final p in List<Map<String,dynamic>>.from(weightRows)) p['id'].toString():p['bag_weight_kg']};
+    final pricedTajir=List<Map<String,dynamic>>.from(tajir).map((x){final unit=(x['unit']??'kg').toString().toLowerCase();final w=double.tryParse((weights[x['product_variant_id'].toString()]??0).toString())??0;final stock=double.tryParse((x['quantity_available']??0).toString())??0;return {...x,'selling_price_per_kg':kgPrices[x['branch_id'].toString()+':'+x['product_variant_id'].toString()],'available_kg':unit=='kg'?stock:stock*w};}).toList();
     final marketplace=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status').eq('status','active').order('created_at',ascending:false);
     final priceRows=await db.from('marketplace_listing_selling_prices').select('listing_id,selling_price_kes');
     final prices={for(final p in List<Map<String,dynamic>>.from(priceRows)) p['listing_id'].toString():p['selling_price_kes']};
     final marketItems=List<Map<String,dynamic>>.from(marketplace).map((x)=>{...x,'_is_marketplace_listing':true,'selling_price_kes':prices[x['id'].toString()]}).toList();
-    r=[...List<Map<String,dynamic>>.from(tajir),...marketItems];
+    r=[...pricedTajir,...marketItems];
    }else if(widget.mode=='sell'){
     final listings=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
     final selling=await db.from('marketplace_listing_selling_prices').select('listing_id,selling_price_kes');
@@ -1284,36 +1292,25 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
   if(mounted)setState(()=>busy=false);
  }
- Future<void> requestTajirProduct(Map<String,dynamic> item)async{
-  final quantity=TextEditingController(text:'1');
-  final note=TextEditingController();
-  final variant=(item['variant_name']??'').toString();
-  final product=(item['product_name']??'Product').toString();
-  final title=variant.isNotEmpty&&variant.toLowerCase()!=product.toLowerCase()?product+' • '+variant:product;
-  final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
-   title:Text('Select $title'),
-   content:Column(mainAxisSize:MainAxisSize.min,children:[
-    TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity you need')),
-    const SizedBox(height:8),
-    TextField(controller:note,maxLines:2,decoration:const InputDecoration(labelText:'Note (optional)')),
-   ]),
-   actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send request'))],
-  ));
-  if(ok==true){
-   try{
-    final amount=double.tryParse(quantity.text.trim());
-    if(amount==null||amount<=0)throw const FormatException('Enter a quantity greater than zero.');
-    await Supabase.instance.client.from('customer_product_requests').insert({
-     'customer_id':widget.customer['id'],
-     'product_id':item['product_id'],
-     'product_variant_id':item['product_variant_id'],
-     'quantity_requested':amount,
-     'note':note.text.trim().isEmpty?null:note.text.trim(),
-    });
-    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your product request has been sent. TAJIR will confirm availability.')));
-   }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
-  }
-  quantity.dispose();note.dispose();
+ void setKgQuantity(Map<String,dynamic> item,String value){
+  final id=item['product_variant_id'].toString(),q=double.tryParse(value.trim())??0;
+  setState(()=>{if(q<=0)cartKg.remove(id) else cartKg[id]=q});
+ }
+ Future<void> submitTajirCart()async{
+  final selected=rows.where((r)=>r['_is_marketplace_listing']!=true&&(cartKg[(r['product_variant_id']??'').toString()]??0)>0).toList();
+  if(selected.isEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a quantity in kg for at least one product.')));return;}
+  try{
+   final db=Supabase.instance.client;
+   for(final item in selected){
+    final qty=cartKg[item['product_variant_id'].toString()]!,stock=(item['available_kg'] as num?)?.toDouble()??0;
+    if(qty>stock)throw FormatException('Requested '+item['product_name'].toString()+' quantity exceeds available stock.');
+    if(item['selling_price_per_kg']==null)throw FormatException('Selling price per kg is not set for '+item['product_name'].toString()+'.');
+   }
+   for(final item in selected){await db.from('customer_product_requests').insert({'customer_id':widget.customer['id'],'branch_id':item['branch_id'],'product_id':item['product_id'],'product_variant_id':item['product_variant_id'],'quantity_requested':cartKg[item['product_variant_id'].toString()],'note':'Cart order; quantity in kg'});}
+   final total=cartTotal;
+   if(mounted){setState(()=>cartKg.clear());for(final c in kgControllers.values){c.clear();}ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Order submitted. Total: KES '+total.toStringAsFixed(2))));}
+   await load();
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
  }
  Future<void> createListing()async{
   final p=TextEditingController(),q=TextEditingController(),u=TextEditingController(text:'bag'),l=TextEditingController(),d=TextEditingController();
@@ -1362,21 +1359,24 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    if(busy)const LinearProgressIndicator(),
    if(error!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(error!,style:const TextStyle(color:Colors.red))),
    if(!busy&&rows.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(widget.mode=='buy'?'No TAJIR stock is currently available. Please check again or contact your branch.':'No marketplace records yet.')),
+   if(widget.mode=='buy')Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[const Text('Your order',style:TextStyle(fontWeight:FontWeight.bold,fontSize:17)),Text('Selected products: '+cartKg.values.where((v)=>v>0).length.toString()),Text('Overall total: KES '+cartTotal.toStringAsFixed(2),style:const TextStyle(fontWeight:FontWeight.bold,fontSize:18)),FilledButton.icon(onPressed:cartKg.values.any((v)=>v>0)?submitTajirCart:null,icon:const Icon(Icons.shopping_cart_checkout),label:const Text('Submit order'))]))),
    ...rows.map((r){
     if(widget.mode=='buy'&&r['_is_marketplace_listing']==true){
      final price=r['selling_price_kes'];
      return Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.storefront_outlined)),title:Text(r['product_name'].toString()),subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • '+(price==null?'Price awaiting Director':'KES '+price.toString())+' • '+r['location'].toString()),trailing:FilledButton.tonal(onPressed:price==null?null:()=>submitMarketplaceOffer(r),child:const Text('Make offer'))));
     }
     if(widget.mode=='buy'){
-     final variant=(r['variant_name']??'').toString();
-     final product=(r['product_name']??'Product').toString();
+     final variant=(r['variant_name']??'').toString(),product=(r['product_name']??'Product').toString();
      final title=variant.isNotEmpty&&variant.toLowerCase()!=product.toLowerCase()?product+' • '+variant:product;
-     return Card(child:ListTile(
-      leading:const CircleAvatar(child:Icon(Icons.inventory_2_outlined)),
-      title:Text(title),
-      subtitle:Text('Choose this product to send a request'),
-      trailing:FilledButton.tonal(onPressed:()=>requestTajirProduct(r),child:const Text('Select'))
-     ));
+     final id=r['product_variant_id'].toString(),price=r['selling_price_per_kg'];
+     final controller=kgControllers.putIfAbsent(id,()=>TextEditingController());
+     final qty=cartKg[id]??0,unitPrice=double.tryParse((price??0).toString())??0;
+     return Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      Text(title,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:16)),
+      Text('Available: '+(r['available_kg']??0).toString()+' kg'),
+      Text(price==null?'Selling price not set':'KES '+unitPrice.toStringAsFixed(2)+' / kg',style:const TextStyle(fontWeight:FontWeight.w600)),
+      Row(children:[SizedBox(width:125,child:TextField(controller:controller,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity (kg)'),onChanged:(v)=>setKgQuantity(r,v))),const Spacer(),Text('Amount: KES '+(qty*unitPrice).toStringAsFixed(2),style:const TextStyle(fontWeight:FontWeight.bold))])
+     ])));
     }
     if(widget.mode=='requests'){
      if(r['_is_tajir_request']==true){
@@ -2101,9 +2101,9 @@ class _HomeShellState extends State<HomeShell> {
 
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenMarketplace: () => selectPage(8)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Marketplace Pricing'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenMarketplace: () => selectPage(8)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage(), if (director) const BranchKgPricingPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Marketplace Pricing', if (director) 'Branch Prices (KES/kg)'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change, if (director) Icons.scale];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -4696,5 +4696,43 @@ class _MarketplacePricingPageState extends State<MarketplacePricingPage> {
   const SizedBox(height:16),Text('Buyer offers ('+offers.length.toString()+')',style:const TextStyle(fontSize:19,fontWeight:FontWeight.bold)),
   if(!busy&&offers.isEmpty)const Text('No buyer offers yet.'),
   ...offers.map((o){final l=(o['listing'] as Map?)?.cast<String,dynamic>()??{};final pending=o['status']=='pending';return Card(child:ListTile(leading:const Icon(Icons.local_offer_outlined),title:Text((l['product_name']??'Listing').toString()),subtitle:Text(o['quantity'].toString()+' '+(l['unit']??'').toString()+' • Offer KES '+o['offer_price_kes'].toString()+' per unit • '+o['status'].toString()+(o['message']==null?'':'\n'+o['message'].toString())),isThreeLine:true,trailing:pending?PopupMenuButton<String>(onSelected:(v)=>reviewOffer(o,v),itemBuilder:(_)=>const [PopupMenuItem(value:'accept',child:Text('Accept offer')),PopupMenuItem(value:'reject',child:Text('Reject offer')),PopupMenuItem(value:'counter',child:Text('Counter offer'))]):null));})
+ ]));
+}
+
+class BranchKgPricingPage extends StatefulWidget {
+ const BranchKgPricingPage({super.key});
+ @override State<BranchKgPricingPage> createState()=>_BranchKgPricingPageState();
+}
+class _BranchKgPricingPageState extends State<BranchKgPricingPage>{
+ bool busy=true;String? error;List<Map<String,dynamic>> branches=[],products=[],prices=[];
+ @override void initState(){super.initState();load();}
+ Future<void> load()async{
+  setState(()=>busy=true);
+  try{
+   final db=Supabase.instance.client;
+   final a=await db.from('branches').select('id,name').eq('is_active',true).order('name');
+   final p=await db.from('products').select('id,name,product_variants(id,variant_name,base_unit)').eq('is_active',true).order('name');
+   final v=await db.from('branch_product_selling_prices').select('branch_id,product_variant_id,selling_price_per_kg');
+   if(mounted)setState(()=>{branches=List<Map<String,dynamic>>.from(a),products=List<Map<String,dynamic>>.from(p),prices=List<Map<String,dynamic>>.from(v),error=null});
+  }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
+  if(mounted)setState(()=>busy=false);
+ }
+ Future<void> edit(Map<String,dynamic> b,Map<String,dynamic> p,Map<String,dynamic> v)async{
+  final matches=prices.where((x)=>x['branch_id']==b['id']&&x['product_variant_id']==v['id']).toList();
+  final c=TextEditingController(text:matches.isEmpty?'':matches.first['selling_price_per_kg'].toString());
+  final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:Text('Price • '+p['name'].toString()+' '+v['variant_name'].toString()),content:TextField(controller:c,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Selling price per kg (KES)')),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Save'))]));
+  if(ok==true){try{final value=double.tryParse(c.text.trim());if(value==null||value<=0)throw const FormatException('Enter a price greater than zero.');final db=Supabase.instance.client;await db.from('branch_product_selling_prices').upsert({'branch_id':b['id'],'product_variant_id':v['id'],'selling_price_per_kg':value,'updated_by':db.auth.currentUser!.id,'updated_at':DateTime.now().toUtc().toIso8601String()},onConflict:'branch_id,product_variant_id');await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  c.dispose();
+ }
+ @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+  const Text('Branch selling prices',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
+  const Text('Set a separate customer selling price per kilogram for each product at each branch.'),
+  if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
+  ...branches.map((b)=>ExpansionTile(title:Text(b['name'].toString()),children:[
+   ...products.expand((p)=>List<Map<String,dynamic>>.from(p['product_variants']??[]).map((v){
+    final found=prices.where((x)=>x['branch_id']==b['id']&&x['product_variant_id']==v['id']).toList(),value=found.isEmpty?null:found.first['selling_price_per_kg'];
+    return ListTile(title:Text(p['name'].toString()+' • '+v['variant_name'].toString()),subtitle:Text(value==null?'Price not set':'KES '+value.toString()+' / kg'),trailing:IconButton(icon:const Icon(Icons.edit),onPressed:()=>edit(b,p,v)));
+   }))
+  ]))
  ]));
 }
