@@ -27,7 +27,7 @@ as $function$
     (select o.status from public.tractor_owner_profiles o where o.profile_id = auth.uid() limit 1),
     (select m.status from public.mechanic_profiles m where m.profile_id = auth.uid() limit 1),
     (select s.status from public.auto_spares_profiles s where s.profile_id = auth.uid() limit 1),
-    exists(select 1 from public.vehicles v where v.driver_id = auth.uid() and v.active = true)
+    exists(select 1 from public.vehicles v where v.driver_id = auth.uid())
   from public.profiles p
   where p.id = auth.uid()
 $function$;
