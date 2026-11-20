@@ -1287,8 +1287,8 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     final weights={for(final p in List<Map<String,dynamic>>.from(weightRows)) p['id'].toString():p['bag_weight_kg']};
     final pricedTajir=List<Map<String,dynamic>>.from(tajir).map((x){final unit=(x['unit']??'kg').toString().toLowerCase();final w=double.tryParse((weights[x['product_variant_id'].toString()]??0).toString())??0;final stock=double.tryParse((x['quantity_available']??0).toString())??0;return {...x,'selling_price_per_kg':kgPrices[x['branch_id'].toString()+':'+x['product_variant_id'].toString()],'available_kg':unit=='kg'?stock:stock*w};}).toList();
     final marketplace=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status').eq('status','active').order('created_at',ascending:false);
-    final priceRows=await db.from('marketplace_listing_selling_prices').select('listing_id,selling_price_kes');
-    final prices={for(final p in List<Map<String,dynamic>>.from(priceRows)) p['listing_id'].toString():p['selling_price_kes']};
+    final marketplacePriceRows=await db.from('marketplace_listing_selling_prices').select('listing_id,selling_price_kes');
+    final prices={for(final p in List<Map<String,dynamic>>.from(marketplacePriceRows)) p['listing_id'].toString():p['selling_price_kes']};
     final marketItems=List<Map<String,dynamic>>.from(marketplace).map((x)=>{...x,'_is_marketplace_listing':true,'selling_price_kes':prices[x['id'].toString()]}).toList();
     r=[...pricedTajir,...marketItems];
    }else if(widget.mode=='sell'){
