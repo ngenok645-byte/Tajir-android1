@@ -27,6 +27,22 @@ Both pillars share identity, company governance, contact directory, notification
 - Design for low bandwidth and intermittent connectivity. Clearly label cached/pending/synced data; queue only safe, idempotent actions; never imply an offline payment or stock change is confirmed before server acknowledgement.
 - Accessibility: readable contrast, scalable text, clear focus and touch targets, helpful validation and no reliance on colour alone.
 
+## Dashboard-by-dashboard visual specification
+
+Use a shared TAJIR visual language, but give each role a dashboard designed around its real daily tasks. Pictures are purposeful visual guides, not decoration that slows the app or hides information. Prefer optimised local illustrations/icons for core navigation and compressed, cached photos for optional feature cards; show a graceful placeholder when an image is unavailable or the device is offline.
+
+- **Director:** company overview with clear branch, trading and service summaries; visual cards for approvals, financial oversight, staff/accounts, reports and alerts. Use an agricultural business/warehouse hero image sparingly. Sensitive controls remain clearly separated and permission-checked.
+- **Client:** welcoming service and product discovery with clear pictures of tractors, ploughing, planting and available goods; prominent Request a Tractor, Track My Job, Shop Products, Orders/Receipts and Contact actions.
+- **Tractor owner:** tractor/equipment imagery and status cards for machines, availability, incoming requests, assigned drivers, active jobs, maintenance and earnings. Make the owner-to-client contact action prominent after a job is awarded.
+- **Tractor driver:** simple, high-contrast job screen with tractor/field visual cue, today's assigned job, location/details, call owner/client where authorised, start job and complete job actions. Avoid complex charts and unrelated financial/admin controls.
+- **Mechanic:** machinery and spare-part imagery with repair queue, assigned work, fault details, parts used, service history and job completion actions.
+- **Worker:** friendly task/field illustrations, today's duties, branch, large check-in/check-out controls and attendance history. Keep the screen focused on assigned work.
+- **Auto-spares provider:** clear product-category pictures/icons and inventory cards for parts, stock levels, requests, sales and order fulfilment; support search and readable part names/quantities.
+
+Every role dashboard must have: a clear welcome/identity area; one obvious primary action; consistent labelled navigation with a visible icon on every tab; large touch targets; readable status labels; helpful empty/loading/error/offline states; and a persistent route to approved support/director contacts. Do not show a dashboard card or shortcut unless its action is implemented and the user's role is authorised to use it.
+
+Image and icon acceptance checks: verify every role on a small Android screen and a larger screen; verify all tabs and item categories have meaningful icons; verify pictures load/cached and have offline placeholders; verify text contrast and scaling; verify no image is stretched, misleading, or blocks task completion. Avoid external image downloads for essential workflow controls.
+
 ## Shared identity, roles and governance
 
 - Review and preserve the existing account model where safe; establish a single documented source of truth for authentication and profile/role mapping.
