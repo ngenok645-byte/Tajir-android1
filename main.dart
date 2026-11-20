@@ -2814,10 +2814,16 @@ class _DirectorProductPricesPageState extends State<DirectorProductPricesPage>{
  }
  Future<void> save()async{
   final b=double.tryParse(buy.text.trim()),v=double.tryParse(sell.text.trim());
-  if(branchId==null||variantId==null||b==null||v==null||b<0||v<0){setState(()=>message='Enter both prices as valid non-negative KES per KG values.');return;}
+  if(branchId==null||variantId==null||(b==null&&v==null)||(b!=null&&b<0)||(v!=null&&v<0)){setState(()=>message='Enter at least one valid non-negative KES per KG price.');return;}
   setState(()=>saving=true);
-  try{await Supabase.instance.client.from('branch_product_selling_prices').upsert({'branch_id':branchId,'product_variant_id':variantId,'selling_price_per_kg':b,'buying_price_per_kg':v,'updated_by':Supabase.instance.client.auth.currentUser!.id},onConflict:'branch_id,product_variant_id');
-   setState(()=>message='Official prices saved. BUY and SELL remain independent.');
+  try{
+   final db=Supabase.instance.client;
+   final current=await db.from('branch_product_selling_prices').select('selling_price_per_kg,buying_price_per_kg').eq('branch_id',branchId!).eq('product_variant_id',variantId!).maybeSingle();
+   final finalBuy=b??(current==null?null:(current['selling_price_per_kg'] as num?)?.toDouble());
+   final finalSell=v??(current==null?null:(current['buying_price_per_kg'] as num?)?.toDouble());
+   if(finalBuy==null)throw const FormatException('Set the BUY price before saving this product price record.');
+   await db.from('branch_product_selling_prices').upsert({'branch_id':branchId,'product_variant_id':variantId,'selling_price_per_kg':finalBuy,'buying_price_per_kg':finalSell,'updated_by':db.auth.currentUser!.id},onConflict:'branch_id,product_variant_id');
+   setState(()=>message='Price saved. The other price was preserved unchanged.');
   }catch(e){setState(()=>message='Could not save prices: '+friendlyError(e));}if(mounted)setState(()=>saving=false);
  }
  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(18),children:[
