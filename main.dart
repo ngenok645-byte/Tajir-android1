@@ -2608,6 +2608,142 @@ class BrandMark extends StatelessWidget {
   ]);
 }
 
+
+class DirectorPricingPage extends StatefulWidget {
+  const DirectorPricingPage({super.key});
+  @override State<DirectorPricingPage> createState() => _DirectorPricingPageState();
+}
+class _DirectorPricingPageState extends State<DirectorPricingPage> with SingleTickerProviderStateMixin {
+  late final TabController tabs = TabController(length: 2, vsync: this);
+  final db = Supabase.instance.client;
+  final branchPrice = TextEditingController();
+  final listingBuyingPrice = TextEditingController();
+  final listingSellingPrice = TextEditingController();
+  List<Map<String, dynamic>> branches = [], variants = [], listings = [];
+  Map<String, dynamic> branchPrices = {}, buyingPrices = {}, sellingPrices = {};
+  String? selectedBranchId, selectedVariantId, selectedListingId;
+  bool busy = true, saving = false;
+  String? error;
+  @override void initState() { super.initState(); load(); }
+  @override void dispose() { tabs.dispose(); branchPrice.dispose(); listingBuyingPrice.dispose(); listingSellingPrice.dispose(); super.dispose(); }
+  String _branchKey(String b, String v) => '$b|$v';
+  String _priceText(dynamic v) => v == null ? '' : (v as num).toStringAsFixed(2);
+
+  Future<void> load() async {
+    if (mounted) setState(() { busy = true; error = null; });
+    try {
+      final r = await Future.wait([
+        db.from('branches').select('id,name').eq('is_active', true).order('name'),
+        db.from('product_variants').select('id,variant_name,bag_weight_kg,base_unit,products(name)').eq('is_active', true).order('variant_name'),
+        db.from('marketplace_listings').select('id,product_name,quantity,unit,location,status').order('created_at', ascending: false),
+        db.from('branch_product_selling_prices').select('branch_id,product_variant_id,selling_price_per_kg'),
+        db.from('marketplace_listing_buying_prices').select('listing_id,buying_price_kes'),
+        db.from('marketplace_listing_selling_prices').select('listing_id,selling_price_kes'),
+      ]);
+      final b = List<Map<String, dynamic>>.from(r[0]);
+      final v = List<Map<String, dynamic>>.from(r[1]);
+      final l = List<Map<String, dynamic>>.from(r[2]);
+      final bp = <String, dynamic>{};
+      for (final x in List<Map<String, dynamic>>.from(r[3])) { bp[_branchKey(x['branch_id'].toString(), x['product_variant_id'].toString())] = x['selling_price_per_kg']; }
+      final buy = <String, dynamic>{};
+      for (final x in List<Map<String, dynamic>>.from(r[4])) { buy[x['listing_id'].toString()] = x['buying_price_kes']; }
+      final sell = <String, dynamic>{};
+      for (final x in List<Map<String, dynamic>>.from(r[5])) { sell[x['listing_id'].toString()] = x['selling_price_kes']; }
+      if (!mounted) return;
+      setState(() {
+        branches=b; variants=v; listings=l; branchPrices=bp; buyingPrices=buy; sellingPrices=sell;
+        if (!branches.any((x)=>x['id'].toString()==selectedBranchId)) selectedBranchId=branches.isEmpty?null:branches.first['id'].toString();
+        if (!variants.any((x)=>x['id'].toString()==selectedVariantId)) selectedVariantId=variants.isEmpty?null:variants.first['id'].toString();
+        if (!listings.any((x)=>x['id'].toString()==selectedListingId)) selectedListingId=listings.isEmpty?null:listings.first['id'].toString();
+        _syncBranchPrice(); _syncListingPrices();
+      });
+    } catch(e) { if(mounted)setState(()=>error=friendlyError(e)); }
+    finally { if(mounted)setState(()=>busy=false); }
+  }
+  void _syncBranchPrice() {
+    if(selectedBranchId==null||selectedVariantId==null){branchPrice.clear();return;}
+    branchPrice.text=_priceText(branchPrices[_branchKey(selectedBranchId!,selectedVariantId!)]);
+  }
+  void _syncListingPrices() {
+    if(selectedListingId==null){listingBuyingPrice.clear();listingSellingPrice.clear();return;}
+    listingBuyingPrice.text=_priceText(buyingPrices[selectedListingId!]);
+    listingSellingPrice.text=_priceText(sellingPrices[selectedListingId!]);
+  }
+  Map<String,dynamic>? _selectedVariant(){for(final x in variants){if(x['id'].toString()==selectedVariantId)return x;}return null;}
+  Map<String,dynamic>? _selectedListing(){for(final x in listings){if(x['id'].toString()==selectedListingId)return x;}return null;}
+
+  Future<void> saveBranchPrice() async {
+    if(saving)return;
+    final value=double.tryParse(branchPrice.text.trim());
+    if(selectedBranchId==null||selectedVariantId==null||value==null||value<=0){setState(()=>error='Select a branch and product variant, then enter a price greater than zero.');return;}
+    setState(()=>{saving=true,error=null});
+    try{
+      await db.from('branch_product_selling_prices').upsert({'branch_id':selectedBranchId,'product_variant_id':selectedVariantId,'selling_price_per_kg':value,'updated_by':db.auth.currentUser!.id},onConflict:'branch_id,product_variant_id');
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Branch selling price saved.')));
+      await load();
+    }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
+    finally{if(mounted)setState(()=>saving=false);}
+  }
+  Future<void> saveListingPrices() async {
+    if(saving)return;
+    final buying=double.tryParse(listingBuyingPrice.text.trim()), selling=double.tryParse(listingSellingPrice.text.trim());
+    if(selectedListingId==null||buying==null||selling==null||buying<=0||selling<=0){setState(()=>error='Select a listing and enter both prices greater than zero.');return;}
+    setState(()=>{saving=true,error=null});
+    try{
+      await db.rpc('director_set_marketplace_listing_prices',params:{'p_listing_id':selectedListingId,'p_buying_price_kes':buying,'p_selling_price_kes':selling});
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Marketplace buying and selling prices saved.')));
+      await load();
+    }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
+    finally{if(mounted)setState(()=>saving=false);}
+  }
+
+  Widget _branchTab(){
+    final selected=_selectedVariant();
+    final product=(selected?['products'] as Map?)?.cast<String,dynamic>()??{};
+    final weight=selected?['bag_weight_kg'] as num?;
+    final entered=double.tryParse(branchPrice.text.trim());
+    return RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+      const Text('Branch customer prices',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+      const Text('Set the public selling price in KES per kilogram. The app calculates the equivalent bag price using that variant’s configured bag weight.'),
+      const SizedBox(height:14),
+      DropdownButtonFormField<String>(value:selectedBranchId,decoration:const InputDecoration(labelText:'Branch',border:OutlineInputBorder()),items:branches.map((b)=>DropdownMenuItem(value:b['id'].toString(),child:Text(b['name'].toString()))).toList(),onChanged:saving?null:(v)=>setState(()=>{selectedBranchId=v,_syncBranchPrice()})),
+      const SizedBox(height:12),
+      DropdownButtonFormField<String>(value:selectedVariantId,decoration:const InputDecoration(labelText:'Product variant',border:OutlineInputBorder()),items:variants.map((v){final p=(v['products'] as Map?)?.cast<String,dynamic>()??{};final label='${p['name']??'Product'} • ${v['variant_name']}';return DropdownMenuItem(value:v['id'].toString(),child:Text(label));}).toList(),onChanged:saving?null:(v)=>setState(()=>{selectedVariantId=v,_syncBranchPrice()})),
+      if(product.isNotEmpty)Padding(padding:const EdgeInsets.only(top:8),child:Text('Product: ${product['name']}')),
+      if(weight!=null&&weight>0)Padding(padding:const EdgeInsets.symmetric(vertical:10),child:Text('Configured bag weight: ${weight.toStringAsFixed(2)} kg')),
+      const SizedBox(height:8),
+      TextField(controller:branchPrice,onChanged:(_)=>setState((){}),keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Selling price per KG (KES)',border:OutlineInputBorder())),
+      if(weight!=null&&weight>0&&entered!=null)Padding(padding:const EdgeInsets.only(top:8),child:Text('Equivalent price per bag: KES ${(entered*weight).toStringAsFixed(2)}')),
+      const SizedBox(height:14),
+      FilledButton.icon(onPressed:saving||branches.isEmpty||variants.isEmpty?null:saveBranchPrice,icon:const Icon(Icons.save),label:Text(saving?'Saving…':'Save branch price')),
+      if(branches.isEmpty||variants.isEmpty)const Padding(padding:EdgeInsets.only(top:12),child:Text('Add an active branch and product variant before setting a price.')),
+    ]));
+  }
+  Widget _marketplaceTab(){
+    final selected=_selectedListing();
+    return RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+      const Text('Marketplace listing prices',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+      const Text('The buying price is private to the seller and Director. The selling price is shown to Buyers. Both are set by the Director.'),
+      const SizedBox(height:14),
+      DropdownButtonFormField<String>(value:selectedListingId,decoration:const InputDecoration(labelText:'Seller listing',border:OutlineInputBorder()),items:listings.map((l)=>DropdownMenuItem(value:l['id'].toString(),child:Text('${l['product_name']} • ${l['quantity']} ${l['unit']}'))).toList(),onChanged:saving?null:(v)=>setState(()=>{selectedListingId=v,_syncListingPrices()})),
+      if(selected!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text('Location: ${selected['location']} • Status: ${selected['status']}')),
+      const SizedBox(height:8),
+      TextField(controller:listingBuyingPrice,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Buying price per listing unit (KES)',border:OutlineInputBorder())),
+      const SizedBox(height:10),
+      TextField(controller:listingSellingPrice,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Selling price per listing unit (KES)',border:OutlineInputBorder())),
+      const SizedBox(height:14),
+      FilledButton.icon(onPressed:saving||listings.isEmpty?null:saveListingPrices,icon:const Icon(Icons.price_change),label:Text(saving?'Saving…':'Save both marketplace prices')),
+      if(listings.isEmpty)const Padding(padding:EdgeInsets.only(top:12),child:Text('No seller listings have been submitted yet.')),
+    ]));
+  }
+  @override Widget build(BuildContext context)=>Column(children:[
+    Material(color:Colors.white,child:TabBar(controller:tabs,labelColor:brandGreen,tabs:const[Tab(icon:Icon(Icons.storefront),text:'Branch prices'),Tab(icon:Icon(Icons.price_change),text:'Marketplace')])),
+    if(busy)const LinearProgressIndicator(),
+    if(error!=null)Padding(padding:const EdgeInsets.all(8),child:Text(error!,style:const TextStyle(color:Colors.red))),
+    Expanded(child:TabBarView(controller:tabs,children:[_branchTab(),_marketplaceTab()])),
+  ]);
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
