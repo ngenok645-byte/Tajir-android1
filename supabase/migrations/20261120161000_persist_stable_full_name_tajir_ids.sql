@@ -88,7 +88,6 @@ returns table (account_id uuid, tajir_id text, display_name text, account_type t
 language sql security definer set search_path=pg_catalog,public,private
 as $$ select * from private.tajir_directory_search(p_query); $$;
 revoke all on function private.tajir_directory_search(text) from public,anon;
-grant usage on schema private to authenticated;
-grant execute on function private.tajir_directory_search(text) to authenticated;
+revoke all on function private.tajir_directory_search(text) from public, anon, authenticated;
 revoke all on function public.tajir_directory_search(text) from public,anon;
 grant execute on function public.tajir_directory_search(text) to authenticated;
