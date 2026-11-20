@@ -292,11 +292,11 @@ jobs:
       - name: Configure production signing when protected secrets are available
         working-directory: TAJIR_flutter_app
         env:
-          TAJIR_KEYSTORE_BASE64: \${{ secrets.TAJIR_KEYSTORE_BASE64 }}
-          TAJIR_KEYSTORE_PASSWORD: \${{ secrets.TAJIR_KEYSTORE_PASSWORD }}
-          TAJIR_KEY_ALIAS: \${{ secrets.TAJIR_KEY_ALIAS }}
-          TAJIR_KEY_PASSWORD: \${{ secrets.TAJIR_KEY_PASSWORD }}
-          TAJIR_PUBLISH_RELEASE: \${{ inputs.publish_release }}
+          TAJIR_KEYSTORE_BASE64: ${{ secrets.TAJIR_KEYSTORE_BASE64 }}
+          TAJIR_KEYSTORE_PASSWORD: ${{ secrets.TAJIR_KEYSTORE_PASSWORD }}
+          TAJIR_KEY_ALIAS: ${{ secrets.TAJIR_KEY_ALIAS }}
+          TAJIR_KEY_PASSWORD: ${{ secrets.TAJIR_KEY_PASSWORD }}
+          TAJIR_PUBLISH_RELEASE: ${{ inputs.publish_release }}
         run: |
           if [ -z "$TAJIR_KEYSTORE_BASE64" ] || [ -z "$TAJIR_KEYSTORE_PASSWORD" ] || [ -z "$TAJIR_KEY_ALIAS" ] || [ -z "$TAJIR_KEY_PASSWORD" ]; then
             if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$TAJIR_PUBLISH_RELEASE" = "true" ]; then
@@ -311,7 +311,7 @@ jobs:
           storePassword=$TAJIR_KEYSTORE_PASSWORD
           keyPassword=$TAJIR_KEY_PASSWORD
           keyAlias=$TAJIR_KEY_ALIAS
-          storeFile=app/tajir-release.jks
+          storeFile=tajir-release.jks
           EOF
           python - <<'PY'
           from pathlib import Path
@@ -324,9 +324,10 @@ jobs:
           marker = source.find("plugins {")
           if marker < 0:
               raise SystemExit("Generated Gradle plugins block not found")
+          open_brace = source.find("{", marker)
           depth = 0
           end = None
-          for i in range(marker + len("plugins"), len(source)):
+          for i in range(open_brace, len(source)):
               if source[i] == "{":
                   depth += 1
               elif source[i] == "}":
