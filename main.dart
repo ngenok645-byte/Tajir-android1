@@ -231,28 +231,72 @@ final appTheme = ThemeData(
   ),
 );
 
+final GlobalKey<NavigatorState> _tajirNavigatorKey = GlobalKey<NavigatorState>();
+
 class TajirApp extends StatefulWidget {
   const TajirApp({super.key});
   @override
   State<TajirApp> createState() => _TajirAppState();
 }
 
-class _TajirAppState extends State<TajirApp> {
+class _TajirAppState extends State<TajirApp> with WidgetsBindingObserver {
   bool _signingOutForBackground = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  Future<void> _lockAppOnBackground() async {
+    if (_signingOutForBackground) return;
+    _signingOutForBackground = true;
+    try {
+      if (!AuthGate.previewMode &&
+          Supabase.instance.client.auth.currentSession != null) {
+        // Local sign-out removes the persisted session on this device. It does
+        // not revoke or alter the user's account or other devices' sessions.
+        await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);
+      }
+      _directorRestoreRefreshToken = null;
+      _directorAccessingAccount = null;
+      _tajirNavigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
+    } catch (_) {
+      // Keep the app locked locally even if the network is unavailable.
+      _directorRestoreRefreshToken = null;
+      _directorAccessingAccount = null;
+      _tajirNavigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
+    } finally {
+      _signingOutForBackground = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // hidden/paused are emitted when the user leaves TAJIR or switches apps.
+    // Do not sign out for inactive: Android can briefly emit it for system UI.
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _lockAppOnBackground();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-
   @override
   Widget build(BuildContext context) => MaterialApp(
+    navigatorKey: _tajirNavigatorKey,
     title: 'TAJIR', debugShowCheckedModeBanner: false, theme: appTheme,
     home: const AuthGate(),
   );
@@ -1469,10 +1513,39 @@ class _DirectorDemoAccountsPageState extends State<DirectorDemoAccountsPage> {
   Future<void> load() async {
     if (mounted) setState(() { loading = true; error = null; });
     try {
-      final rows = await Supabase.instance.client.from('tajir_demo_accounts')
+      final db = Supabase.instance.client;
+      var rows = await db.from('tajir_demo_accounts')
         .select('id,role_code,display_name,demo_data,is_active,created_at')
         .order('created_at', ascending: false);
-      demos = List<Map<String, dynamic>>.from(rows);
+
+      // First visit: create one isolated sample account for every supported
+      // dashboard area so the Director has something ready to open.
+      if (rows.isEmpty) {
+        final directorId = db.auth.currentUser?.id;
+        if (directorId == null) {
+          throw const AuthException('Please sign in again to create demo accounts.');
+        }
+        final starterAccounts = _demoRoleTemplates.entries.map((entry) {
+          final template = entry.value;
+          return <String, dynamic>{
+            'role_code': entry.key,
+            'display_name': 'Demo ${template['label']}',
+            'demo_data': {
+              'is_demo': true,
+              'metrics': template['metrics'],
+              'sections': template['sections'],
+            },
+            'created_by': directorId,
+          };
+        }).toList();
+        await db.from('tajir_demo_accounts').insert(starterAccounts);
+        rows = await db.from('tajir_demo_accounts')
+          .select('id,role_code,display_name,demo_data,is_active,created_at')
+          .order('created_at', ascending: false);
+      }
+      demos = List<Map<String, dynamic>>.from(rows)
+        .where((demo) => demo['is_active'] == true)
+        .toList();
     } catch (e) { error = friendlyError(e); }
     if (mounted) setState(() => loading = false);
   }
