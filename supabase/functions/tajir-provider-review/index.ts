@@ -79,8 +79,13 @@ Deno.serve(async (req) => {
       if (error) throw error;
     }
 
+    // Tractor-owner records use "verified" as their approved state; the
+    // mechanic and auto-spares tables use "approved".
+    const persistedStatus = role === "tractor_owner" && decision === "approved"
+      ? "verified"
+      : decision;
     const { error: updateError } = await db.from(table).update({
-      status: decision, updated_at: new Date().toISOString(),
+      status: persistedStatus, updated_at: new Date().toISOString(),
     }).eq("id", application.id);
     if (updateError) throw updateError;
 
