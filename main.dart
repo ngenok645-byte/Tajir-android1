@@ -670,7 +670,20 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
  String? error;
  int? selectedSection;
 
- @override void initState(){super.initState();load();}
+ @override void initState(){super.initState();load(); WidgetsBinding.instance.addPostFrameCallback((_) => checkCustomerUpdates());}
+
+ Future<void> checkCustomerUpdates() async {
+  final found = await checkTajirUpdate();
+  if (!mounted || found == null) return;
+  showDialog<void>(context:context,builder:(ctx)=>AlertDialog(
+   title:const Text('TAJIR update available'),
+   content:Text('A newer version (${found['version']}) is ready. Update to get the latest improvements and fixes.'),
+   actions:[
+    TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Later')),
+    FilledButton.icon(onPressed:()async{Navigator.pop(ctx);try{await openTajirUpdate(found['url'].toString());}catch(_){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Could not open the update link. Please try again.')));}},icon:const Icon(Icons.download),label:const Text('Download update')),
+   ],
+  ));
+ }
 
  Future<void> load()async{
   if(mounted)setState(()=>busy=true);
@@ -743,6 +756,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
     ):null,
     title:Text(onSection?sectionTitle(selectedSection!):'TAJIR - '+c!['full_name'].toString()),
     actions:[
+     IconButton(tooltip:'Check for updates',onPressed:checkCustomerUpdates,icon:const Icon(Icons.system_update)),
      IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
      IconButton(tooltip:'Refresh',onPressed:onSection?()=>setState((){}):load,icon:const Icon(Icons.refresh)),
      IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
