@@ -2142,6 +2142,80 @@ class _DirectorySearchPageState extends State<DirectorySearchPage> {
   );
 }
 
+class DirectorySearchPage extends StatefulWidget {
+  const DirectorySearchPage({super.key});
+  @override State<DirectorySearchPage> createState() => _DirectorySearchPageState();
+}
+class _DirectorySearchPageState extends State<DirectorySearchPage> {
+  final query = TextEditingController();
+  bool busy = false;
+  String? error;
+  List<Map<String,dynamic>> results = [];
+  @override void dispose() { query.dispose(); super.dispose(); }
+
+  Future<void> search() async {
+    final value = query.text.trim();
+    if (value.length < 4) {
+      setState(() { error = 'Enter at least 4 characters of a phone number or TAJIR ID.'; results = []; });
+      return;
+    }
+    setState(() { busy = true; error = null; results = []; });
+    try {
+      final response = await Supabase.instance.client.rpc('tajir_directory_search', params: {'p_query': value});
+      final rows = List<Map<String,dynamic>>.from(response ?? const []);
+      if (mounted) setState(() { results = rows; if (rows.isEmpty) error = 'No matching TAJIR account was found.'; });
+    } catch (e) {
+      if (mounted) setState(() => error = friendlyError(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(16),
+    children: [
+      const Text('TAJIR DIRECTORY', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      const Text('Find clients and service providers using their registered phone number or full-name TAJIR ID. Private details are protected by account permissions.'),
+      const SizedBox(height: 16),
+      TextField(
+        controller: query,
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => search(),
+        decoration: InputDecoration(
+          labelText: 'Phone number or TAJIR ID',
+          hintText: 'e.g. 0712345678 or TJ-JOHN-DOE-12AB34CD',
+          prefixIcon: const Icon(Icons.search),
+          border: const OutlineInputBorder(),
+          suffixIcon: IconButton(
+            tooltip: 'Clear search',
+            onPressed: () { query.clear(); setState(() { results = []; error = null; }); },
+            icon: const Icon(Icons.close),
+          ),
+        ),
+      ),
+      const SizedBox(height: 10),
+      FilledButton.icon(
+        onPressed: busy ? null : search,
+        icon: busy ? const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)) : const Icon(Icons.search),
+        label: const Text('Search directory'),
+      ),
+      if (busy) const Padding(padding: EdgeInsets.all(18), child: Center(child:CircularProgressIndicator())),
+      if (error != null) Padding(padding: const EdgeInsets.only(top:12), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+      ...results.map((row) => Card(
+        margin: const EdgeInsets.only(top:10),
+        child: ListTile(
+          leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+          title: Text((row['display_name'] ?? 'Unnamed account').toString(), style: const TextStyle(fontWeight: FontWeight.w700)),
+          subtitle: Padding(padding: const EdgeInsets.only(top:5), child: Text('${row['tajir_id']}\n${row['account_type']} • ${row['account_status']}\nPhone: ${row['phone_masked']}')),
+          isThreeLine: true,
+          trailing: const Icon(Icons.verified_user_outlined),
+        ),
+      )),
+    ],
+  );
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
@@ -2189,9 +2263,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       }
     }
   }
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenMarketplace: () => selectPage(8)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage(), if (director) const BranchKgPricingPage(), const DirectorySearchPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Marketplace Pricing', if (director) 'Branch Prices (KES/kg)', 'TAJIR Directory'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change, if (director) Icons.scale, Icons.manage_search];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(7), onOpenStaff: () => selectPage(8), onOpenMarketplace: () => selectPage(9)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const DirectorySearchPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage(), if (director) const BranchKgPricingPage(), const DirectorySearchPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services','TAJIR Directory', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Marketplace Pricing', if (director) 'Branch Prices (KES/kg)', 'TAJIR Directory'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture,Icons.search, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change, if (director) Icons.scale, Icons.manage_search];
   @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   @override void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }\n  Future<void> loadAccess() async {
     try {
@@ -2204,7 +2278,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void openMoreMenu() {
     showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
-      ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
+      ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),\n      ListTile(leading: const Icon(Icons.search), title: const Text('TAJIR Directory'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       if (director) ListTile(leading: const Icon(Icons.price_change), title: const Text('Marketplace Pricing & Offers'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
