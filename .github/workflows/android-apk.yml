@@ -104,10 +104,10 @@ jobs:
               for key in changed:
                   if stripped.startswith(key + " ="):
                       indent = line[:len(line) - len(line.lstrip())]
-                      lines[i] = indent + key + ' = "com.tajir.app"'
+                      lines[i] = indent + key + ' = "com.tajir.tajir_app"'
                       changed[key] = True
           if not all(changed.values()):
-              raise SystemExit("Could not preserve the established com.tajir.app namespace/applicationId.")
+              raise SystemExit("Could not preserve the established com.tajir.tajir_app namespace/applicationId.")
           gradle.write_text("\n".join(lines) + "\n")
 
           activities = list(Path("android/app/src/main/kotlin").rglob("MainActivity.kt"))
@@ -117,8 +117,8 @@ jobs:
           lines = old.read_text().splitlines()
           if not lines or not lines[0].startswith("package "):
               raise SystemExit("MainActivity package declaration not found")
-          lines[0] = "package com.tajir.app"
-          target = Path("android/app/src/main/kotlin/com/tajir/app/MainActivity.kt")
+          lines[0] = "package com.tajir.tajir_app"
+          target = Path("android/app/src/main/kotlin/com/tajir/tajir_app/MainActivity.kt")
           target.parent.mkdir(parents=True, exist_ok=True)
           target.write_text("\n".join(lines) + "\n")
           if old != target:
@@ -406,7 +406,7 @@ jobs:
             exit 1
           fi
           BADGING="$("$AAPT" dump badging "$APK")"
-          printf '%s\n' "$BADGING" | grep -F "package: name='com.tajir.app'"
+          printf '%s\n' "$BADGING" | grep -F "package: name='com.tajir.tajir_app'"
           printf '%s\n' "$BADGING" | grep -F "application-label:'TAJIR'"
           "$APKSIGNER" verify --verbose "$APK"
           sha256sum "$APK"
