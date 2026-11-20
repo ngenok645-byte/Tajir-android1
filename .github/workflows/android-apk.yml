@@ -101,6 +101,20 @@ jobs:
                                       result.error("OPEN_FAILED", "Could not open the update link.", null)
                                   }}
                               }}
+                          }} else if (call.method == "callPhone") {{
+                              val phone = call.argument<String>("phone")
+                              val digits = phone?.filter {{ it.isDigit() }} ?: ""
+                              if (digits.length < 9 || digits.length > 15) {{
+                                  result.error("INVALID_PHONE", "A valid phone number is required.", null)
+                              }} else {{
+                                  try {{
+                                      val intent = Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", phone, null))
+                                      startActivity(intent)
+                                      result.success(true)
+                                  }} catch (error: Exception) {{
+                                      result.error("CALL_FAILED", "Could not open the phone dialler.", null)
+                                  }}
+                              }}
                           }} else {{
                               result.notImplemented()
                           }}
