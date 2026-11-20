@@ -82,4 +82,59 @@ comment on column public.marketplace_purchase_requests.selling_price_kes_snapsho
 comment on column public.marketplace_purchase_requests.line_total_kes_snapshot is
   'Server-calculated quantity multiplied by the snapshotted Director-approved selling price.';
 
+-- Atomically set both private marketplace prices. Only an active Director may do this.
+create or replace function public.director_set_marketplace_listing_prices(
+  p_listing_id uuid,
+  p_buying_price_kes numeric,
+  p_selling_price_kes numeric
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null or not exists (
+    select 1
+    from public.user_role_assignments ura
+    join public.app_roles ar on ar.id = ura.role_id
+    where ura.user_id = auth.uid()
+      and ura.is_active
+      and ar.code = 'director'
+  ) then
+    raise exception 'Only an active Director can set marketplace prices.';
+  end if;
+
+  if p_buying_price_kes is null or p_buying_price_kes <= 0
+     or p_selling_price_kes is null or p_selling_price_kes <= 0 then
+    raise exception 'Both buying and selling prices must be greater than zero.';
+  end if;
+
+  if not exists (select 1 from public.marketplace_listings where id = p_listing_id) then
+    raise exception 'Marketplace listing not found.';
+  end if;
+
+  insert into public.marketplace_listing_buying_prices
+    (listing_id, buying_price_kes, updated_by, updated_at)
+  values
+    (p_listing_id, p_buying_price_kes, auth.uid(), now())
+  on conflict (listing_id) do update
+    set buying_price_kes = excluded.buying_price_kes,
+        updated_by = excluded.updated_by,
+        updated_at = now();
+
+  insert into public.marketplace_listing_selling_prices
+    (listing_id, selling_price_kes, updated_by, updated_at)
+  values
+    (p_listing_id, p_selling_price_kes, auth.uid(), now())
+  on conflict (listing_id) do update
+    set selling_price_kes = excluded.selling_price_kes,
+        updated_by = excluded.updated_by,
+        updated_at = now();
+end;
+$$;
+
+revoke all on function public.director_set_marketplace_listing_prices(uuid, numeric, numeric) from public, anon;
+grant execute on function public.director_set_marketplace_listing_prices(uuid, numeric, numeric) to authenticated;
+
 commit;
