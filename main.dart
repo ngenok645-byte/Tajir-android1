@@ -310,20 +310,25 @@ class _LoginPageState extends State<LoginPage> {
           email: tajirLoginEmail(normalized),
           password: staffAuthPassword(pin.text),
         );
-        final assignments = await db.from('user_role_assignments')
-            .select('app_roles(code)')
-            .eq('user_id', db.auth.currentUser!.id)
-            .eq('is_active', true);
-        final assignedCodes = assignments
-            .where((r) => r['app_roles'] is Map)
-            .map((r) => (r['app_roles'] as Map)['code'].toString())
-            .toSet();
-        final roleAllowed = selectedStaffRole == 'staff'
-            ? assignedCodes.any((code) => ['accountant', 'branch_manager'].contains(code))
-            : assignedCodes.contains(selectedStaffRole);
-        if (!roleAllowed) {
+        try {
+          final assignments = await db.from('user_role_assignments')
+              .select('app_roles(code)')
+              .eq('user_id', db.auth.currentUser!.id)
+              .eq('is_active', true);
+          final assignedCodes = assignments
+              .where((r) => r['app_roles'] is Map)
+              .map((r) => (r['app_roles'] as Map)['code'].toString())
+              .toSet();
+          final roleAllowed = selectedStaffRole == 'staff'
+              ? assignedCodes.any((code) => ['accountant', 'branch_manager'].contains(code))
+              : assignedCodes.contains(selectedStaffRole);
+          if (!roleAllowed) {
+            throw const FormatException('This account is not authorised for the selected staff role. Choose the correct role or contact the Director.');
+          }
+        } catch (_) {
+          // Never leave a session active when role verification fails.
           await db.auth.signOut();
-          throw const FormatException('This account is not authorised for the selected staff role. Choose the correct role or contact the Director.');
+          rethrow;
         }
       }
     } on AuthException catch (e) {
@@ -372,7 +377,7 @@ class _LoginPageState extends State<LoginPage> {
               const SizedBox(height: 6),
               Text(setupDirector
                 ? 'One-time setup is only for a pre-approved Director. Workers must ask a Director to create their staff account.'
-                : 'Both Directors and authorised workers sign in here using their own registered phone number and four-digit PIN.',
+                : 'Sign in with your own registered phone number and PIN. TAJIR checks your selected role against your active account permissions.',
                 textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
             if (error != null) Padding(padding: const EdgeInsets.only(top: 12),
               child: Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
