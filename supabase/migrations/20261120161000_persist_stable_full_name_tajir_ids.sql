@@ -16,6 +16,7 @@ left join public.auto_spares_profiles ap on ap.profile_id=x.id
 where p.id=x.id and p.tajir_id is null;
 
 create unique index if not exists profiles_tajir_id_uidx on public.profiles(tajir_id);
+alter table public.profiles alter column tajir_id set not null;
 
 create or replace function private.assign_tajir_public_id()
 returns trigger language plpgsql set search_path=pg_catalog,public
