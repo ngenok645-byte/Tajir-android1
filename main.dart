@@ -2176,6 +2176,19 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   int index = 0;
   bool director = false;
+  bool signingOutForBackground = false;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      if (!signingOutForBackground && Supabase.instance.client.auth.currentSession != null) {
+        signingOutForBackground = true;
+        Supabase.instance.client.auth.signOut().catchError((_) {}).whenComplete(() {
+          signingOutForBackground = false;
+        });
+      }
+    }
+  }
   List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenMarketplace: () => selectPage(8)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage(), if (director) const BranchKgPricingPage(), const DirectorySearchPage()];
   List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Marketplace Pricing', if (director) 'Branch Prices (KES/kg)', 'TAJIR Directory'];
   List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change, if (director) Icons.scale, Icons.manage_search];
