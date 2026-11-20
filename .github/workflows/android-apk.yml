@@ -5,6 +5,12 @@ name: Build TAJIR Android APK
 
 'on':
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish a versioned public release (requires explicit approval)'
+        required: false
+        type: boolean
+        default: false
   pull_request:
     branches:
       - main
@@ -251,6 +257,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish versioned update release
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
