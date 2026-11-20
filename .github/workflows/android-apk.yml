@@ -395,6 +395,22 @@ jobs:
           done
           exit 1
 
+      - name: Verify APK package identity and signing
+        working-directory: TAJIR_flutter_app
+        run: |
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          if [ -z "$AAPT" ] || [ -z "$APKSIGNER" ]; then
+            echo "Android package/signature verification tools were not found."
+            exit 1
+          fi
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='com.tajir.app'"
+          printf '%s\n' "$BADGING" | grep -F "application-label:'TAJIR'"
+          "$APKSIGNER" verify --verbose "$APK"
+          sha256sum "$APK"
+
       - name: Upload TAJIR Android APK
         uses: actions/upload-artifact@v4
         with:
