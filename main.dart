@@ -100,7 +100,7 @@ Future<void> addMyTajirNationalId(BuildContext context) async {
       ),
     );
     if (entered == null || !context.mounted) return;
-    if (!RegExp(r'^[0-9]{7,8}
+    if (entered.length < 7 || entered.length > 8 || int.tryParse(entered) == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid 7 or 8 digit National ID.')));
       return;
     }
