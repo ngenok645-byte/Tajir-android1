@@ -55,6 +55,22 @@ begin
 
   v_hash := extensions.hmac(convert_to(v_id, 'UTF8'), v_secret, 'sha256');
 
+  -- Keep duplicate prevention consistent with older customer identity records.
+  if exists (
+    select 1 from private.tajir_customer_identity old_id
+    where old_id.national_id_hmac = v_hash
+      and old_id.profile_id <> v_user_id
+  ) then
+    raise exception 'This National ID number is already registered with TAJIR.';
+  end if;
+  if exists (
+    select 1 from private.tajir_customer_identity old_id
+    where old_id.profile_id = v_user_id
+      and old_id.national_id_hmac <> v_hash
+  ) then
+    raise exception 'The National ID number does not match the one already registered to this account.';
+  end if;
+
   select national_id_hmac into v_existing_hash
   from private.tajir_user_identity
   where profile_id = v_user_id
