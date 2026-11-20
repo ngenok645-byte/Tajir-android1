@@ -2781,9 +2781,10 @@ class _PurchasePageState extends State<PurchasePage> {
         onChanged: (v) => setState(() => quantityUnit = v ?? 'BAGS'),
         decoration: const InputDecoration(labelText: 'Quantity and price unit'),
       ),
-      field(qty, 'Quantity (${quantityUnit == 'KG' ? 'KG' : 'bags'})', number: true),
-      field(cost, 'Buying price per ${quantityUnit == 'KG' ? 'KG' : 'bag'} (KES)', number: true),
+      field(qty, 'Quantity (${quantityUnit == 'KG' ? 'KG' : 'bags'})', number: true, onChanged: () => setState(() {})),
+      field(cost, 'Buying price per ${quantityUnit == 'KG' ? 'KG' : 'bag'} (KES)', number: true, onChanged: () => setState(() {})),
       if (qty.text.trim().isNotEmpty && cost.text.trim().isNotEmpty) Text('Stored as: ${(double.tryParse(qty.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(qty.text.trim()) / kgPerBag : double.parse(qty.text.trim()))).toStringAsFixed(3)} bags • ${(double.tryParse(cost.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(cost.text.trim()) * kgPerBag : double.parse(cost.text.trim()))).toStringAsFixed(2)} KES per bag'),
+      liveKgPriceSummary(quantityText: qty.text, unitPriceText: cost.text, quantityUnit: quantityUnit),
       const Text('Additional costs for this purchase (KES)',style:TextStyle(fontWeight:FontWeight.bold)),
       field(transportCost, 'Transport', number: true),
       field(loadingCost, 'Loading / offloading', number: true),
@@ -3065,9 +3066,10 @@ class _SalePageState extends State<SalePage> {
         onChanged: (v) => setState(() => quantityUnit = v ?? 'BAGS'),
         decoration: const InputDecoration(labelText: 'Quantity and price unit'),
       ),
-      field(qty, 'Quantity (${quantityUnit == 'KG' ? 'KG' : 'bags'})', number: true),
-      field(price, 'Selling price per ${quantityUnit == 'KG' ? 'KG' : 'bag'} (KES)', number: true),
+      field(qty, 'Quantity (${quantityUnit == 'KG' ? 'KG' : 'bags'})', number: true, onChanged: () => setState(() {})),
+      field(price, 'Selling price per ${quantityUnit == 'KG' ? 'KG' : 'bag'} (KES)', number: true, onChanged: () => setState(() {})),
       if (qty.text.trim().isNotEmpty && price.text.trim().isNotEmpty) Text('Stored as: ${(double.tryParse(qty.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(qty.text.trim()) / kgPerBag : double.parse(qty.text.trim()))).toStringAsFixed(3)} bags • ${(double.tryParse(price.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(price.text.trim()) * kgPerBag : double.parse(price.text.trim()))).toStringAsFixed(2)} KES per bag'),
+      liveKgPriceSummary(quantityText: qty.text, unitPriceText: price.text, quantityUnit: quantityUnit),
       field(customer, 'Customer name'),
       field(customerPhone, 'Customer phone (required for a new customer)'),
       DropdownButtonFormField<String>(
@@ -4248,7 +4250,24 @@ class FormPage extends StatelessWidget {
     Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(children:[...children.map((w)=>Padding(padding:const EdgeInsets.only(bottom:12),child:w))]))),
   ]);
 }
-Widget field(TextEditingController c,String label,{bool number=false})=>TextField(controller:c,keyboardType:number?const TextInputType.numberWithOptions(decimal:true):TextInputType.text,decoration:InputDecoration(labelText:label,border:const OutlineInputBorder()));
+
+Widget liveKgPriceSummary({required String quantityText, required String unitPriceText, required String quantityUnit}) {
+  final enteredQuantity = double.tryParse(quantityText.trim());
+  final enteredPrice = double.tryParse(unitPriceText.trim());
+  if (enteredQuantity == null || enteredPrice == null || enteredQuantity <= 0 || enteredPrice < 0) return const SizedBox.shrink();
+  final quantityKg = quantityUnit == 'KG' ? enteredQuantity : enteredQuantity * kgPerBag;
+  final pricePerKg = quantityUnit == 'KG' ? enteredPrice : enteredPrice / kgPerBag;
+  final total = quantityKg * pricePerKg;
+  return Card(color: brandGreen.withOpacity(.07), child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    const Text('LIVE KG PRICE CALCULATION', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+    const SizedBox(height: 5),
+    Text('${quantityKg.toStringAsFixed(2)} KG  •  ${(quantityKg / kgPerBag).toStringAsFixed(3)} bags'),
+    Text('Price: KES ${pricePerKg.toStringAsFixed(2)} per KG'),
+    Text('Total: KES ${total.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+  ])));
+}
+
+Widget field(TextEditingController c,String label,{bool number=false,VoidCallback? onChanged})=>TextField(controller:c,onChanged:onChanged==null?null:(_)=>onChanged(),keyboardType:number?const TextInputType.numberWithOptions(decimal:true):TextInputType.text,decoration:InputDecoration(labelText:label,border:const OutlineInputBorder()));
 Widget actionButton(String label,bool busy,VoidCallback fn)=>SizedBox(width:double.infinity,child:FilledButton(onPressed:busy?null:fn,child:Text(busy?'Saving…':label)));
 
 class DemoLoginPage extends StatefulWidget {
