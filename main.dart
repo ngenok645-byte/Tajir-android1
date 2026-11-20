@@ -1435,6 +1435,180 @@ class DirectorReadOnlyDashboardPage extends StatelessWidget {
   }
 }
 
+
+const Map<String, Map<String, dynamic>> _demoRoleTemplates = {
+  'buyer': {'label':'Client / Buyer','icon':Icons.shopping_bag_outlined,'metrics':{'Available products':'24','Open orders':'3','Completed purchases':'12','Pending payments':'1'},'sections':['Browse maize, beans and fertilizer','Place and track orders','Purchase history','Delivery and payment status']},
+  'seller': {'label':'Client / Seller','icon':Icons.storefront_outlined,'metrics':{'Active listings':'8','Orders received':'5','Completed sales':'17','Stock alerts':'2'},'sections':['Create product listings','Manage product stock','Review buyer orders','Sales and earnings']},
+  'worker': {'label':'Worker','icon':Icons.badge_outlined,'metrics':{'Assigned duties':'4','Completed tasks':'9','Attendance':'Present','Pending reports':'1'},'sections':['Daily assigned duties','Attendance register','Work completion records','Supervisor instructions']},
+  'tractor_owner': {'label':'Tractor Owner','icon':Icons.agriculture,'metrics':{'Registered tractors':'2','Bookings':'6','Active drivers':'2','Demo earnings':'Ksh 18,500'},'sections':['Register and manage tractors','Review bookings','Assign drivers','Earnings and service history']},
+  'driver': {'label':'Driver','icon':Icons.local_shipping_outlined,'metrics':{'Assigned jobs':'3','Completed jobs':'14','Tractor':'KDA 204X','Work status':'Available'},'sections':['View assigned tractor','Accept and complete jobs','Record job progress','Work and earnings history']},
+  'mechanic': {'label':'Mechanic','icon':Icons.build_outlined,'metrics':{'Repair requests':'4','Jobs in progress':'2','Completed repairs':'18','Pending inspections':'1'},'sections':['Receive repair requests','Update repair progress','Record parts and labour','Maintenance history']},
+  'auto_spares_owner': {'label':'Auto-spares Owner','icon':Icons.handyman_outlined,'metrics':{'Spare parts':'36','Orders':'7','Low-stock items':'3','Demo sales':'Ksh 12,400'},'sections':['Manage spare-parts inventory','Receive customer orders','Record demo sales','Stock and sales reports']},
+};
+
+class DirectorDemoAccountsPage extends StatefulWidget {
+  const DirectorDemoAccountsPage({super.key});
+  @override State<DirectorDemoAccountsPage> createState() => _DirectorDemoAccountsPageState();
+}
+class _DirectorDemoAccountsPageState extends State<DirectorDemoAccountsPage> {
+  bool loading = true, saving = false;
+  String? error;
+  List<Map<String, dynamic>> demos = [];
+  @override void initState() { super.initState(); load(); }
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = null; });
+    try {
+      final rows = await Supabase.instance.client.from('tajir_demo_accounts')
+        .select('id,role_code,display_name,demo_data,is_active,created_at')
+        .order('created_at', ascending: false);
+      demos = List<Map<String, dynamic>>.from(rows);
+    } catch (e) { error = friendlyError(e); }
+    if (mounted) setState(() => loading = false);
+  }
+  Future<void> createDemo() async {
+    final name = TextEditingController();
+    String role = 'buyer';
+    final result = await showDialog<Map<String, String>>(context: context, builder: (dialogContext) =>
+      StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+        title: const Text('Create demo account'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          DropdownButtonFormField<String>(
+            value: role,
+            decoration: const InputDecoration(labelText: 'Dashboard area', border: OutlineInputBorder()),
+            items: _demoRoleTemplates.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value['label'] as String))).toList(),
+            onChanged: (v) { if (v != null) setDialogState(() => role = v); },
+          ),
+          const SizedBox(height: 12),
+          TextField(controller: name, textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Demo account name', hintText: 'e.g. Demo Buyer 01', border: OutlineInputBorder())),
+          const SizedBox(height: 8),
+          const Text('This creates a sample dashboard account only. It does not create a real login or touch live transactions.', style: TextStyle(fontSize: 12)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () {
+            if (name.text.trim().length < 2) return;
+            Navigator.pop(dialogContext, {'role': role, 'name': name.text.trim()});
+          }, child: const Text('Create demo')),
+        ],
+      )),
+    );
+    name.dispose();
+    if (result == null) return;
+    setState(() { saving = true; error = null; });
+    try {
+      final template = _demoRoleTemplates[result['role']]!;
+      await Supabase.instance.client.from('tajir_demo_accounts').insert({
+        'role_code': result['role'], 'display_name': result['name'],
+        'demo_data': {'is_demo': true, 'metrics': template['metrics'], 'sections': template['sections']},
+        'created_by': Supabase.instance.client.auth.currentUser!.id,
+      });
+      await load();
+    } catch (e) { if (mounted) setState(() => error = friendlyError(e)); }
+    if (mounted) setState(() => saving = false);
+  }
+  Future<void> resetDemo(Map<String, dynamic> demo) async {
+    final template = _demoRoleTemplates[demo['role_code']]!;
+    try {
+      await Supabase.instance.client.from('tajir_demo_accounts').update({
+        'demo_data': {'is_demo': true, 'metrics': template['metrics'], 'sections': template['sections']},
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', demo['id']);
+      await load();
+    } catch (e) { if (mounted) setState(() => error = friendlyError(e)); }
+  }
+  Future<void> deleteDemo(Map<String, dynamic> demo) async {
+    final yes = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+      title: const Text('Delete demo account?'),
+      content: Text('Delete ' + demo['display_name'].toString() + '? This affects only this demo account.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Delete'))],
+    ));
+    if (yes != true) return;
+    try {
+      await Supabase.instance.client.from('tajir_demo_accounts').delete().eq('id', demo['id']);
+      await load();
+    } catch (e) { if (mounted) setState(() => error = friendlyError(e)); }
+  }
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Director • Demo Accounts'), actions: [
+      IconButton(onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
+    ]),
+    floatingActionButton: FloatingActionButton.extended(onPressed: saving ? null : createDemo,
+      icon: const Icon(Icons.add), label: Text(saving ? 'Saving…' : 'Create demo')),
+    body: loading ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 90), children: [
+      const Card(child: Padding(padding: EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Explore every TAJIR area', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        SizedBox(height: 6),
+        Text('Demo accounts use sample information only. They cannot change live stock, payments, orders or financial records.'),
+      ]))),
+      if (error != null) Padding(padding: const EdgeInsets.all(8), child: Text(error!, style: const TextStyle(color: Colors.red))),
+      ...demos.map((demo) {
+        final template = _demoRoleTemplates[demo['role_code']]!;
+        return Card(child: ListTile(
+          leading: CircleAvatar(child: Icon(template['icon'] as IconData)),
+          title: Text(demo['display_name'].toString()),
+          subtitle: Text((template['label'] as String) + ' • DEMO'),
+          trailing: PopupMenuButton<String>(
+            onSelected: (v) { if (v == 'reset') resetDemo(demo); if (v == 'delete') deleteDemo(demo); },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'reset', child: Text('Reset sample data')),
+              PopupMenuItem(value: 'delete', child: Text('Delete demo account')),
+            ],
+          ),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DemoRoleDashboardPage(demo: demo))),
+        ));
+      }),
+      if (demos.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(18), child: Text('No demo accounts yet. Use Create demo to add one for any dashboard.'))),
+    ]),
+  );
+}
+
+class DemoRoleDashboardPage extends StatelessWidget {
+  final Map<String, dynamic> demo;
+  const DemoRoleDashboardPage({super.key, required this.demo});
+  @override Widget build(BuildContext context) {
+    final template = _demoRoleTemplates[demo['role_code']]!;
+    final data = Map<String, dynamic>.from(demo['demo_data'] ?? {});
+    final metrics = Map<String, dynamic>.from(data['metrics'] ?? template['metrics']);
+    final sections = List<String>.from(data['sections'] ?? template['sections']);
+    return Scaffold(
+      appBar: AppBar(title: Text(template['label'] as String)),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        Container(width: double.infinity, padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(color: brandGreen, borderRadius: BorderRadius.circular(16)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Row(children: [Icon(Icons.science_outlined, color: Colors.white), SizedBox(width: 8),
+              Text('DEMO DASHBOARD', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]),
+            const SizedBox(height: 12),
+            Text(demo['display_name'].toString(), style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.bold)),
+            const Text('Sample data • No live account access', style: TextStyle(color: Colors.white70)),
+          ]),
+        ),
+        const SizedBox(height: 16),
+        const Text('Dashboard summary', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2,
+          childAspectRatio: 1.8, crossAxisSpacing: 10, mainAxisSpacing: 10,
+          children: metrics.entries.map((entry) => Card(child: Padding(padding: const EdgeInsets.all(12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text(entry.key, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+              const SizedBox(height: 5),
+              Text(entry.value.toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            ]),
+          ))).toList(),
+        ),
+        const SizedBox(height: 14),
+        const Text('Areas to explore', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+        ...sections.map((section) => Card(child: ListTile(leading: const Icon(Icons.check_circle_outline, color: brandGreen), title: Text(section), subtitle: const Text('Demo preview — sample workflow only')))),
+        const SizedBox(height: 12),
+        const Text('Isolated demonstration only. No action here submits real orders, approves users, changes stock, books tractors or records payments.',
+          style: TextStyle(color: Colors.black54, fontSize: 12)),
+      ]),
+    );
+  }
+}
+
 class DirectorAppUpdatesPage extends StatelessWidget {
   const DirectorAppUpdatesPage({super.key});
   @override Widget build(BuildContext context) => Scaffold(
@@ -1541,9 +1715,9 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage(), const DirectorAccountCentrePage(), const DirectorAppUpdatesPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Account Centre', if (director) 'App Updates'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.system_update];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage(), const DirectorAccountCentrePage(), const DirectorDemoAccountsPage(), const DirectorAppUpdatesPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Account Centre', if (director) 'Demo Accounts', if (director) 'App Updates'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.science_outlined, if (director) Icons.system_update];
   Timer? _updateCheckTimer;
 
   @override void initState() {
@@ -1586,7 +1760,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Director Account Centre'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
-      if (director) ListTile(leading: const Icon(Icons.system_update), title: const Text('App Updates'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
+      if (director) ListTile(leading: const Icon(Icons.science_outlined), title: const Text('Demo Accounts'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),\n      if (director) ListTile(leading: const Icon(Icons.system_update), title: const Text('App Updates'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
       const SizedBox(height: 8),
     ])));
   }
