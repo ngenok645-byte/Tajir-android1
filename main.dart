@@ -395,7 +395,7 @@ class LoginPage extends StatefulWidget {
 }
 
 String staffAuthPassword(String pin) => 'TAJIR-PIN-$pin-Account#2026';
-String tajirLoginEmail(String phone) => 'u\${phone.replaceAll(RegExp(r'[^0-9]'), '')}@login.tajir.app';
+String tajirLoginEmail(String phone) => 'u${phone.replaceAll(RegExp(r'[^0-9]'), '')}@login.tajir.app';
 
 class _LoginPageState extends State<LoginPage> {
   final phone = TextEditingController();
