@@ -417,7 +417,7 @@ class _TajirAppState extends State<TajirApp> with WidgetsBindingObserver {
     _signOutInProgress = true;
     _inactivityTimer?.cancel();
     try {
-      await auth.signOut();
+      await auth.signOut(scope: SignOutScope.local);
     } catch (_) {
       // Keep the app responsive during a temporary network outage. Supabase
       // will still enforce server-side token expiry and refresh rules.
@@ -1243,7 +1243,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[
     Text(error??'Account unavailable'),
     FilledButton(onPressed:load,child:const Text('Retry')),
-    TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))
+    TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(scope: SignOutScope.local),child:const Text('Sign out'))
    ]))
   );
 
@@ -1261,7 +1261,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
      IconButton(tooltip:'Check for updates',onPressed:checkCustomerUpdates,icon:const Icon(Icons.system_update)),
      IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
      IconButton(tooltip:'Refresh',onPressed:onSection?()=>setState((){}):load,icon:const Icon(Icons.refresh)),
-     IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
+     IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(scope: SignOutScope.local),icon:const Icon(Icons.logout))
     ],
    ),
    body:Column(children:[
@@ -1973,7 +1973,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
-      IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
+      IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(scope: SignOutScope.local), icon: const Icon(Icons.logout)),
     ]),
     body: RefreshIndicator(onRefresh: load, child: ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -2094,7 +2094,7 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
-      IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
+      IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(scope: SignOutScope.local), icon: const Icon(Icons.logout)),
     ]),
     body: RefreshIndicator(onRefresh: load, child: ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -2180,7 +2180,7 @@ class AccountAccessIssuePage extends StatelessWidget {
         const SizedBox(height: 8),
         const Text('For your security, TAJIR has not opened the staff dashboard. Check your connection or ask the Director to verify your active account role.', textAlign: TextAlign.center),
         const SizedBox(height: 16),
-        FilledButton(onPressed: () => Supabase.instance.client.auth.signOut(), child: const Text('Return to sign in')),
+        FilledButton(onPressed: () => Supabase.instance.client.auth.signOut(scope: SignOutScope.local), child: const Text('Return to sign in')),
       ],
     ))),
   );
@@ -2255,7 +2255,7 @@ class _HomeShellState extends State<HomeShell> {
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(scope: SignOutScope.local), icon: const Icon(Icons.logout))]),
       body: Column(children: [
         const TajirDirectorContacts(),
         Expanded(child: Row(children: [
