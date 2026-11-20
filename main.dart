@@ -1670,7 +1670,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
       Row(children:[
        Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse branch stock and Director prices',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0,locked:!buy)),
        const SizedBox(width:8),
-       Expanded(child:homeTile(title:'SELL PRODUCTS',subtitle:sell?'List any product and set your price':'Access locked',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined,section:1,locked:!sell))
+       Expanded(child:homeTile(title:'SELL PRODUCTS',subtitle:sell?'List products; the Director sets approved prices':'Access locked',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined,section:1,locked:!sell))
       ]),
       const SizedBox(height:10),
       homeTile(title:'TRACTOR & MACHINERY SERVICES',subtitle:'Book ploughing, planting, harvesting and more',imageUrl:TajirPictures.tractor,icon:Icons.agriculture,section:3,large:true),
