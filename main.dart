@@ -132,46 +132,11 @@ class TajirApp extends StatefulWidget {
   State<TajirApp> createState() => _TajirAppState();
 }
 
-class _TajirAppState extends State<TajirApp> with WidgetsBindingObserver {
-  bool _signingOutForBackground = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Log out when the app is sent to the background or closed.
-    // Ignore "inactive", which can occur briefly for system dialogs.
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _signOutWhenLeaving();
-    }
-  }
-
-  Future<void> _signOutWhenLeaving() async {
-    if (_signingOutForBackground) return;
-    _signingOutForBackground = true;
-    try {
-      if (Supabase.instance.client.auth.currentSession != null) {
-        await Supabase.instance.client.auth.signOut();
-      }
-    } catch (_) {
-      // The app may be terminated before the network request completes.
-      // Supabase's local session is cleared when signOut succeeds.
-    } finally {
-      _signingOutForBackground = false;
-    }
-  }
-
+class _TajirAppState extends State<TajirApp> {
+  // Keep the authenticated session when a client switches apps, locks the
+  // phone, or closes TAJIR. Supabase persists and refreshes the session.
+  // A user is signed out only by choosing the app's explicit Sign out action
+  // or when the authentication provider invalidates the session.
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'TAJIR', debugShowCheckedModeBanner: false, theme: appTheme,
