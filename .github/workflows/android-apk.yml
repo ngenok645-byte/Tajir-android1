@@ -231,6 +231,7 @@ jobs:
               --dart-define=SUPABASE_URL="$SUPABASE_URL" \
               --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
               --dart-define=TAJIR_VERSION="${GITHUB_RUN_NUMBER}" \
+              --build-number="${GITHUB_RUN_NUMBER}" \
               --android-skip-build-dependency-validation; then
               exit 0
             fi
