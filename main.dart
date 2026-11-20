@@ -51,6 +51,31 @@ Future<void> callTajirPhone(String phone) async {
   await tajirUpdateChannel.invokeMethod<void>('callPhone', {'phone': digits});
 }
 
+Future<void> showTajirNationalId(BuildContext context, String profileId) async {
+  try {
+    final value = await Supabase.instance.client.rpc(
+      'get_tajir_national_id',
+      params: {'p_profile_id': profileId},
+    );
+    if (!context.mounted) return;
+    final id = value?.toString() ?? '';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('National ID (private)'),
+        content: SelectableText(id.isEmpty ? 'No National ID has been registered.' : id),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+      ),
+    );
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
+    }
+  }
+}
+
 class TajirCallButton extends StatelessWidget {
   final String profileId;
   final String label;
@@ -838,7 +863,13 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
        Expanded(child:homeTile(title:'MY BRANCH',subtitle:'Choose your branch',imageUrl:TajirPictures.branch,icon:Icons.location_on_outlined,section:5))
       ]),
       const SizedBox(height:10),
-      homeTile(title:'PURCHASE REQUESTS',subtitle:'View and follow up your product requests',imageUrl:TajirPictures.orders,icon:Icons.receipt_long_outlined,section:2)
+      homeTile(title:'PURCHASE REQUESTS',subtitle:'View and follow up your product requests',imageUrl:TajirPictures.orders,icon:Icons.receipt_long_outlined,section:2),
+      const SizedBox(height:12),
+      OutlinedButton.icon(
+        onPressed: () => showTajirNationalId(context, Supabase.instance.client.auth.currentUser!.id),
+        icon: const Icon(Icons.verified_user_outlined),
+        label: const Text('View my National ID'),
+      )
     ])
   );
  }
@@ -2378,8 +2409,15 @@ class _CustomersPageState extends State<CustomersPage> {
         content:SizedBox(width:480,child:SingleChildScrollView(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           Text('Phone: ${customer['phone']??'—'}'),
           const SizedBox(height: 8),
-          if ((customer['profile_id']?.toString() ?? '').isNotEmpty)
+          if ((customer['profile_id']?.toString() ?? '').isNotEmpty) ...[
             TajirCallButton(profileId: customer['profile_id'].toString(), label: 'Call customer'),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => showTajirNationalId(context, customer['profile_id'].toString()),
+              icon: const Icon(Icons.verified_user_outlined),
+              label: const Text('View National ID (Director only)'),
+            ),
+          ],
           Text('Email: ${customer['email']??'—'}'),
           Text('Customer type: ${customer['customer_type']??'—'}'),
           Text('Account status: ${customer['active']==true?'Active':'Inactive'}'),
