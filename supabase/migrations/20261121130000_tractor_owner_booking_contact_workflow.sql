@@ -172,6 +172,50 @@ $$;
 revoke all on function public.owner_mark_tractor_customer_contacted(uuid) from public, anon;
 grant execute on function public.owner_mark_tractor_customer_contacted(uuid) to authenticated;
 
+
+create or replace function public.owner_list_tractor_service_bookings()
+returns table(
+  id uuid,
+  job_number text,
+  service_type text,
+  service_location text,
+  booked_for timestamptz,
+  status text,
+  total_charge numeric,
+  owner_response_status text,
+  owner_quote_kes numeric,
+  owner_contacted_at timestamptz,
+  customer_name text,
+  customer_phone text
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    j.id,
+    j.job_number,
+    j.service_type,
+    j.service_location,
+    j.booked_for,
+    j.status,
+    j.total_charge,
+    j.owner_response_status,
+    j.owner_quote_kes,
+    j.owner_contacted_at,
+    c.full_name,
+    c.phone
+  from public.tractor_service_jobs j
+  join public.tractor_owner_profiles o on o.id = j.owner_profile_id
+  left join public.customers c on c.id = j.customer_id
+  where o.profile_id = auth.uid()
+    and o.status = 'verified'
+  order by j.booked_for desc;
+$$;
+
+revoke all on function public.owner_list_tractor_service_bookings() from public, anon;
+grant execute on function public.owner_list_tractor_service_bookings() to authenticated;
+
 create or replace function public.customer_list_tractor_bookings_with_owner()
 returns table(
   id uuid,
