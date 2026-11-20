@@ -625,48 +625,110 @@ class CustomerPortalPage extends StatefulWidget {
  @override State<CustomerPortalPage> createState()=>_CustomerPortalPageState();
 }
 class _CustomerPortalPageState extends State<CustomerPortalPage>{
- Map<String,dynamic>? c;bool busy=true;bool showRepairsAndSpares=false;String? error;
+ Map<String,dynamic>? c;
+ bool busy=true;
+ String? error;
+ int? selectedSection;
+
  @override void initState(){super.initState();load();}
- Future<void> load()async{setState(()=>busy=true);try{final db=Supabase.instance.client;final userId=db.auth.currentUser!.id;final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',userId).maybeSingle();if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');final roles=await db.from('user_role_assignments').select('app_roles(code)').eq('user_id',userId).eq('is_active',true);final roleCodes=roles.map((x)=>(x['app_roles'] is Map?(x['app_roles'] as Map)['code']:'').toString().toLowerCase()).toSet();final owner=await db.from('tractor_owner_profiles').select('id').eq('profile_id',userId).maybeSingle();final permitted=roleCodes.contains('director')||roleCodes.contains('admin')||roleCodes.contains('driver')||owner!=null;if(mounted)setState(()=>{c=Map<String,dynamic>.from(r),showRepairsAndSpares=permitted});}catch(e){if(mounted)setState(()=>error=friendlyError(e));}if(mounted)setState(()=>busy=false);}
- @override Widget build(BuildContext context){if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));if(c==null)return Scaffold(appBar:AppBar(title:const Text('TAJIR')),body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(error??'Account unavailable'),FilledButton(onPressed:load,child:const Text('Retry')),TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))])));final buy=c!['marketplace_can_buy']==true,sell=c!['marketplace_can_sell']==true;
- final tabs=<Widget>[
-  const Tab(icon:Icon(Icons.shopping_basket_outlined),text:'Buy'),
-  const Tab(icon:Icon(Icons.storefront_outlined),text:'Sell'),
-  const Tab(icon:Icon(Icons.receipt_long_outlined),text:'Requests'),
-  const Tab(icon:Icon(Icons.agriculture),text:'Tractor'),
-  const Tab(icon:Icon(Icons.calendar_month_outlined),text:'Bookings'),
-  const Tab(icon:Icon(Icons.location_on_outlined),text:'Branch'),
-  if(showRepairsAndSpares) const Tab(icon:Icon(Icons.build_circle_outlined),text:'Repairs & Spares'),
- ];
- final pages=<Widget>[
-  CustomerMarketPage(customer:c!,mode:'buy',fertilizerOnly:!buy),
-  sell?CustomerMarketPage(customer:c!,mode:'sell'):const CustomerLockedPage(title:'Sell products',message:'The Director has not enabled selling on your account yet.',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined),
-  CustomerMarketPage(customer:c!,mode:'requests'),
-  CustomerTractorPage(),CustomerTractorBookingsPage(),const BranchRequestPanel(),
-  if(showRepairsAndSpares) const RepairMarketplacePage(),
- ];
- const tractorTabIndex=3;
- return DefaultTabController(length:tabs.length,child:Builder(builder:(tabContext)=>Scaffold(
-  appBar:AppBar(title:Text('TAJIR - '+c!['full_name'].toString()),actions:[
-   IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
-   IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
-  ],bottom:TabBar(isScrollable:true,tabs:tabs)),
-  body:Column(children:[
-   Padding(padding:const EdgeInsets.fromLTRB(12,10,12,4),child:Row(children:[
-    Expanded(child:TajirImageTile(title:'BUY',subtitle:buy?'Find farm products':'Fertilizer available to every farmer',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,onTap:()=>DefaultTabController.of(tabContext).animateTo(0))),
-    const SizedBox(width:8),
-    Expanded(child:TajirImageTile(title:'SELL',subtitle:sell?'List your produce':'Access locked',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined,locked:!sell,onTap:()=>DefaultTabController.of(tabContext).animateTo(1))),
-   ])),
-   Padding(padding:const EdgeInsets.fromLTRB(12,4,12,8),child:TajirImageTile(title:'TRACTOR & MACHINERY SERVICES',subtitle:'Book ploughing, planting, harvesting and more',imageUrl:TajirPictures.tractor,icon:Icons.agriculture,large:true,onTap:()=>DefaultTabController.of(tabContext).animateTo(tractorTabIndex))),
-   Padding(padding:const EdgeInsets.fromLTRB(12,0,12,8),child:Row(children:[
-    Expanded(child:TajirImageTile(title:'MY BOOKINGS',subtitle:'Track farm jobs',imageUrl:TajirPictures.bookings,icon:Icons.calendar_month_outlined,onTap:()=>DefaultTabController.of(tabContext).animateTo(4))),
-    const SizedBox(width:8),
-    Expanded(child:TajirImageTile(title:'MY BRANCH',subtitle:'Choose your branch',imageUrl:TajirPictures.branch,icon:Icons.location_on_outlined,onTap:()=>DefaultTabController.of(tabContext).animateTo(5))),
-   ])),
-   Expanded(child:TabBarView(children:pages))
-  ])
- )));
-}
+
+ Future<void> load()async{
+  if(mounted)setState(()=>busy=true);
+  try{
+   final db=Supabase.instance.client;
+   final userId=db.auth.currentUser!.id;
+   final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',userId).maybeSingle();
+   if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');
+   if(mounted)setState(()=>c=Map<String,dynamic>.from(r));
+  }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
+  if(mounted)setState(()=>busy=false);
+ }
+
+ String sectionTitle(int section)=>const [
+  'Buy Tajir Products','Sell Products','Purchase Requests',
+  'Tractor & Machinery Services','My Bookings','My Branch'
+ ][section];
+
+ Widget sectionPage(int section){
+  final buy=c!['marketplace_can_buy']==true;
+  final sell=c!['marketplace_can_sell']==true;
+  switch(section){
+   case 0:
+    // Show every active marketplace listing. Do not silently restrict buyers
+    // to fertilizer when their account's general buying permission is off.
+    return CustomerMarketPage(customer:c!,mode:'buy',fertilizerOnly:false);
+   case 1:
+    return sell
+     ?CustomerMarketPage(customer:c!,mode:'sell')
+     :const CustomerLockedPage(title:'Sell products',message:'The Director has not enabled selling on your account yet.',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined);
+   case 2:
+    return CustomerMarketPage(customer:c!,mode:'requests');
+   case 3:
+    return CustomerTractorPage();
+   case 4:
+    return CustomerTractorBookingsPage();
+   case 5:
+    return const BranchRequestPanel();
+   default:
+    return const SizedBox.shrink();
+  }
+ }
+
+ Widget homeTile({required String title,required String subtitle,required String imageUrl,required IconData icon,required int section,bool locked=false,bool large=false}){
+  return TajirImageTile(
+   title:title,subtitle:subtitle,imageUrl:imageUrl,icon:icon,locked:locked,large:large,
+   onTap:()=>setState(()=>selectedSection=section),
+  );
+ }
+
+ @override Widget build(BuildContext context){
+  if(busy)return const Scaffold(body:Center(child:CircularProgressIndicator()));
+  if(c==null)return Scaffold(
+   appBar:AppBar(title:const Text('TAJIR')),
+   body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[
+    Text(error??'Account unavailable'),
+    FilledButton(onPressed:load,child:const Text('Retry')),
+    TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))
+   ]))
+  );
+
+  final sell=c!['marketplace_can_sell']==true;
+  final onSection=selectedSection!=null;
+  return Scaffold(
+   appBar:AppBar(
+    leading:onSection?IconButton(
+     tooltip:'Back to dashboard',
+     icon:const Icon(Icons.arrow_back),
+     onPressed:()=>setState(()=>selectedSection=null),
+    ):null,
+    title:Text(onSection?sectionTitle(selectedSection!):'TAJIR - '+c!['full_name'].toString()),
+    actions:[
+     IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
+     IconButton(tooltip:'Refresh',onPressed:onSection?()=>setState((){}):load,icon:const Icon(Icons.refresh)),
+     IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
+    ],
+   ),
+   body:onSection
+    ?sectionPage(selectedSection!)
+    :ListView(padding:const EdgeInsets.all(12),children:[
+      Row(children:[
+       Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse all products available in the marketplace',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0)),
+       const SizedBox(width:8),
+       Expanded(child:homeTile(title:'SELL PRODUCTS',subtitle:sell?'List any product and set your price':'Access locked',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined,section:1,locked:!sell))
+      ]),
+      const SizedBox(height:10),
+      homeTile(title:'TRACTOR & MACHINERY SERVICES',subtitle:'Book ploughing, planting, harvesting and more',imageUrl:TajirPictures.tractor,icon:Icons.agriculture,section:3,large:true),
+      const SizedBox(height:10),
+      Row(children:[
+       Expanded(child:homeTile(title:'MY BOOKINGS',subtitle:'Track farm jobs',imageUrl:TajirPictures.bookings,icon:Icons.calendar_month_outlined,section:4)),
+       const SizedBox(width:8),
+       Expanded(child:homeTile(title:'MY BRANCH',subtitle:'Choose your branch',imageUrl:TajirPictures.branch,icon:Icons.location_on_outlined,section:5))
+      ]),
+      const SizedBox(height:10),
+      homeTile(title:'PURCHASE REQUESTS',subtitle:'View and follow up your product requests',imageUrl:TajirPictures.orders,icon:Icons.receipt_long_outlined,section:2)
+    ])
+  );
+ }
 }
 
 class RepairMarketplacePage extends StatefulWidget {
