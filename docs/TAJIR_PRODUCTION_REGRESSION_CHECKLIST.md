@@ -2,6 +2,66 @@
 
 This checklist is the acceptance baseline for every production change. A feature is not complete because code was committed: it must pass the relevant checks below and the release APK must build successfully.
 
+
+## Additional end-to-end release tests
+
+### Customer and seller marketplace
+
+- [ ] Buyer can browse active listings from other Sellers and cannot see their own listing as a buyer listing.
+- [ ] Buyer sees only `marketplace_listing_selling_prices.selling_price_kes`; no buying price or legacy price is exposed.
+- [ ] Seller can create a listing without entering a public price.
+- [ ] Seller sees only their own `marketplace_listing_buying_prices.buying_price_kes`.
+- [ ] Director can set both buying and selling prices atomically.
+- [ ] A listing with no Director selling price is not offered to Buyers.
+- [ ] A buyer request snapshots the Director-approved unit price and line total on the server.
+- [ ] Legacy `marketplace_listings.price_per_unit` remains zero on insert and update.
+- [ ] Seller can accept/decline purchase requests only for their own listings; buyer sees status updates.
+
+### Branch catalogue pricing and quantities
+
+- [ ] Director can set branch/product-variant selling price in KES per KG.
+- [ ] Customer sees the assigned branch price before requesting a product.
+- [ ] Customer request quantity is entered in KG and server calculates the price from the current branch price.
+- [ ] Maize 90 KG displays as 1 bag and the per-bag equivalent is correct.
+- [ ] Other products use their own `bag_weight_kg`; no blanket 90 KG conversion is applied.
+- [ ] A missing branch price disables the request and explains that the Director must set a price.
+
+### Tractor Owner and Driver responsibility
+
+- [ ] Verified Tractor Owner accounts enter the Owner dashboard using the live `verified` status.
+- [ ] A customer booking is linked to the verified Tractor Owner of the selected tractor.
+- [ ] The Tractor Owner sees incoming bookings and the customer's phone number.
+- [ ] Owner can call the customer; the call attempt is timestamped.
+- [ ] Owner can accept/decline and provide a quote.
+- [ ] Customer sees the owner contact only after acceptance and can call the owner.
+- [ ] Driver sees only assigned jobs and does not receive the customer's private phone number or the owner customer-contact responsibility.
+- [ ] Owner can assign an eligible Driver to an accepted booking. **Not implemented yet.**
+- [ ] Customer with a branch-fleet tractor and no private owner sees Director contact options.
+
+### Identity, security and finance
+
+- [ ] Customer, Seller, Tractor Owner, Mechanic and Auto-spares registration requires phone OTP before account creation.
+- [ ] Expired, incorrect, replayed and rate-limited OTP challenges are rejected.
+- [ ] A person cannot register another person's phone number without receiving its OTP.
+- [ ] Director first-time setup is limited to the two authorized Director identities and verified phone ownership.
+- [ ] National ID values are encrypted and never exposed in public listings, logs or ordinary staff screens.
+- [ ] All six approved payment methods are supported; split payments, credit balances, refunds and reversals reconcile correctly.
+- [ ] M-Pesa is marked paid only after trusted provider callback verification.
+- [ ] Maize `Bag Price` meaning is confirmed as either revenue or packaging expense before profit calculation is enabled.
+
+### Android release and update continuity
+
+- [ ] Build package ID is `com.tajir.tajir_app` and launcher label is `TAJIR`.
+- [ ] Protected production signing secrets are configured; test-only debug APKs are not published.
+- [ ] Original signing key is recovered or the one-time reinstall is explicitly accepted.
+- [ ] Production-signed APK installs and updates on a real Android device.
+- [ ] App update check offers a compatible release and Android asks the user to approve installation.
+- [ ] Logout/session expiry, login, PIN reset and role routing are tested on a real device.
+
+## Current audit-branch status
+
+The audit branch compiles successfully in CI. Deno type-check passed; Flutter analysis reported zero errors, 13 warnings and 199 informational findings. Two new SQL migrations for marketplace price protection and Tractor Owner booking/contact workflows were syntax-tested in a transaction and rolled back. Neither migration nor the phone-verification migration has been deployed to the live database. Real-device, staging and production-signing tests remain release gates.
+
 ## Release gate
 - [ ] GitHub Actions release build completes successfully.
 - [ ] APK artifact exists and is downloadable.
