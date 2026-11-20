@@ -2256,9 +2256,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
               .select('id,tractor_id,verification_status,verified_at,created_at')
               .eq('owner_id', ownerId).order('created_at', ascending: false);
             primary = List<Map<String,dynamic>>.from(assets);
-            final bookings = await db.from('tractor_service_jobs')
-              .select('id,job_number,service_type,service_location,booked_for,status,total_charge,owner_response_status,owner_quote_kes,owner_contacted_at,customers!tractor_service_jobs_customer_id_fkey(full_name,phone)')
-              .eq('owner_profile_id', ownerId).order('booked_for', ascending: false);
+            final bookings = await db.rpc('owner_list_tractor_service_bookings');
             serviceBookings = List<Map<String,dynamic>>.from(bookings);
           }
           final jobs = await db.from('tractor_repair_jobs').select()
@@ -2308,8 +2306,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   }
 
   Future<void> callServiceCustomer(Map<String,dynamic> row) async {
-    final customer = (row['customers'] as Map?)?.cast<String,dynamic>() ?? {};
-    final phone = customer['phone']?.toString() ?? '';
+    final phone = row['customer_phone']?.toString() ?? '';
     if (phone.isEmpty) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This booking has no customer phone number.')));
       return;
@@ -2587,8 +2584,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         out.add(sectionTitle('Incoming tractor service bookings', serviceBookings.length));
         if (serviceBookings.isEmpty) out.add(const Text('No customer tractor-service bookings yet.'));
         for (final booking in serviceBookings) {
-          final customer = (booking['customers'] as Map?)?.cast<String,dynamic>() ?? {};
-          final phone = (customer['phone'] ?? '').toString();
+          final phone = (booking['customer_phone'] ?? '').toString();
           final response = (booking['owner_response_status'] ?? 'pending').toString();
           final jobStatus = (booking['status'] ?? '').toString();
           final actions = <Widget>[];
@@ -2612,7 +2608,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           final contact = booking['owner_contacted_at'] == null ? 'Contact not yet logged' : 'Customer contact attempt logged';
           out.add(recordCard(
             '${booking['job_number'] ?? 'Booking'} • ${booking['service_type'] ?? 'Tractor service'}',
-            '${customer['full_name'] ?? 'Customer'} • ${booking['service_location'] ?? ''} • ${booking['booked_for'] ?? ''} • $contact • $jobStatus',
+            '${booking['customer_name'] ?? 'Customer'} • ${booking['service_location'] ?? ''} • ${booking['booked_for'] ?? ''} • $contact • $jobStatus',
             trailing: booking['owner_quote_kes'] == null ? response : money(booking['owner_quote_kes']),
             actions: actions.isEmpty ? null : Wrap(spacing: 8, runSpacing: 6, children: actions),
           ));
