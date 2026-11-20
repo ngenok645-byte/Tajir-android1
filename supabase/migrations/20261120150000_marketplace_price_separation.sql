@@ -161,8 +161,17 @@ create policy marketplace_offers_director_update
     where ura.user_id = (select auth.uid()) and ura.is_active and ar.code = 'director'
   ));
 
-grant select on public.marketplace_listing_selling_prices to authenticated;
-grant insert, update, delete on public.marketplace_listing_selling_prices to authenticated;
-grant select on public.marketplace_listing_buying_prices to authenticated;
-grant insert, update, delete on public.marketplace_listing_buying_prices to authenticated;
-grant select, insert, update on public.marketplace_listing_offers to authenticated;
+-- Remove inherited/default API grants, then grant only the operations required.
+revoke all on public.marketplace_listing_selling_prices from anon, authenticated;
+revoke all on public.marketplace_listing_buying_prices from anon, authenticated;
+revoke all on public.marketplace_listing_offers from anon, authenticated;
+
+grant select, insert, update, delete on public.marketplace_listing_selling_prices to authenticated;
+grant select, insert, update, delete on public.marketplace_listing_buying_prices to authenticated;
+grant select on public.marketplace_listing_offers to authenticated;
+-- Buyers can submit offer content only; they cannot set review status, director
+-- counter-price, reviewer identity, timestamps, or the generated offer ID.
+grant insert (listing_id, buyer_customer_id, quantity, offer_price_kes, message)
+  on public.marketplace_listing_offers to authenticated;
+-- RLS limits offer updates to active Directors.
+grant update on public.marketplace_listing_offers to authenticated;
