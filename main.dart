@@ -1038,17 +1038,124 @@ class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPag
 
 class AccountRouter extends StatelessWidget {
   const AccountRouter({super.key});
-  @override Widget build(BuildContext context) => FutureBuilder<dynamic>(
-    future: Supabase.instance.client.rpc('get_my_account_status'),
-    builder: (context, snapshot) {
-      if (snapshot.connectionState != ConnectionState.done) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      if (snapshot.hasError) return const HomeShell();
-      final rows = List<Map<String,dynamic>>.from(snapshot.data ?? const []);
-      if (rows.isNotEmpty && rows.first['is_customer'] == true) {
-        return const CustomerPortalPage();
+
+  Future<Widget> _resolveAccount() async {
+    final db = Supabase.instance.client;
+    final user = db.auth.currentUser;
+    if (user == null) return const AuthChoicePage();
+
+    // Resolve customer status and staff roles independently. A failed permission
+    // lookup must never silently grant access to the general staff dashboard.
+    final status = await db.rpc('get_my_account_status');
+    final rows = List<Map<String,dynamic>>.from(status ?? const []);
+    if (rows.isNotEmpty && rows.first['is_customer'] == true) {
+      return const CustomerPortalPage();
+    }
+
+    final assigned = await db.from('user_role_assignments')
+        .select('app_roles(code,name)')
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+    final roleCodes = <String>{};
+    for (final item in assigned) {
+      final role = item['app_roles'];
+      if (role is Map && role['code'] != null) {
+        roleCodes.add(role['code'].toString());
       }
-      return const HomeShell();
+    }
+
+    const staffRoles = {'director','branch_manager','accountant','worker'};
+    const serviceRoles = {
+      'tractor_owner': 'Tractor Owner',
+      'driver': 'Driver',
+      'mechanic': 'Mechanic',
+      'auto_spares_owner': 'Auto-spares Owner',
+    };
+    final matchedServiceRole = serviceRoles.entries
+        .where((entry) => roleCodes.contains(entry.key))
+        .firstOrNull;
+    if (matchedServiceRole != null) {
+      return RoleWorkspacePage(roleCode: matchedServiceRole.key, roleName: matchedServiceRole.value);
+    }
+    if (roleCodes.any(staffRoles.contains)) return const HomeShell();
+    return const AccountAccessIssuePage();
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Widget>(
+    future: _resolveAccount(),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+      if (snapshot.hasError) return const AccountAccessIssuePage();
+      return snapshot.data ?? const AccountAccessIssuePage();
     },
+  );
+}
+
+class RoleWorkspacePage extends StatelessWidget {
+  final String roleCode;
+  final String roleName;
+  const RoleWorkspacePage({super.key, required this.roleCode, required this.roleName});
+
+  String get description => switch (roleCode) {
+    'tractor_owner' => 'Your workspace is for tractor records, bookings, assigned drivers, maintenance and earnings.',
+    'driver' => 'Your workspace is for assigned jobs, tractor details and your work history.',
+    'mechanic' => 'Your workspace is for repair requests, maintenance jobs and service records.',
+    'auto_spares_owner' => 'Your workspace is for spare-parts inventory, orders and sales.',
+    _ => 'Your TAJIR workspace.',
+  };
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(roleName), actions: [
+      IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout)),
+    ]),
+    body: SafeArea(child: Center(child: SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 480), child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.agriculture, size: 64, color: brandGreen),
+          const SizedBox(height: 16),
+          Text('$roleName account', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+          const SizedBox(height: 10),
+          Text(description, textAlign: TextAlign.center),
+          const SizedBox(height: 20),
+          const Card(child: Padding(padding: EdgeInsets.all(16), child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.construction, color: brandGreen),
+              SizedBox(width: 12),
+              Expanded(child: Text('Your role is recognised securely. The dedicated operational tools are still being connected and tested. This account is not being sent to the general staff dashboard while those tools are unfinished.')),
+            ],
+          ))),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout), label: const Text('Sign out')),
+        ],
+      )),
+    ))),
+  );
+}
+
+class AccountAccessIssuePage extends StatelessWidget {
+  const AccountAccessIssuePage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('TAJIR account access')),
+    body: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.lock_outline, size: 56, color: brandGreen),
+        const SizedBox(height: 14),
+        const Text('We could not verify your account role', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+        const SizedBox(height: 8),
+        const Text('For your security, TAJIR has not opened the staff dashboard. Check your connection or ask the Director to verify your active account role.', textAlign: TextAlign.center),
+        const SizedBox(height: 16),
+        FilledButton(onPressed: () => Supabase.instance.client.auth.signOut(), child: const Text('Return to sign in')),
+      ],
+    ))),
   );
 }
 
