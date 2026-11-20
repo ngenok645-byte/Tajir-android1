@@ -1710,51 +1710,6 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
       MaterialPageRoute(builder: (_) => DirectorReadOnlyDashboardPage(account: account)),
     );
   }
-    final session = Supabase.instance.client.auth.currentSession;
-    if (session == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please sign in again as Director.')),
-      );
-      return;
-    }
-    try {
-      final response = await Supabase.instance.client.functions.invoke(
-        'tajir-director-assume-account',
-        body: {'target_user_id': targetId},
-      );
-      final data = response.data;
-      if (response.status != 200 || data is! Map ||
-          data['success'] != true || data['token_hash'] == null) {
-        throw FormatException(data is Map
-            ? (data['error'] ?? 'Could not open this account.').toString()
-            : 'Could not open this account.');
-      }
-      _directorRestoreRefreshToken = session.refreshToken;
-      _directorAccessingAccount = account['name']?.toString() ?? 'selected account';
-      try {
-        await Supabase.instance.client.auth.verifyOTP(
-          tokenHash: data['token_hash'].toString(),
-          type: OtpType.magiclink,
-        );
-      } catch (_) {
-        _directorRestoreRefreshToken = null;
-        _directorAccessingAccount = null;
-        rethrow;
-      }
-      if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const AuthGate()),
-        (route) => false,
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e))),
-        );
-      }
-    }
-  }
-
   Future<void> _resetCustomerPin(Map<String, dynamic> account) async {
     final records = List<Map<String, dynamic>>.from(account['records'] ?? const []);
     String? customerId;
