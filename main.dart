@@ -759,7 +759,7 @@ class _LoginPageState extends State<LoginPage> {
             Text(setupDirector ? 'Set up Director access' : '${widget.accountType} sign in',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 18),
-            TextField(controller: phone, keyboardType: TextInputType.phone,
+            TextField(controller: phone, enabled: !busy, keyboardType: TextInputType.phone,
                 onChanged: (_) => setState(() { phoneVerificationId = null; phoneCodeSent = false; phoneVerified = false; phoneCode.clear(); }),
                 decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
               if (setupDirector) ...[
@@ -820,7 +820,7 @@ class _LoginPageState extends State<LoginPage> {
 String normalizeKenyanPhone(String input) {
   var digits = input.replaceAll(RegExp(r'[^0-9]'), '');
   if (digits.length == 10 && digits.startsWith('0')) digits = '254' + digits.substring(1);
-  if (digits.length == 9 && digits.startsWith('7')) digits = '254' + digits;
+  if (digits.length == 9 && (digits.startsWith('7') || digits.startsWith('1'))) digits = '254' + digits;
   if (digits.length == 12 && digits.startsWith('254') && RegExp(r'^254[17]\d{8}$').hasMatch(digits)) return '+' + digits;
   throw const FormatException('Enter a valid Kenyan mobile number, e.g. 0712345678.');
 }
@@ -992,7 +992,7 @@ class _ProviderRegistrationPageState extends State<ProviderRegistrationPage> {
             TextField(controller: fullName, textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
             const SizedBox(height: 12),
-            TextField(controller: phone, keyboardType: TextInputType.phone,
+            TextField(controller: phone, enabled: !busy, keyboardType: TextInputType.phone,
               onChanged: (_) => setState(() { phoneVerificationId = null; phoneCodeSent = false; phoneVerified = false; phoneCode.clear(); }),
               decoration: const InputDecoration(labelText: 'Your phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
             const SizedBox(height: 10),
@@ -1316,7 +1316,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             if (createAccount) TextField(controller: name, textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
             if (createAccount) const SizedBox(height: 12),
-            TextField(controller: phone, keyboardType: TextInputType.phone,
+            TextField(controller: phone, enabled: !busy, keyboardType: TextInputType.phone,
               onChanged: (_) => setState(() { phoneVerificationId = null; phoneCodeSent = false; phoneVerified = false; phoneCode.clear(); }),
               decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
             if (createAccount) ...[
@@ -1364,7 +1364,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
               decoration: const InputDecoration(labelText: 'Confirm four-digit PIN', border: OutlineInputBorder(), counterText: '')),
             if (message != null) Padding(padding: const EdgeInsets.only(top: 12),
-              child: Text(message!, style: const TextStyle(color: Colors.red))),
+              child: Text(message!, style: TextStyle(color: phoneVerified ? brandGreen : Colors.red))),
             const SizedBox(height: 16),
             SizedBox(width: double.infinity, child: FilledButton(onPressed: busy ? null : submit,
               child: Text(busy ? 'Please wait…' : createAccount ? 'Create account' : 'Sign in'))),
