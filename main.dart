@@ -1210,6 +1210,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   String? error;
   List<Map<String, dynamic>> records = [];
   String displayName = 'TAJIR account';
+  String? providerProfileId;
 
   String get heading => switch (widget.role) {
     'worker' => 'Worker workspace',
@@ -1259,6 +1260,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         final profileRow = await db.from('auto_spares_profiles').select('id')
           .eq('profile_id', uid).maybeSingle();
         if (profileRow != null) {
+          providerProfileId = profileRow['id'].toString();
           final rows = await db.from('auto_spares_inventory')
             .select('part_name,part_reference,quantity,unit,price_kes,status')
             .eq('shop_id', profileRow['id']).order('part_name');
@@ -1298,6 +1300,69 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
       if (mounted) setState(() { records = next; busy = false; });
     } catch (e) {
       if (mounted) setState(() { error = friendlyError(e); busy = false; });
+    }
+  }
+
+  Future<void> _addSparePart() async {
+    if (providerProfileId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Your approved shop profile could not be found.')),
+      );
+      return;
+    }
+    final name = TextEditingController();
+    final reference = TextEditingController();
+    final quantity = TextEditingController();
+    final unit = TextEditingController(text: 'piece');
+    final price = TextEditingController();
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Add spare part'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: name, textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(labelText: 'Part name')),
+        TextField(controller: reference, decoration: const InputDecoration(labelText: 'Part reference (optional)')),
+        TextField(controller: quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(labelText: 'Quantity in stock')),
+        TextField(controller: unit, decoration: const InputDecoration(labelText: 'Unit (e.g. piece, litre)')),
+        TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(labelText: 'Selling price (KES)')),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save item')),
+      ],
+    ));
+    if (accepted != true) {
+      name.dispose(); reference.dispose(); quantity.dispose(); unit.dispose(); price.dispose();
+      return;
+    }
+    final qty = double.tryParse(quantity.text.trim());
+    final amount = double.tryParse(price.text.trim());
+    if (name.text.trim().isEmpty || qty == null || qty <= 0 || amount == null || amount < 0 || unit.text.trim().isEmpty) {
+      name.dispose(); reference.dispose(); quantity.dispose(); unit.dispose(); price.dispose();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a part name, valid positive quantity, unit and valid KES price.')),
+      );
+      return;
+    }
+    try {
+      await Supabase.instance.client.from('auto_spares_inventory').insert({
+        'shop_id': providerProfileId,
+        'part_name': name.text.trim(),
+        'part_reference': reference.text.trim().isEmpty ? null : reference.text.trim(),
+        'quantity': qty,
+        'unit': unit.text.trim(),
+        'price_kes': amount,
+        'status': 'active',
+      });
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Spare part added to your shop inventory.')),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    } finally {
+      name.dispose(); reference.dispose(); quantity.dispose(); unit.dispose(); price.dispose();
     }
   }
 
@@ -1354,6 +1419,8 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
     appBar: AppBar(
       title: Text(heading),
       actions: [
+        if (widget.role == 'auto_spares')
+          IconButton(tooltip: 'Add spare part', onPressed: busy ? null : _addSparePart, icon: const Icon(Icons.add_box_outlined)),
         IconButton(tooltip: 'Refresh', onPressed: load, icon: const Icon(Icons.refresh)),
         IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)),
