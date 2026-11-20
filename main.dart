@@ -1659,7 +1659,7 @@ Future<void> checkForTajirUpdate(BuildContext context) async {
     final payload = jsonDecode(await response.transform(utf8.decoder).join());
     if (payload is! Map<String, dynamic> || !context.mounted) return;
     final tag = (payload['tag_name'] ?? '').toString();
-    final match = RegExp(r'^tajir-(\d+).firstMatch(tag);
+    final match = RegExp(r'^tajir-(\d+)$').firstMatch(tag);
     final latest = int.tryParse(match?.group(1) ?? '') ?? 0;
     if (latest <= tajirBuildNumber || latest == _tajirDismissedUpdateVersion) return;
     final assets = payload['assets'];
@@ -1678,7 +1678,7 @@ Future<void> checkForTajirUpdate(BuildContext context) async {
         canPop: !required,
         child: AlertDialog(
           title: Text('TAJIR update $version available'),
-          content: Text(notes.replaceAll('[MANDATORY]', '').trim() + (required ? '\\n\\nThis update is required.' : '')),
+          content: Text(notes.replaceAll('[MANDATORY]', '').trim() + (required ? '\n\nThis update is required.' : '')),
           actions: [
             if (!required) TextButton(onPressed: () {
               _tajirDismissedUpdateVersion = latest;
@@ -1771,7 +1771,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Director Account Centre'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
-      if (director) ListTile(leading: const Icon(Icons.science_outlined), title: const Text('Demo Accounts'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),\n      if (director) ListTile(leading: const Icon(Icons.system_update), title: const Text('App Updates'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
+      if (director) ListTile(leading: const Icon(Icons.science_outlined), title: const Text('Demo Accounts'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
+      if (director) ListTile(leading: const Icon(Icons.system_update), title: const Text('App Updates'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
       const SizedBox(height: 8),
     ])));
   }
