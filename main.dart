@@ -2220,7 +2220,7 @@ class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
 }
-class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
+class _HomeShellState extends State<HomeShell> {
   bool checkingUpdate = false;
   Map<String, dynamic>? availableUpdate;
 
@@ -2264,10 +2264,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     }
   }
   List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(7), onOpenStaff: () => selectPage(8), onOpenMarketplace: () => selectPage(9)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const DirectorySearchPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage(), if (director) const BranchKgPricingPage(), const DirectorySearchPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services','TAJIR Directory', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Marketplace Pricing', if (director) 'Branch Prices (KES/kg)', 'TAJIR Directory'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture,Icons.search, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change, if (director) Icons.scale, Icons.manage_search];
-  @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
-  @override void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }\n  Future<void> loadAccess() async {
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services','TAJIR Directory', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Marketplace Pricing', if (director) 'Branch Prices (KES/kg)'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture,Icons.search, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change, if (director) Icons.scale];
+  @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
+  @override void dispose() { super.dispose(); }\n  Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
       final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
@@ -2280,8 +2280,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),\n      ListTile(leading: const Icon(Icons.search), title: const Text('TAJIR Directory'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
-      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
-      if (director) ListTile(leading: const Icon(Icons.price_change), title: const Text('Marketplace Pricing & Offers'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
+      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
+      if (director) ListTile(leading: const Icon(Icons.price_change), title: const Text('Marketplace Pricing & Offers'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
       const SizedBox(height: 8),
     ])));
   }
