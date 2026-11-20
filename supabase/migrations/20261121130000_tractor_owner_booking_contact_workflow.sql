@@ -5,7 +5,8 @@ alter table public.tractor_service_jobs
   add column if not exists owner_response_status text not null default 'pending',
   add column if not exists owner_response_at timestamptz,
   add column if not exists owner_quote_kes numeric(14,2),
-  add column if not exists owner_notes text;
+  add column if not exists owner_notes text,
+  add column if not exists owner_contacted_at timestamptz;
 
 alter table public.tractor_service_jobs
   add constraint tractor_service_jobs_owner_response_status_check
@@ -141,6 +142,36 @@ $$;
 revoke all on function public.owner_respond_tractor_service_job(uuid, text, numeric, text) from public, anon;
 grant execute on function public.owner_respond_tractor_service_job(uuid, text, numeric, text) to authenticated;
 
+
+create or replace function public.owner_mark_tractor_customer_contacted(p_job_id uuid)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_contacted_at timestamptz;
+begin
+  update public.tractor_service_jobs j
+  set owner_contacted_at = now()
+  from public.tractor_owner_profiles o
+  where j.id = p_job_id
+    and o.id = j.owner_profile_id
+    and o.profile_id = auth.uid()
+    and o.status = 'verified'
+    and j.status in ('booked','confirmed')
+  returning j.owner_contacted_at into v_contacted_at;
+
+  if v_contacted_at is null then
+    raise exception 'This booking is not available for owner contact logging.';
+  end if;
+  return v_contacted_at;
+end;
+$$;
+
+revoke all on function public.owner_mark_tractor_customer_contacted(uuid) from public, anon;
+grant execute on function public.owner_mark_tractor_customer_contacted(uuid) to authenticated;
+
 create or replace function public.customer_list_tractor_bookings_with_owner()
 returns table(
   id uuid,
@@ -155,6 +186,7 @@ returns table(
   owner_quote_kes numeric,
   owner_name text,
   owner_phone text,
+  owner_contacted_at timestamptz,
   created_at timestamptz
 )
 language sql
@@ -174,6 +206,7 @@ as $$
     j.owner_quote_kes,
     case when j.owner_response_status = 'accepted' then o.full_name else null end,
     case when j.owner_response_status = 'accepted' then o.phone else null end,
+    j.owner_contacted_at,
     j.created_at
   from public.customers c
   join public.tractor_service_jobs j on j.customer_id = c.id
