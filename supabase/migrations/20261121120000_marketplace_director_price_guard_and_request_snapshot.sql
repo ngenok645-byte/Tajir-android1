@@ -23,8 +23,8 @@ begin
 end;
 $$;
 
-drop constraint if exists marketplace_listings_price_per_unit_check
-  on public.marketplace_listings;
+alter table public.marketplace_listings
+  drop constraint if exists marketplace_listings_price_per_unit_check;
 
 alter table public.marketplace_listings
   add constraint marketplace_listings_legacy_price_zero_check
