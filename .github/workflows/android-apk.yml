@@ -12,6 +12,9 @@ name: Build TAJIR Android APK
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build TAJIR Android APK
@@ -71,7 +74,7 @@ jobs:
               raise SystemExit("Generated Android MainActivity.kt was not found")
           path = files[0]
           old = path.read_text()
-          match = re.search(r"^package\\s+([A-Za-z0-9_.]+)", old, re.M)
+          match = re.search(r"^package\s+([A-Za-z0-9_.]+)", old, re.M)
           if not match:
               raise SystemExit("Could not determine generated Android package")
           package = match.group(1)
