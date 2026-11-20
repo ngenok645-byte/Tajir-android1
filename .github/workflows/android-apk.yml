@@ -95,12 +95,16 @@ jobs:
                       break
           if end is None:
               raise SystemExit("Could not parse pluginManagement repositories block")
-          block = source[start:end + 1]
-          additions = [item for item in ("google()", "mavenCentral()", "gradlePluginPortal()") if item not in block]
-          if additions:
-              source = source[:start + 1] + "\n        " + "\n        ".join(additions) + source[start + 1:]
-              path.write_text(source)
-          print("Android plugin repositories verified.")
+          # Prefer Maven Central for Kotlin artifacts; Gradle keeps transitive
+          # dependencies tied to the repository that supplied their POM.
+          repositories = """{
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }"""
+          source = source[:start] + repositories + source[end + 1:]
+          path.write_text(source)
+          print("Android plugin repositories ordered: Google, Maven Central, Gradle Plugin Portal.")
           PY
 
       - name: Install TAJIR update-link platform channel
