@@ -2403,20 +2403,15 @@ class _ProviderApplicationsPageState extends State<ProviderApplicationsPage> {
     if (saving) return;
     setState(() => saving = true);
     try {
-      final userId = row['profile_id'].toString();
-      final roleCode = row['_role'].toString();
-      final role = await db.from('app_roles').select('id').eq('code', roleCode).single();
-      if (decision == 'approved') {
-        // Activate the assigned role first. The provider status gate keeps the
-        // account out of its workspace until the approval status is committed.
-        await db.from('user_role_assignments').update({'is_active': true})
-          .eq('user_id', userId).eq('role_id', role['id']);
-      } else {
-        await db.from('user_role_assignments').update({'is_active': false})
-          .eq('user_id', userId).eq('role_id', role['id']);
+      final response = await db.functions.invoke('tajir-provider-review', body: {
+        'profile_id': row['profile_id'],
+        'role': row['_role'],
+        'decision': decision,
+      });
+      final data = response.data;
+      if (response.status != 200 || data is! Map || data['success'] != true) {
+        throw FormatException(data is Map ? (data['error']?.toString() ?? 'Provider review failed.') : 'Provider review failed.');
       }
-      await db.from(row['_table'].toString()).update({'status': decision})
-        .eq('id', row['id']);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(decision == 'approved' ? 'Provider approved. Their role is now active.' : 'Application rejected. The provider role remains disabled.')));
       await load();
