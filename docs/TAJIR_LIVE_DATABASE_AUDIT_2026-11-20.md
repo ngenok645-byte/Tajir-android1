@@ -11,17 +11,36 @@
 
 ## Live account roles
 
-The live `app_roles` table contains 0 role definitions:
+The live `app_roles` table contains 11 role definitions:
 
-
+- **accountant** — Financial records and reports
+- **auto_spares_owner** — Manages spare-parts inventory, orders and sales.
+- **branch_manager** — Operational management for assigned branch
+- **buyer** — Customer who purchases from TAJIR
+- **director** — Full administrator: Mercy or Edu
+- **driver** — Views assigned tractor jobs, tractor details and work history.
+- **mechanic** — Manages assigned repair requests, maintenance jobs and service records.
+- **seller** — Customer who sells products to TAJIR
+- **supplier** — Approved supplier portal access
+- **tractor_owner** — Manages tractors, bookings, assigned drivers, maintenance and earnings.
+- **worker** — Restricted operational access for assigned branch
 
 The eight primary account types are Director, Buyer, Seller, Worker, Tractor Owner, Driver, Mechanic and Auto-spares Owner. Accountant, Branch Manager and Supplier are additional internal/support roles. See `TAJIR_ROLE_WORKFLOW_MATRIX.md`.
 
 ## Payment enum metadata
 
-No payment-related public enum labels were returned by this metadata query.
+The live `payment_method` enum currently contains:
+- `mpesa`
+- `cash`
+- `bank_transfer`
+- `other`
+The live `payment_status` enum contains:
+- `pending`
+- `verified`
+- `rejected`
+- `reversed`
 
-The complete payment workflow requested by the product plan is broader than the current enum and must be reconciled with the approved six-method plan before the UI is finalized.
+The complete payment workflow requested by the product plan is broader than the current payment-method enum and must be reconciled with the approved six-method plan before the UI is finalized.
 
 ## Important live workflows and gaps
 
@@ -138,4 +157,3 @@ The live database has 79 applied migrations. The GitHub starter/release branches
 - `20261120150910` — `normalize_kenyan_phone_directory_search`
 - `20261120151054` — `require_tajir_public_id_on_every_profile`
 - `20261120151131` — `keep_directory_search_private_schema_private`
-
