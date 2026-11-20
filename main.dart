@@ -2814,7 +2814,7 @@ class _StockPageState extends State<StockPage>{
                 Text('Received: ${qty.toStringAsFixed(2)} ${item['unit']??''}'),
                 Text('Item ID: ${id.length>8?id.substring(0,8):id}',style:const TextStyle(fontSize:11,color:Colors.black54)),
                 ])),
-              ]),
+              ])),
               SizedBox(width:118,child:TextField(
                 controller:acceptedControllers[id],
                 keyboardType:const TextInputType.numberWithOptions(decimal:true),
