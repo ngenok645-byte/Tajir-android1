@@ -1791,7 +1791,37 @@ class _DirectorAccountCentrePageState extends State<DirectorAccountCentrePage> {
       ],
     ));
     if (accepted != true) { pin.dispose(); confirm.dispose(); return; }
-    if (!RegExp(r'^\d{4}
+    if (!RegExp(r'^\d{4}$').hasMatch(pin.text) || pin.text != confirm.text) {
+      pin.dispose();
+      confirm.dispose();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter matching four-digit PINs.')),
+      );
+      return;
+    }
+    try {
+      final response = await Supabase.instance.client.functions.invoke(
+        'tajir-director-set-customer-pin',
+        body: {'customer_id': customerId, 'pin': pin.text},
+      );
+      final data = response.data;
+      if (response.status != 200 || data is! Map || data['success'] != true) {
+        throw FormatException(data is Map ? (data['error'] ?? 'Could not reset customer PIN.').toString() : 'Could not reset customer PIN.');
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('PIN reset for ${account['name']}.')),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    } finally {
+      pin.dispose();
+      confirm.dispose();
+    }
+  }
+
+  @override Widget build(BuildContext context) {
+    final q = filter.trim().toLowerCase();
+    final visible = accounts.where((a) {
       final roles = (a['roles'] as Set<String>).join(' ').toLowerCase();
       return _matchesCategory(a) && (a['name'].toString().toLowerCase().contains(q) ||
         roles.contains(q) || a['id'].toString().toLowerCase().contains(q) ||
@@ -4838,3 +4868,12 @@ class _PreviewHomeState extends State<PreviewHome> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.dashboard), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.shopping_cart), label: 'Buy'),
+
+          NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'Sell'),
+          NavigationDestination(icon: Icon(Icons.inventory), label: 'Stock'),
+          NavigationDestination(icon: Icon(Icons.people), label: 'Customers'),
+        ],
+      ),
+    );
+  }
+}
