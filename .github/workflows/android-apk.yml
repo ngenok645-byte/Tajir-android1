@@ -89,6 +89,38 @@ jobs:
         run: |
           rm -rf android
           flutter create . --platforms=android --org com.tajir --project-name tajir_app
+      - name: Preserve existing TAJIR Android package identity
+        working-directory: TAJIR_flutter_app
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import shutil
+
+          gradle = Path("android/app/build.gradle.kts")
+          source = gradle.read_text()
+          source, ns = re.subn(r'(^\\s*namespace\\s*=\\s*)"[^"]+"', r'\\1"com.tajir.app"', source, count=1, flags=re.M)
+          source, app = re.subn(r'(^\\s*applicationId\\s*=\\s*)"[^"]+"', r'\\1"com.tajir.app"', source, count=1, flags=re.M)
+          if ns != 1 or app != 1:
+              raise SystemExit("Could not preserve the established com.tajir.app namespace/applicationId.")
+          gradle.write_text(source)
+
+          activities = list(Path("android/app/src/main/kotlin").rglob("MainActivity.kt"))
+          if len(activities) != 1:
+              raise SystemExit(f"Expected one MainActivity.kt, found {len(activities)}")
+          old = activities[0]
+          source = old.read_text()
+          source, changed = re.subn(r'^package\\s+[A-Za-z0-9_.]+', 'package com.tajir.app', source, count=1, flags=re.M)
+          if changed != 1:
+              raise SystemExit("Could not set MainActivity package to com.tajir.app")
+          target = Path("android/app/src/main/kotlin/com/tajir/app/MainActivity.kt")
+          target.parent.mkdir(parents=True, exist_ok=True)
+          target.write_text(source)
+          if old != target:
+              old.unlink()
+          print("TAJIR package identity preserved: com.tajir.app")
+          PY
+
       - name: Ensure Android plugin dependencies resolve from Maven Central
         working-directory: TAJIR_flutter_app
         run: |
@@ -243,6 +275,76 @@ jobs:
               }
           }
           GRADLE
+
+      - name: Configure production signing when protected secrets are available
+        working-directory: TAJIR_flutter_app
+        env:
+          TAJIR_KEYSTORE_BASE64: ${{ secrets.TAJIR_KEYSTORE_BASE64 }}
+          TAJIR_KEYSTORE_PASSWORD: ${{ secrets.TAJIR_KEYSTORE_PASSWORD }}
+          TAJIR_KEY_ALIAS: ${{ secrets.TAJIR_KEY_ALIAS }}
+          TAJIR_KEY_PASSWORD: ${{ secrets.TAJIR_KEY_PASSWORD }}
+          TAJIR_PUBLISH_RELEASE: ${{ inputs.publish_release }}
+        run: |
+          if [ -z "$TAJIR_KEYSTORE_BASE64" ] || [ -z "$TAJIR_KEYSTORE_PASSWORD" ] || [ -z "$TAJIR_KEY_ALIAS" ] || [ -z "$TAJIR_KEY_PASSWORD" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$TAJIR_PUBLISH_RELEASE" = "true" ]; then
+              echo "Production signing secrets are required before publishing a TAJIR release."
+              exit 1
+            fi
+            echo "Protected signing secrets are not configured; this is a test-only APK."
+            exit 0
+          fi
+          printf '%s' "$TAJIR_KEYSTORE_BASE64" | base64 --decode > android/app/tajir-release.jks
+          cat > android/key.properties <<EOF
+          storePassword=$TAJIR_KEYSTORE_PASSWORD
+          keyPassword=$TAJIR_KEY_PASSWORD
+          keyAlias=$TAJIR_KEY_ALIAS
+          storeFile=app/tajir-release.jks
+          EOF
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android/app/build.gradle.kts")
+          s = p.read_text()
+          if "import java.util.Properties" not in s:
+              s = "import java.util.Properties\\nimport java.io.FileInputStream\\n" + s
+          marker = re.search(r"plugins\\s*\\{", s)
+          if not marker:
+              raise SystemExit("Generated Gradle plugins block not found")
+          depth = 0
+          end = None
+          for i in range(marker.end() - 1, len(s)):
+              if s[i] == "{": depth += 1
+              elif s[i] == "}":
+                  depth -= 1
+                  if depth == 0:
+                      end = i + 1
+                      break
+          if end is None:
+              raise SystemExit("Could not locate end of plugins block")
+          props = '''
+          val keystoreProperties = Properties()
+          val keystorePropertiesFile = rootProject.file("key.properties")
+          if (keystorePropertiesFile.exists()) {
+              keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+          }
+          '''
+          s = s[:end] + "\\n" + props + s[end:]
+          if "signingConfigs {" not in s:
+              s = s.replace("    buildTypes {", """    signingConfigs {
+                  create("release") {
+                      keyAlias = keystoreProperties["keyAlias"] as String
+                      keyPassword = keystoreProperties["keyPassword"] as String
+                      storeFile = file(keystoreProperties["storeFile"] as String)
+                      storePassword = keystoreProperties["storePassword"] as String
+                  }
+              }
+              buildTypes {""", 1)
+          s, count = re.subn(r'signingConfig\\s*=\\s*signingConfigs\\.getByName\\("debug"\\)', 'signingConfig = signingConfigs.getByName("release")', s, count=1)
+          if count != 1:
+              raise SystemExit("Could not switch release build to the protected signing key")
+          p.write_text(s)
+          print("Production signing configured from protected GitHub secrets.")
+          PY
 
       - name: Build TAJIR Android APK
         working-directory: TAJIR_flutter_app
