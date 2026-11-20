@@ -50,6 +50,11 @@ create policy marketplace_selling_price_read
   using (exists (
     select 1 from public.marketplace_listings l
     where l.id = listing_id and l.status = 'active'
+      and exists (
+        select 1 from public.customers c
+        where c.profile_id = (select auth.uid()) and c.active
+          and (c.marketplace_can_buy or l.product_name ilike '%fertilizer%')
+      )
   ) or exists (
     select 1 from public.customers c
     where c.profile_id = (select auth.uid()) and c.id = (
