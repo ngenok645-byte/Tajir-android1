@@ -1243,7 +1243,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
 
       if (widget.role == 'worker') {
         final rows = await db.from('staff_tasks')
-          .select('task_number,title,description,due_at,status,completed_at')
+          .select('id,task_number,title,description,due_at,status,completed_at')
           .eq('assigned_to', uid).order('created_at', ascending: false);
         next = List<Map<String, dynamic>>.from(rows);
       } else if (widget.role == 'mechanic') {
@@ -1298,6 +1298,21 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
       if (mounted) setState(() { records = next; busy = false; });
     } catch (e) {
       if (mounted) setState(() { error = friendlyError(e); busy = false; });
+    }
+  }
+
+  Future<void> _updateWorkerTask(Map<String, dynamic> row, String nextStatus) async {
+    try {
+      await Supabase.instance.client.from('staff_tasks')
+        .update({'status': nextStatus}).eq('id', row['id']);
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Task status updated to ${nextStatus.replaceAll('_', ' ')}.')),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
     }
   }
 
@@ -1368,6 +1383,19 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
             title: Text(_title(row)),
             subtitle: Text(_subtitle(row), maxLines: 3, overflow: TextOverflow.ellipsis),
             isThreeLine: true,
+            trailing: widget.role == 'worker' && row['id'] != null &&
+                ['pending', 'in_progress'].contains(row['status'])
+              ? PopupMenuButton<String>(
+                  tooltip: 'Update task',
+                  onSelected: (value) => _updateWorkerTask(row, value),
+                  itemBuilder: (_) => [
+                    if (row['status'] == 'pending')
+                      const PopupMenuItem(value: 'in_progress', child: Text('Start task')),
+                    if (row['status'] == 'in_progress')
+                      const PopupMenuItem(value: 'submitted', child: Text('Submit completed task')),
+                  ],
+                )
+              : null,
           ),
         )),
         const SizedBox(height: 18),
