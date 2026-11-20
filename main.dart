@@ -395,13 +395,14 @@ class LoginPage extends StatefulWidget {
 }
 
 String staffAuthPassword(String pin) => 'TAJIR-PIN-$pin-Account#2026';
-String tajirLoginEmail(String phone) => 'u${phone.replaceAll(RegExp(r'[^0-9]'), '')}@login.tajir.app';
+String tajirLoginEmail(String phone) => 'u\${phone.replaceAll(RegExp(r'[^0-9]'), '')}@login.tajir.app';
 
 class _LoginPageState extends State<LoginPage> {
   final phone = TextEditingController();
   final pin = TextEditingController();
   final confirmPin = TextEditingController();
-  bool busy = false, setupDirector = false;
+  final otp = TextEditingController();
+  bool busy = false, setupDirector = false, otpSent = false;
   String? error;
 
   @override
@@ -409,6 +410,7 @@ class _LoginPageState extends State<LoginPage> {
     phone.dispose();
     pin.dispose();
     confirmPin.dispose();
+    otp.dispose();
     super.dispose();
   }
 
@@ -424,47 +426,78 @@ class _LoginPageState extends State<LoginPage> {
     setState(() { busy = true; error = null; });
     try {
       final db = Supabase.instance.client;
-      {
-        final normalized = normalizeKenyanPhone(phone.text);
-        if (!RegExp(r'^\d{4}$').hasMatch(pin.text)) {
-          throw const FormatException('Enter a four-digit PIN.');
+      final normalized = normalizeKenyanPhone(phone.text.trim());
+      final staffPin = pin.text.trim();
+      if (!RegExp(r'^\d{4}$').hasMatch(staffPin)) {
+        throw const FormatException('Enter all four PIN digits (numbers only).');
+      }
+
+      if (setupDirector) {
+        if (staffPin != confirmPin.text.trim()) {
+          throw const FormatException('The PIN entries do not match.');
         }
-        if (setupDirector) {
-          if (pin.text != confirmPin.text) {
-            throw const FormatException('The PIN entries do not match.');
+
+        if (!otpSent) {
+          // The database allowlist and verification trigger grant Director
+          // access only after ownership of an approved phone is confirmed.
+          await db.auth.signInWithOtp(phone: normalized);
+          if (mounted) {
+            setState(() {
+              otpSent = true;
+              error = null;
+            });
           }
-          final response = await db.functions.invoke(
-            'tajir-director-setup',
-            body: {'phone': phone.text.trim(), 'pin': pin.text},
-          );
-          if (response.status != 200) {
-            final data = response.data;
-            throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'Director setup failed.') : 'Director setup failed.');
-          }
+          return;
         }
-        await db.auth.signInWithPassword(
-          email: tajirLoginEmail(normalized),
-          password: staffAuthPassword(pin.text),
+
+        final code = otp.text.trim();
+        if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+          throw const FormatException('Enter the six-digit SMS verification code.');
+        }
+
+        await db.auth.verifyOTP(
+          phone: normalized,
+          token: code,
+          type: OtpType.sms,
         );
-        // Replace the entire unauthenticated navigation stack. Re-entering
-        // AuthGate after Supabase confirms the session forces AccountRouter to
-        // resolve the signed-in user's role and open the correct dashboard.
-        if (mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const AuthGate()),
-            (route) => false,
-          );
+
+        final response = await db.functions.invoke(
+          'tajir-director-setup',
+          body: {'phone': normalized, 'pin': staffPin},
+        );
+        if (response.status != 200) {
+          final data = response.data;
+          throw FormatException(data is Map
+              ? (friendlyError(data['error'] ?? 'Director setup failed.') ?? 'Director setup failed.')
+              : 'Director setup failed.');
         }
+      }
+
+      await db.auth.signInWithPassword(
+        email: tajirLoginEmail(normalized),
+        password: staffAuthPassword(staffPin),
+      );
+
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AuthGate()),
+          (route) => false,
+        );
       }
     } on AuthException catch (e) {
       if (mounted) setState(() => error = friendlyError(e));
     } on FunctionException catch (e) {
       final details = e.details;
-      if (mounted) setState(() => error = details is Map ? (friendlyError(details['error'] ?? 'Something went wrong.') ?? e.reasonPhrase ?? 'Director setup failed.') : (e.reasonPhrase ?? 'Director setup failed.'));
+      if (mounted) {
+        setState(() => error = details is Map
+            ? (friendlyError(details['error'] ?? 'Something went wrong.') ?? e.reasonPhrase ?? 'Director setup failed.')
+            : (e.reasonPhrase ?? 'Director setup failed.'));
+      }
     } catch (e) {
       if (mounted) setState(() => error = friendlyError(e).replaceFirst('FormatException: ', ''));
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
-    if (mounted) setState(() => busy = false);
   }
 
   @override Widget build(BuildContext context) => Scaffold(
@@ -475,36 +508,65 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const BrandMark(),
             const SizedBox(height: 24),
-            Text(setupDirector ? 'Set up Director access' : 'Staff sign in',
+            Text(setupDirector ? 'First-time Director registration' : 'Staff sign in',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 18),
-            TextField(controller: phone, keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(labelText: 'Your registered staff phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
+            TextField(controller: phone, enabled: !otpSent,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Your registered phone number',
+                hintText: '07XXXXXXXX', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: pin, keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              obscureText: true, maxLength: 4,
+              decoration: InputDecoration(
+                labelText: setupDirector ? 'Choose a four-digit PIN' : 'Four-digit PIN',
+                border: const OutlineInputBorder(), counterText: '')),
+            if (setupDirector) ...[
               const SizedBox(height: 12),
-              TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
-                decoration: const InputDecoration(labelText: 'Four-digit PIN', border: OutlineInputBorder(), counterText: '')),
-              if (setupDirector) ...[
+              TextField(controller: confirmPin, keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                obscureText: true, maxLength: 4,
+                decoration: const InputDecoration(labelText: 'Confirm four-digit PIN',
+                  border: OutlineInputBorder(), counterText: '')),
+              if (otpSent) ...[
                 const SizedBox(height: 12),
-                TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
-                  decoration: const InputDecoration(labelText: 'Confirm four-digit PIN', border: OutlineInputBorder(), counterText: '')),
-              ],
-              const SizedBox(height: 6),
-              Text(setupDirector
-                ? 'One-time setup is only for a pre-approved Director. Workers must ask a Director to create their staff account.'
-                : 'Both Directors and authorised workers sign in here using their own registered phone number and four-digit PIN.',
-                textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                TextField(controller: otp, keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
+                  decoration: const InputDecoration(labelText: 'Six-digit SMS verification code',
+                    border: OutlineInputBorder(), counterText: '')),
+                const Text('Enter the verification code sent to the registered phone. Your four-digit PIN will be used for future sign-ins.',
+                  textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
+              ] else
+                const Text('Only the two pre-approved Director phone numbers can complete registration. Phone ownership is verified once by SMS; future sign-ins use the four-digit PIN.',
+                  textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
+            ] else
+              const Text('Directors and authorised workers sign in with their registered phone number and four-digit PIN.',
+                textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
             if (error != null) Padding(padding: const EdgeInsets.only(top: 12),
               child: Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
             const SizedBox(height: 16),
             SizedBox(width: double.infinity, child: FilledButton(
               onPressed: busy ? null : submit,
-              child: Text(busy ? 'Please wait…' : setupDirector ? 'Set up and sign in' : 'Sign in'),
+              child: Text(busy ? 'Please wait…' : setupDirector
+                ? (otpSent ? 'Verify & set up Director' : 'Send verification code')
+                : 'Sign in'),
             )),
             SizedBox(width: double.infinity, child: OutlinedButton.icon(
               onPressed: busy ? null : showForgotPinHelp,
               icon: const Icon(Icons.lock_reset),
               label: const Text('FORGOT PIN? GET HELP'),
             )),
+            TextButton(
+              onPressed: busy ? null : () => setState(() {
+                setupDirector = !setupDirector;
+                otpSent = false;
+                otp.clear();
+                confirmPin.clear();
+                error = null;
+              }),
+              child: Text(setupDirector ? 'Back to staff sign in' : 'First-time Director? Register here')),
             TextButton(onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
               child: const Text('Are you a client, tractor owner or driver?')),
