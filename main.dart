@@ -1281,8 +1281,8 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    dynamic r;
    if(widget.mode=='buy'){
     final tajir=await db.rpc('customer_list_tajir_products');
-    final priceRows=await db.from('branch_product_selling_prices').select('branch_id,product_variant_id,selling_price_per_kg');
-    final kgPrices={for(final p in List<Map<String,dynamic>>.from(priceRows)) p['branch_id'].toString()+':'+p['product_variant_id'].toString():p['selling_price_per_kg']};
+    final branchPriceRows=await db.from('branch_product_selling_prices').select('branch_id,product_variant_id,selling_price_per_kg');
+    final kgPrices={for(final p in List<Map<String,dynamic>>.from(branchPriceRows)) p['branch_id'].toString()+':'+p['product_variant_id'].toString():p['selling_price_per_kg']};
     final weightRows=await db.from('product_variants').select('id,bag_weight_kg');
     final weights={for(final p in List<Map<String,dynamic>>.from(weightRows)) p['id'].toString():p['bag_weight_kg']};
     final pricedTajir=List<Map<String,dynamic>>.from(tajir).map((x){final unit=(x['unit']??'kg').toString().toLowerCase();final w=double.tryParse((weights[x['product_variant_id'].toString()]??0).toString())??0;final stock=double.tryParse((x['quantity_available']??0).toString())??0;return {...x,'selling_price_per_kg':kgPrices[x['branch_id'].toString()+':'+x['product_variant_id'].toString()],'available_kg':unit=='kg'?stock:stock*w};}).toList();
