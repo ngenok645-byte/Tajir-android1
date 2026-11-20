@@ -282,18 +282,32 @@ class TajirApp extends StatefulWidget {
   State<TajirApp> createState() => _TajirAppState();
 }
 
-class _TajirAppState extends State<TajirApp> {
-  // Keep the authenticated session when a client switches apps, locks the
-  // phone, or closes TAJIR. Supabase persists and refreshes the session.
-  // A user is signed out only by choosing the app's explicit Sign out action
-  // or when the authentication provider invalidates the session.
+class _TajirAppState extends State<TajirApp> with WidgetsBindingObserver {
+  bool signingOutForBackground = false;
+  @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); }
+  @override void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
   @override
-  Widget build(BuildContext context) => MaterialApp(
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Sign out only after TAJIR is backgrounded. "inactive" is deliberately
+    // ignored because Android can emit it for calls, permission prompts and dialogs.
+    if (state == AppLifecycleState.paused && !signingOutForBackground) {
+      try {
+        final auth = Supabase.instance.client.auth;
+        if (auth.currentSession == null) return;
+        signingOutForBackground = true;
+        auth.signOut().then((_) {}, onError: (_) {}).whenComplete(() {
+          signingOutForBackground = false;
+        });
+      } catch (_) {
+        signingOutForBackground = false;
+      }
+    }
+  }
+  @override Widget build(BuildContext context) => MaterialApp(
     title: 'TAJIR', debugShowCheckedModeBanner: false, theme: appTheme,
     home: const AuthGate(),
   );
 }
-
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -2250,24 +2264,12 @@ class _HomeShellState extends State<HomeShell> {
 
   int index = 0;
   bool director = false;
-  bool signingOutForBackground = false;
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
-      if (!signingOutForBackground && Supabase.instance.client.auth.currentSession != null) {
-        signingOutForBackground = true;
-        Supabase.instance.client.auth.signOut().then((_) {}, onError: (_) {}).whenComplete(() {
-          signingOutForBackground = false;
-        });
-      }
-    }
-  }
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(7), onOpenStaff: () => selectPage(8), onOpenMarketplace: () => selectPage(9)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const DirectorySearchPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage(), if (director) const BranchKgPricingPage(), const DirectorySearchPage()];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(7), onOpenStaff: () => selectPage(8), onOpenMarketplace: () => selectPage(9)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const DirectorySearchPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage(), if (director) const BranchKgPricingPage()];
   List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services','TAJIR Directory', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Marketplace Pricing', if (director) 'Branch Prices (KES/kg)'];
   List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture,Icons.search, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change, if (director) Icons.scale];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
-  @override void dispose() { super.dispose(); }\n  Future<void> loadAccess() async {
+  @override void dispose() { super.dispose(); }
+  Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
       final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
@@ -2278,8 +2280,9 @@ class _HomeShellState extends State<HomeShell> {
   void openMoreMenu() {
     showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
-      ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),\n      ListTile(leading: const Icon(Icons.search), title: const Text('TAJIR Directory'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
-      if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
+      ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
+      ListTile(leading: const Icon(Icons.search), title: const Text('TAJIR Directory'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
+      if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       if (director) ListTile(leading: const Icon(Icons.price_change), title: const Text('Marketplace Pricing & Offers'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
       const SizedBox(height: 8),
