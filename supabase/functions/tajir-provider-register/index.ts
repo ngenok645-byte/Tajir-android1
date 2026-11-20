@@ -45,7 +45,8 @@ Deno.serve(async (req) => {
     if (!["tractor_owner", "mechanic", "auto_spares_owner"].includes(role)) {
       return json({ error: "Choose a supported provider account type." }, 400);
     }
-    if (fullName.length < 2 || fullName.length > 80 || !phone || !/^\d{4}$/.test(pin)) {
+    if (fullName.length < 2 || fullName.length > 80 || !phone || !/^\d{4}$/.test(pin) ||
+        !/^[0-9a-f-]{36}$/i.test(verificationId)) {
       return json({ error: "Enter your full name, valid Kenyan phone number and four-digit PIN." }, 400);
     }
     if (role !== "tractor_owner" && (businessName.length < 2 || businessName.length > 100 || location.length < 2 || location.length > 120)) {
