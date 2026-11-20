@@ -2189,6 +2189,23 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
+  // Primary registered Director contact. The second authorised Director
+  // number is not shown until its TAJIR profile is registered and verified.
+  static const String directorContactName = 'TAJIR Director';
+  static const String directorContactPhone = '0700020140';
+
+  Future<void> contactDirector() async {
+    try {
+      await callTajirPhone(directorContactPhone);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to open the Director call screen: $e')),
+        );
+      }
+    }
+  }
+
   int index = 0;
   bool director = false;
   List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(7), onOpenStaff: () => selectPage(8), onOpenMarketplace: () => selectPage(9)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const DirectorySearchPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage(), if (director) const BranchKgPricingPage()];
@@ -2219,7 +2236,7 @@ class _HomeShellState extends State<HomeShell> {
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: 'Call TAJIR Director • 0700020140', onPressed: contactDirector, icon: const Icon(Icons.support_agent)), IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
       body: Row(children: [
         if (wide) NavigationRail(selectedIndex: index, onDestinationSelected: selectPage, labelType: NavigationRailLabelType.all, destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i])))),
         Expanded(child: IndexedStack(index: index, children: pages)),
