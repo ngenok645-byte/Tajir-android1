@@ -48,6 +48,7 @@ Future<void> callTajirPhone(String phone) async {
   tajirCallInProgress = true;
   final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
   if (digits.replaceAll(RegExp(r'[^0-9]'), '').length < 9) {
+    tajirCallInProgress = false;
     throw const FormatException('This contact does not have a valid phone number.');
   }
   try { await tajirUpdateChannel.invokeMethod<void>('callPhone', {'phone': digits}); }
@@ -291,6 +292,12 @@ class _TajirAppState extends State<TajirApp> with WidgetsBindingObserver {
   @override void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Keep the session alive while the user is in the phone dialler for a TAJIR contact.
+    if (state == AppLifecycleState.resumed && tajirCallInProgress) {
+      tajirCallInProgress = false;
+      return;
+    }
+    if (state == AppLifecycleState.paused && tajirCallInProgress) return;
     // Sign out only after TAJIR is backgrounded. "inactive" is deliberately
     // ignored because Android can emit it for calls, permission prompts and dialogs.
     if (state == AppLifecycleState.paused && !signingOutForBackground) {
