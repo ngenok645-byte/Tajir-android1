@@ -1523,7 +1523,7 @@ class _DirectorDemoAccountsPageState extends State<DirectorDemoAccountsPage> {
       if (rows.isEmpty) {
         final directorId = db.auth.currentUser?.id;
         if (directorId == null) {
-          throw const AuthException('Please sign in again to create demo accounts.');
+          throw StateError('Please sign in again to create demo accounts.');
         }
         final starterAccounts = _demoRoleTemplates.entries.map((entry) {
           final template = entry.value;
