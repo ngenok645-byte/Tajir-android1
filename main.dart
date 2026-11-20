@@ -1097,9 +1097,9 @@ class _HomeShellState extends State<HomeShell> {
 
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -1114,6 +1114,7 @@ class _HomeShellState extends State<HomeShell> {
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
+      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       const SizedBox(height: 8),
     ])));
   }
@@ -1146,7 +1147,8 @@ class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenTractor;
   final VoidCallback? onOpenItems;
   final VoidCallback? onOpenFinancial;
-  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial});
+  final VoidCallback? onOpenStaff;
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -1231,6 +1233,16 @@ class _DashboardPageState extends State<DashboardPage> {
         onTap: widget.onOpenFinancial,
       )),
     ],
+    if(director) ...[
+      const SizedBox(height: 8),
+      Card(child: ListTile(
+        leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.manage_accounts, color: brandGreen)),
+        title: const Text('Staff & Accounts', style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('Read-only directory of registered staff and assigned roles'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: widget.onOpenStaff,
+      )),
+    ],
     const SizedBox(height: 18),
     const Text('Your business at a glance', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
     const SizedBox(height: 4),
@@ -1273,6 +1285,79 @@ class _DashboardPageState extends State<DashboardPage> {
     ),
   ]));
 }
+
+class StaffAccountsPage extends StatefulWidget {
+  const StaffAccountsPage({super.key});
+  @override State<StaffAccountsPage> createState() => _StaffAccountsPageState();
+}
+
+class _StaffAccountsPageState extends State<StaffAccountsPage> {
+  bool loading = true;
+  String error = '';
+  List<Map<String, dynamic>> accounts = [];
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = ''; });
+    try {
+      final db = Supabase.instance.client;
+      final roles = await db.from('user_role_assignments')
+        .select('user_id,is_active,app_roles(name,code)')
+        .eq('is_active', true);
+      final profiles = await db.from('profiles').select('id,display_name').order('display_name');
+      final names = <String, String>{
+        for (final p in List<Map<String, dynamic>>.from(profiles))
+          p['id'].toString(): (p['display_name'] ?? 'Unnamed account').toString()
+      };
+      final grouped = <String, List<String>>{};
+      for (final row in List<Map<String, dynamic>>.from(roles)) {
+        final id = row['user_id']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        final role = row['app_roles'];
+        final label = role is Map ? (role['name'] ?? role['code'] ?? 'Assigned role').toString() : 'Assigned role';
+        grouped.putIfAbsent(id, () => <String>[]).add(label);
+      }
+      final result = grouped.entries.map((entry) => <String, dynamic>{
+        'user_id': entry.key,
+        'name': names[entry.key] ?? 'Profile name unavailable',
+        'roles': entry.value.toSet().toList()..sort(),
+      }).toList()..sort((a,b) => a['name'].toString().compareTo(b['name'].toString()));
+      if (mounted) setState(() => accounts = result);
+    } catch (e) {
+      if (mounted) setState(() => error = 'Could not load the staff directory: ${friendlyError(e)}');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: load,
+    child: ListView(padding: const EdgeInsets.all(18), children: [
+      const Text('Staff & Accounts', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+      const Text('Director read-only view • PINs and passwords are never displayed'),
+      const SizedBox(height: 12),
+      Row(children: [
+        Expanded(child: Text('${accounts.length} accounts with active role assignments')),
+        IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
+      ]),
+      if (loading) const LinearProgressIndicator(),
+      if (error.isNotEmpty) Text(error, style: const TextStyle(color: Colors.red)),
+      if (!loading && accounts.isEmpty && error.isEmpty) const Text('No active staff role assignments were found.'),
+      ...accounts.map((account) => Card(child: ListTile(
+        leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+        title: Text(account['name'].toString()),
+        subtitle: Text((account['roles'] as List<String>).join(' • ')),
+        trailing: const Icon(Icons.visibility_outlined),
+      ))),
+      const Padding(padding: EdgeInsets.only(top: 12), child: Text(
+        'This directory is read-only. It does not expose PINs, passwords, authentication tokens, or private login credentials.',
+        style: TextStyle(fontSize: 12, color: Colors.black54),
+      )),
+    ]),
+  );
+}
+
 class MetricCard extends StatelessWidget {
   final String title, value; final IconData icon;
   const MetricCard({super.key, required this.title, required this.value, required this.icon});
