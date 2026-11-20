@@ -1851,7 +1851,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage> {
             }
             for (final v in variantRows) {
               if (v['id'].toString() == variantId) {
-                item['bag_weight_kg'] = v['bag_weight_kg'];
+                item['bag_weight_kg'] = bagWeightKgForProduct((item['product_name'] ?? '').toString(), v);
                 break;
               }
             }
@@ -2901,7 +2901,7 @@ class _DirectorPricingPageState extends State<DirectorPricingPage> with SingleTi
   Widget _branchTab(){
     final selected=_selectedVariant();
     final product=(selected?['products'] as Map?)?.cast<String,dynamic>()??{};
-    final weight=selected?['bag_weight_kg'] as num?;
+    final weight=bagWeightKgForProduct((product['name'] ?? '').toString(), selected);
     final entered=double.tryParse(branchPrice.text.trim());
     return RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
       const Text('Branch customer prices',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
