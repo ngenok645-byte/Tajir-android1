@@ -210,6 +210,10 @@ jobs:
           print("Android plugin repositories verified.")
           PY
           flutter pub get
+          # The imported ZIP contains Flutter's untouched sample widget test.
+          # It imports a non-existent package and tests a placeholder MyApp, not TAJIR.
+          # Remove that template test; add TAJIR-specific tests as part of the audit.
+          rm -f test/widget_test.dart
           # Static analysis is a separate gate: a successful APK build alone does not
           # detect many Dart type, API, and maintainability problems.
           flutter analyze --no-pub
