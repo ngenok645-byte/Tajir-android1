@@ -1,8 +1,48 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:convert';
+import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
+const tajirUpdateChannel = MethodChannel('tajir/update');
+const tajirVersion = String.fromEnvironment('TAJIR_VERSION', defaultValue: '0');
+
+Future<Map<String, dynamic>?> checkTajirUpdate() async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
+  try {
+    final request = await client.getUrl(Uri.parse('https://api.github.com/repos/ngenok645-byte/Tajir-android1/releases/latest'));
+    request.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
+    request.headers.set(HttpHeaders.userAgentHeader, 'TAJIR-Android');
+    final response = await request.close();
+    if (response.statusCode != 200) return null;
+    final payload = jsonDecode(await response.transform(utf8.decoder).join());
+    if (payload is! Map) return null;
+    final tag = (payload['tag_name'] ?? '').toString().replaceFirst(RegExp(r'^[vV]'), '');
+    final remote = int.tryParse(tag) ?? 0;
+    final local = int.tryParse(tajirVersion) ?? 0;
+    if (remote <= local) return null;
+    final assets = payload['assets'];
+    if (assets is! List) return null;
+    for (final asset in assets) {
+      if (asset is Map && (asset['name'] ?? '').toString().toLowerCase().endsWith('.apk')) {
+        final url = (asset['browser_download_url'] ?? '').toString();
+        if (url.startsWith('https://')) return {'version': tag, 'url': url};
+      }
+    }
+    return null;
+  } catch (_) {
+    return null;
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<void> openTajirUpdate(String url) async {
+  await tajirUpdateChannel.invokeMethod<void>('openUrl', {'url': url});
+}
+
  
 /// Turns technical backend/network failures into clear messages for everyday users.
 /// Never display raw HTTP/database error codes in the app.
@@ -1014,12 +1054,39 @@ class HomeShell extends StatefulWidget {
   @override State<HomeShell> createState() => _HomeShellState();
 }
 class _HomeShellState extends State<HomeShell> {
+  bool checkingUpdate = false;
+  Map<String, dynamic>? availableUpdate;
+
+  Future<void> checkUpdates({bool showCurrent = false}) async {
+    if (checkingUpdate) return;
+    if (mounted) setState(() => checkingUpdate = true);
+    final found = await checkTajirUpdate();
+    if (!mounted) return;
+    setState(() { availableUpdate = found; checkingUpdate = false; });
+    if (found != null) {
+      showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+        title: const Text('TAJIR update available'),
+        content: Text('A newer version (${found['version']}) is ready. Update to get the latest improvements and fixes.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
+          FilledButton.icon(onPressed: () async {
+            Navigator.pop(ctx);
+            try { await openTajirUpdate(found['url'].toString()); }
+            catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open the update link. Please try again.'))); }
+          }, icon: const Icon(Icons.download), label: const Text('Download update')),
+        ],
+      ));
+    } else if (showCurrent) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('TAJIR is up to date.')));
+    }
+  }
+
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage()];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage()];
   List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records'];
   List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance];
-  @override void initState() { super.initState(); loadAccess(); }
+  @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
@@ -1039,7 +1106,7 @@ class _HomeShellState extends State<HomeShell> {
   @override Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
       body: Row(children: [
         if (wide) NavigationRail(selectedIndex: index, onDestinationSelected: selectPage, labelType: NavigationRailLabelType.all, destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i])))),
         Expanded(child: IndexedStack(index: index, children: pages)),
@@ -1064,7 +1131,8 @@ void _noDashboardAction() {}
 class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenTractor;
   final VoidCallback? onOpenItems;
-  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems});
+  final VoidCallback? onOpenFinancial;
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -1139,6 +1207,16 @@ class _DashboardPageState extends State<DashboardPage> {
       large:true,
       onTap:widget.onOpenTractor ?? _noDashboardAction,
     ),
+    if(director) ...[
+      const SizedBox(height: 18),
+      Card(child: ListTile(
+        leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.analytics_outlined, color: brandGreen)),
+        title: const Text('Director business overview', style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('Open company-wide sales, purchases, payments, costs and profit reports'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: widget.onOpenFinancial,
+      )),
+    ],
     const SizedBox(height: 18),
     const Text('Your business at a glance', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
     const SizedBox(height: 4),
