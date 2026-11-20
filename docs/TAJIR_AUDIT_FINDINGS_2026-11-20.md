@@ -104,7 +104,7 @@ Use itemised cost records linked to the purchase/batch and preserve the payer fi
 
 ### 7. Kilogram and bag conversion must use product/branch configuration
 
-The Flutter source still contains a global `kgPerBag = 90.0` constant. The live database also has a `branch_product_kg_pricing` migration. The 90 kg maize bag is an agreed example and must remain supported, but product/branch-specific bag weights must be read from configuration rather than assuming every product and branch uses 90 kg.
+The original Flutter source contained a global `kgPerBag = 90.0` constant. The audit branch now carries the later product-specific conversion fix: maize retains a 90 kg fallback, while product variants can provide their own `bag_weight_kg`. The live database also has a `branch_product_kg_pricing` migration. The remaining work is to verify every product/branch path and ensure no legacy stock/report screen still assumes 90 kg.
 
 **Required correction**
 - Use configured bag weight and effective dates for purchase, sale, stock, transfer, marketplace, reports and history.
@@ -163,6 +163,9 @@ Resolve findings by inspecting the actual function/table permissions and testing
 - [x] Successful CI build #499 located; APK artifact downloaded and SHA-256 checked.
 - [x] Live role catalog, migration history, payment enum, key RPCs, relevant RLS policies and active Edge Functions inspected.
 - [x] Phone ownership verification code, migration, registration UI and security-check source added to isolated audit branch.
+- [x] Product-specific bag-weight conversion code integrated; maize retains the 90 kg fallback.
+- [x] Updated master plan and regression checklist with Director-controlled KG/bag pricing requirements.
+- [x] Full encrypted National ID migration for all roles preserved in source control; client/provider UI integration and Vault-key checks remain pending.
 - [ ] Phone ownership verification Deno/Flutter CI and staging tests passed.
 - [ ] Phone verification migration and Edge Functions deployed to live Supabase.
 - [ ] Provider functions deployed and tested.
