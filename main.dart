@@ -1585,7 +1585,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
   try{
    final db=Supabase.instance.client;
    final userId=db.auth.currentUser!.id;
-   final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',userId).maybeSingle();
+   final r=await db.from('customers').select('id,full_name,active,branch_id,marketplace_can_buy,marketplace_can_sell').eq('profile_id',userId).maybeSingle();
    if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');
    if(mounted)setState(()=>c=Map<String,dynamic>.from(r));
   }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
@@ -1594,7 +1594,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
 
  String sectionTitle(int section)=>const [
   'Buy Tajir Products','Sell Products','Purchase Requests',
-  'Tractor & Machinery Services','My Bookings','My Branch'
+  'Tractor & Machinery Services','My Bookings','My Branch','Marketplace Listings'
  ][section];
 
  Widget sectionPage(int section){
@@ -1617,6 +1617,10 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
     return CustomerTractorBookingsPage();
    case 5:
     return const BranchRequestPanel();
+   case 6:
+    return buy
+     ?CustomerMarketPage(customer:c!,mode:'marketplace')
+     :const CustomerLockedPage(title:'Marketplace listings',message:'The Director has not enabled buying on your account yet.',imageUrl:TajirPictures.buy,icon:Icons.store_mall_directory_outlined);
    default:
     return const SizedBox.shrink();
   }
@@ -1640,6 +1644,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    ]))
   );
 
+  final buy=c!['marketplace_can_buy']==true;
   final sell=c!['marketplace_can_sell']==true;
   final onSection=selectedSection!=null;
   return Scaffold(
@@ -1663,7 +1668,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
      ?sectionPage(selectedSection!)
      :ListView(padding:const EdgeInsets.all(12),children:[
       Row(children:[
-       Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse all products available in the marketplace',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0)),
+       Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse branch stock and Director prices',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0,locked:!buy)),
        const SizedBox(width:8),
        Expanded(child:homeTile(title:'SELL PRODUCTS',subtitle:sell?'List any product and set your price':'Access locked',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined,section:1,locked:!sell))
       ]),
@@ -1675,6 +1680,8 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
        const SizedBox(width:8),
        Expanded(child:homeTile(title:'MY BRANCH',subtitle:'Choose your branch',imageUrl:TajirPictures.branch,icon:Icons.location_on_outlined,section:5))
       ]),
+      const SizedBox(height:10),
+      homeTile(title:'MARKETPLACE LISTINGS',subtitle:'Browse other sellers’ products and submit purchase requests',imageUrl:TajirPictures.sell,icon:Icons.store_mall_directory_outlined,section:6,locked:!buy),
       const SizedBox(height:10),
       homeTile(title:'PURCHASE REQUESTS',subtitle:'View and follow up your product requests',imageUrl:TajirPictures.orders,icon:Icons.receipt_long_outlined,section:2),
       const SizedBox(height:12),
