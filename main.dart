@@ -1364,7 +1364,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             if (createAccount) TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
               decoration: const InputDecoration(labelText: 'Confirm four-digit PIN', border: OutlineInputBorder(), counterText: '')),
             if (message != null) Padding(padding: const EdgeInsets.only(top: 12),
-              child: Text(message!, style: TextStyle(color: phoneVerified ? brandGreen : Colors.red))),
+              child: Text(message!, style: TextStyle(color: (message == 'Phone number verified.' || message == 'A six-digit code has been sent to your phone.') ? brandGreen : Colors.red))),
             const SizedBox(height: 16),
             SizedBox(width: double.infinity, child: FilledButton(onPressed: busy ? null : submit,
               child: Text(busy ? 'Please wait…' : createAccount ? 'Create account' : 'Sign in'))),
