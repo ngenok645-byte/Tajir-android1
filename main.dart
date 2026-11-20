@@ -1142,7 +1142,7 @@ class _AccountRouterState extends State<AccountRouter> {
         }
         final tractorStatus = access['tractor_owner_status']?.toString();
         if (tractorStatus != null) {
-          if (tractorStatus != 'approved') return const CustomerPendingPage();
+          if (tractorStatus != 'verified') return const CustomerPendingPage();
           return const RoleWorkspacePage(role: 'tractor_owner');
         }
         if (access['is_driver'] == true) {
