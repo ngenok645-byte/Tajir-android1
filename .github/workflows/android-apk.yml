@@ -343,9 +343,27 @@ jobs:
             exit 1
           fi
           flutter build apk --release \
+            --build-number="$GITHUB_RUN_NUMBER" \
+            --build-name="1.0.$GITHUB_RUN_NUMBER" \
+            --dart-define=TAJIR_BUILD_NUMBER="$GITHUB_RUN_NUMBER" \
+            --dart-define=TAJIR_VERSION_NAME="1.0.$GITHUB_RUN_NUMBER" \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
             --android-skip-build-dependency-validation
+
+      - name: Publish signed TAJIR release for in-app updates
+        if: steps.signing.outputs.signed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: tajir-${{ github.run_number }}
+          name: TAJIR 1.0.${{ github.run_number }}
+          body: |
+            Automatic TAJIR Android release.
+            Build: ${{ github.run_number }}
+          files: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload TAJIR Android APK
         uses: actions/upload-artifact@v4
