@@ -265,6 +265,7 @@ class _LoginPageState extends State<LoginPage> {
   final pin = TextEditingController();
   final confirmPin = TextEditingController();
   bool busy = false, setupDirector = false;
+  String selectedStaffRole = 'director';
   String? error;
 
   @override
@@ -309,6 +310,21 @@ class _LoginPageState extends State<LoginPage> {
           email: tajirLoginEmail(normalized),
           password: staffAuthPassword(pin.text),
         );
+        final assignments = await db.from('user_role_assignments')
+            .select('app_roles(code)')
+            .eq('user_id', db.auth.currentUser!.id)
+            .eq('is_active', true);
+        final assignedCodes = assignments
+            .where((r) => r['app_roles'] is Map)
+            .map((r) => (r['app_roles'] as Map)['code'].toString())
+            .toSet();
+        final roleAllowed = selectedStaffRole == 'staff'
+            ? assignedCodes.any((code) => ['accountant', 'branch_manager'].contains(code))
+            : assignedCodes.contains(selectedStaffRole);
+        if (!roleAllowed) {
+          await db.auth.signOut();
+          throw const FormatException('This account is not authorised for the selected staff role. Choose the correct role or contact the Director.');
+        }
       }
     } on AuthException catch (e) {
       if (mounted) setState(() => error = friendlyError(e));
@@ -332,6 +348,17 @@ class _LoginPageState extends State<LoginPage> {
             Text(setupDirector ? 'Set up Director access' : 'Staff sign in',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 18),
+            const Align(alignment: Alignment.centerLeft, child: Text('Choose your staff account type', style: TextStyle(fontWeight: FontWeight.w600))),
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              ChoiceChip(label: const Text('Director'), selected: selectedStaffRole == 'director',
+                onSelected: busy ? null : (_) => setState(() { selectedStaffRole = 'director'; setupDirector = false; error = null; })),
+              ChoiceChip(label: const Text('Worker'), selected: selectedStaffRole == 'worker',
+                onSelected: busy ? null : (_) => setState(() { selectedStaffRole = 'worker'; setupDirector = false; error = null; })),
+              ChoiceChip(label: const Text('Other authorised staff'), selected: selectedStaffRole == 'staff',
+                onSelected: busy ? null : (_) => setState(() { selectedStaffRole = 'staff'; setupDirector = false; error = null; })),
+            ]),
+            const SizedBox(height: 12),
             TextField(controller: phone, keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(labelText: 'Your registered staff phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
               const SizedBox(height: 12),
@@ -356,8 +383,9 @@ class _LoginPageState extends State<LoginPage> {
             )),
             TextButton(onPressed: busy ? null : showForgotPinHelp,
               child: const Text('Forgot PIN?')),
-            TextButton(onPressed: busy ? null : () => setState(() { setupDirector = !setupDirector; error = null; }),
-              child: Text(setupDirector ? 'I already set up my PIN — sign in' : 'First time? Set up director PIN')),
+            if (selectedStaffRole == 'director')
+              TextButton(onPressed: busy ? null : () => setState(() { setupDirector = !setupDirector; error = null; }),
+                child: Text(setupDirector ? 'I already set up my PIN — sign in' : 'First time? Set up director PIN')),
             TextButton(onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const CustomerAuthPage())),
               child: const Text('Are you a client, tractor owner or driver?')),
@@ -385,6 +413,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   final pin = TextEditingController();
   final confirmPin = TextEditingController();
   bool createAccount = true, busy = false;
+  String selectedCustomerType = 'buyer';
   String? message;
   @override void dispose() {
     name.dispose(); phone.dispose(); pin.dispose(); confirmPin.dispose(); super.dispose();
@@ -426,7 +455,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
         final response = await db.functions.invoke(
           'tajir-customer-register',
-          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text},
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'customer_type': selectedCustomerType},
         );
         final resultData = response.data;
         if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
@@ -473,6 +502,15 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             const SizedBox(height: 16),
             if (createAccount) TextField(controller: name, textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
+            if (createAccount) const SizedBox(height: 12),
+            if (createAccount) const Align(alignment: Alignment.centerLeft, child: Text('Register account as', style: TextStyle(fontWeight: FontWeight.w600))),
+            if (createAccount) const SizedBox(height: 6),
+            if (createAccount) Wrap(spacing: 8, children: [
+              ChoiceChip(label: const Text('Buyer'), selected: selectedCustomerType == 'buyer',
+                onSelected: busy ? null : (_) => setState(() { selectedCustomerType = 'buyer'; message = null; })),
+              ChoiceChip(label: const Text('Seller'), selected: selectedCustomerType == 'seller',
+                onSelected: busy ? null : (_) => setState(() { selectedCustomerType = 'seller'; message = null; })),
+            ]),
             if (createAccount) const SizedBox(height: 12),
             TextField(controller: phone, keyboardType: TextInputType.phone,
               decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
