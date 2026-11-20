@@ -1728,7 +1728,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     // The buyer catalogue is TAJIR's actual branch stock, not seller listings.
     r=await db.rpc('customer_list_tajir_products');
    }else if(widget.mode=='sell'){
-    r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
+    r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,total_value_kes,location,status').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
    }else{
     final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
     final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name)').order('created_at',ascending:false);
@@ -1860,7 +1860,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     }
     return Card(child:ListTile(
      title:Text(r['product_name'].toString()),
-     subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • KES '+r['price_per_unit'].toString()+' • '+r['location'].toString()),
+     subtitle:Text(r['quantity'].toString()+' '+r['unit'].toString()+' • KES '+r['price_per_unit'].toString()+' per '+r['unit'].toString()+' • Total KES '+(r['total_value_kes']??'—').toString()+' • '+r['location'].toString()),
      trailing:PopupMenuButton<String>(onSelected:(v)=>change(r,v,true),itemBuilder:(_)=>const [PopupMenuItem(value:'active',child:Text('Active')),PopupMenuItem(value:'paused',child:Text('Pause')),PopupMenuItem(value:'sold',child:Text('Sold'))])
     ));
    })
