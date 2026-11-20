@@ -863,6 +863,37 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
   if(mounted)setState(()=>busy=false);
  }
+ Future<void> requestTajirProduct(Map<String,dynamic> item)async{
+  final quantity=TextEditingController(text:'1');
+  final note=TextEditingController();
+  final variant=(item['variant_name']??'').toString();
+  final product=(item['product_name']??'Product').toString();
+  final title=variant.isNotEmpty&&variant.toLowerCase()!=product.toLowerCase()?product+' • '+variant:product;
+  final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
+   title:Text('Select $title'),
+   content:Column(mainAxisSize:MainAxisSize.min,children:[
+    TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity you need')),
+    const SizedBox(height:8),
+    TextField(controller:note,maxLines:2,decoration:const InputDecoration(labelText:'Note (optional)')),
+   ]),
+   actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send request'))],
+  ));
+  if(ok==true){
+   try{
+    final amount=double.tryParse(quantity.text.trim());
+    if(amount==null||amount<=0)throw const FormatException('Enter a quantity greater than zero.');
+    await Supabase.instance.client.from('customer_product_requests').insert({
+     'customer_id':widget.customer['id'],
+     'product_id':item['product_id'],
+     'product_variant_id':item['product_variant_id'],
+     'quantity_requested':amount,
+     'note':note.text.trim().isEmpty?null:note.text.trim(),
+    });
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your product request has been sent. TAJIR will confirm availability.')));
+   }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+  }
+  quantity.dispose();note.dispose();
+ }
  Future<void> createListing()async{final p=TextEditingController(),q=TextEditingController(),u=TextEditingController(text:'bag'),v=TextEditingController(),l=TextEditingController(),d=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:const Text('List product'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:p,decoration:const InputDecoration(labelText:'Product')),TextField(controller:d,decoration:const InputDecoration(labelText:'Description')),TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),TextField(controller:u,decoration:const InputDecoration(labelText:'Unit')),TextField(controller:v,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Price per unit KES')),TextField(controller:l,decoration:const InputDecoration(labelText:'Location'))])),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Publish'))]));if(ok==true){try{await Supabase.instance.client.from('marketplace_listings').insert({'seller_customer_id':widget.customer['id'],'product_name':p.text.trim(),'description':d.text.trim(),'quantity':double.parse(q.text),'unit':u.text.trim().isEmpty?'bag':u.text.trim(),'price_per_unit':double.parse(v.text),'location':l.text.trim(),'status':'active'});await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}p.dispose();q.dispose();u.dispose();v.dispose();l.dispose();d.dispose();}
  Future<void> requestBuy(Map<String,dynamic> item)async{final q=TextEditingController(text:'1');final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:Text('Buy '+item['product_name'].toString()),content:TextField(controller:q,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send request'))]));if(ok==true){try{final n=double.parse(q.text);if(n<=0||n>(item['quantity'] as num).toDouble())throw const FormatException('Quantity exceeds available stock.');await Supabase.instance.client.from('marketplace_purchase_requests').insert({'listing_id':item['id'],'buyer_customer_id':widget.customer['id'],'quantity':n});if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Purchase request sent.')));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}q.dispose();}
  Future<void> change(Map<String,dynamic> r,String value,bool listing)async{try{await Supabase.instance.client.from(listing?'marketplace_listings':'marketplace_purchase_requests').update({'status':value}).eq('id',r['id']);await load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
@@ -878,15 +909,14 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    if(!busy&&rows.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(widget.mode=='buy'?'No TAJIR stock is currently available. Please check again or contact your branch.':'No marketplace records yet.')),
    ...rows.map((r){
     if(widget.mode=='buy'){
-     final quantity=(r['quantity_available']??0).toString();
      final variant=(r['variant_name']??'').toString();
      final product=(r['product_name']??'Product').toString();
      final title=variant.isNotEmpty&&variant.toLowerCase()!=product.toLowerCase()?product+' • '+variant:product;
      return Card(child:ListTile(
       leading:const CircleAvatar(child:Icon(Icons.inventory_2_outlined)),
       title:Text(title),
-      subtitle:Text('Available: '+quantity+' '+(r['unit']??'').toString()+' • Branch: '+(r['branch_name']??'').toString()),
-      trailing:Text((double.tryParse(quantity)??0)>0?'In stock':'Out of stock',style:TextStyle(color:(double.tryParse(quantity)??0)>0?brandGreen:Colors.black54,fontWeight:FontWeight.w600))
+      subtitle:Text('Choose this product to send a request'),
+      trailing:FilledButton.tonal(onPressed:()=>requestTajirProduct(r),child:const Text('Select'))
      ));
     }
     if(widget.mode=='requests'){
@@ -958,7 +988,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage()];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), const FinancialRecordsPage()];
   List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records'];
   List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance];
   @override void initState() { super.initState(); loadAccess(); }
@@ -1005,7 +1035,8 @@ void _noDashboardAction() {}
 
 class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenTractor;
-  const DashboardPage({super.key, this.onOpenTractor});
+  final VoidCallback? onOpenItems;
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -1052,6 +1083,26 @@ class _DashboardPageState extends State<DashboardPage> {
       ]),
     ),
     const SizedBox(height: 16),
+    Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: widget.onOpenItems ?? _noDashboardAction,
+        child: const Padding(
+          padding: EdgeInsets.all(18),
+          child: Row(children: [
+            CircleAvatar(radius: 25, backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.inventory_2_outlined, color: brandGreen, size: 28)),
+            SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('ITEMS', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+              SizedBox(height: 3),
+              Text('Open product items and stock records', style: TextStyle(color: Colors.black54)),
+            ])),
+            Icon(Icons.chevron_right, color: brandGreen),
+          ]),
+        ),
+      ),
+    ),
+    const SizedBox(height: 12),
     TajirImageTile(
       title:'TRACTOR & MACHINERY SERVICES',
       subtitle:'Manage machines, providers, bookings, operators and payments',
