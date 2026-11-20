@@ -124,7 +124,7 @@ The integration plan and source review identify hardcoded director phone contact
 
 Run #499 completed successfully and uploaded an APK. Its workflow:
 - extracts the Flutter project from `TAJIR_flutter_app.zip`, then overwrites the app entry point with root `main.dart`;
-- runs `flutter analyze --no-fatal-infos --no-fatal-warnings` (the run reported 208 analyzer info-level findings);
+- runs `flutter analyze --no-fatal-infos --no-fatal-warnings` (the older run reported 208 info-level findings; audit run #44832442624 reported 13 warnings, 199 informational findings and zero analyzer errors);
 - disables Android `lintVital` tasks because of a toolchain issue;
 - builds a release-mode APK and uploads it;
 - publishes a GitHub release only when manually dispatched on `main` with the explicit publish input enabled.
@@ -138,6 +138,40 @@ The workflow does not run a TAJIR-specific automated test suite. The supplied re
 - Configure release signing through protected CI secrets without committing keystores or passwords.
 - Verify package ID, signing certificate, version code, fresh install and upgrade from the current installed APK.
 - Keep update checking, version publication and Android's user-confirmed installation flow accurate. Do not claim silent installation.
+
+## Additional findings from the full project review
+
+### Verified audit-branch build
+
+CI run `44832442624` completed successfully:
+- Deno type-check passed for phone verification, customer registration, provider registration and Director setup Edge Functions.
+- Flutter analysis reported **0 errors, 13 warnings and 199 informational findings**.
+- Android APK build passed.
+- Package/launcher verification passed: `com.tajir.tajir_app` and `TAJIR`.
+- APK v2 signature verification passed.
+
+The artifact is **test-only**, not a production update, because protected signing secrets are not configured. Do not distribute it as the final release.
+
+### Android signing continuity
+
+The saved project APK `TAJIR.apk` uses the same package ID as the new build. The package ID is therefore not the update blocker. However, the saved APK, earlier CI APK and the only available new release keystore have different signing certificates. The original private signing key used for the saved APK was not found in the project files. Android will reject an update signed by a different key.
+
+If the original key cannot be recovered, the first stable release signed with the new protected key will require a one-time uninstall/reinstall. Supabase-backed accounts and records remain server-side; unsynced local-only data could be lost. The workflow now uses these protected GitHub Actions secrets when configured: `TAJIR_KEYSTORE_BASE64`, `TAJIR_KEYSTORE_PASSWORD`, `TAJIR_KEY_ALIAS` and `TAJIR_KEY_PASSWORD`. Without them, builds remain test-only and production publishing is blocked.
+
+### Live schema and workflow gaps confirmed
+
+- The live database has **79 applied migrations, 74 public base tables and 42 public functions**. The repository contains only a subset of the applied migration sources.
+- The live price-separation tables and RLS policies are not yet used by the Flutter screens. The customer catalogue does not show the Director-controlled per-kg price before a request. The seller listing screen still writes and reads legacy `marketplace_listings.price_per_unit`.
+- The legacy marketplace price guard runs on UPDATE, while the seller INSERT policy remains. The legacy price column remains readable under marketplace SELECT policies. This needs a reviewed migration and app correction before marketplace release.
+- The customer product-request trigger calculates price server-side from the branch price per kg. Keep this as the source of truth.
+- The live payment-method enum has four labels; the product plan calls for six payment workflows. Split payments and credit balances must be modelled without pretending they are additional tender types.
+- The tractor booking schema does not explicitly link a service job to its Tractor Owner. The owner acceptance/contact workflow remains unimplemented; the Driver must not replace the owner as customer contact.
+- The full National ID migration for all roles is preserved in source control, but the corresponding registration UI and Vault-key checks remain pending.
+- The PWA is a local-storage prototype, not the secure production app. Its maize profit formula also needs correction before reuse.
+
+### Unresolved maize field
+
+The meaning of the maize `Bag Price` spreadsheet field is not confirmed. It must be identified as either a selling/revenue price or a packaging/bag expense before profit calculations are finalized. Do not count it as both revenue and cost.
 
 ## Security advisory items to review
 
@@ -166,12 +200,14 @@ Resolve findings by inspecting the actual function/table permissions and testing
 - [x] Product-specific bag-weight conversion code integrated; maize retains the 90 kg fallback.
 - [x] Updated master plan and regression checklist with Director-controlled KG/bag pricing requirements.
 - [x] Full encrypted National ID migration for all roles preserved in source control; client/provider UI integration and Vault-key checks remain pending.
-- [ ] Phone ownership verification Deno/Flutter CI and staging tests passed.
+- [x] Phone ownership verification Edge Functions pass Deno type-check; Flutter app builds successfully in CI.
+- [ ] Phone verification staging end-to-end tests passed.
 - [ ] Phone verification migration and Edge Functions deployed to live Supabase.
 - [ ] Provider functions deployed and tested.
 - [ ] Tractor-owner booking lifecycle implemented end-to-end.
 - [ ] Six-option accounting and all workbook cost fields implemented.
 - [ ] All live migrations reconciled to source control.
-- [ ] Signed release and real-device upgrade tested.
+- [ ] Original APK signing key recovered or one-time reinstall approved; protected production-signing secrets configured.
+- [ ] Production-signed release and real-device upgrade tested.
 
 **Do not publish the audit-baseline APK as the final production release until the unchecked release blockers are resolved.**
