@@ -1347,6 +1347,54 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           child: Align(alignment: Alignment.centerRight, child: actions)),
       ])));
 
+  Future<void> updateDriverJob(Map<String,dynamic> row, String nextStatus) async {
+    double? hoursWorked;
+    if (nextStatus == 'completed') {
+      final hours = TextEditingController();
+      try {
+        final entered = await showDialog<String>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Complete tractor job'),
+            content: TextField(
+              controller: hours,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Actual hours worked'),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, hours.text.trim()), child: const Text('Confirm completion')),
+            ],
+          ),
+        );
+        if (entered == null) return;
+        hoursWorked = double.tryParse(entered);
+        if (hoursWorked == null || hoursWorked! <= 0 || hoursWorked! > 720) {
+          throw const FormatException('Enter actual hours greater than zero and no more than 720.');
+        }
+      } finally {
+        hours.dispose();
+      }
+    }
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      await db.rpc('update_my_assigned_tractor_job', params: {
+        'p_job_id': row['id'],
+        'p_status': nextStatus,
+        'p_hours_worked': hoursWorked,
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Tractor job marked ' + nextStatus.replaceAll('_',' ') + '.')),
+      );
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Future<void> addSparePart() async {
     if (profile == null || profile!['status'] != 'approved') {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your spare-parts shop must be approved before adding stock.')));
@@ -1476,9 +1524,17 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         out.add(sectionTitle('My assigned tractor jobs', primary.length));
         if (primary.isEmpty) out.add(const Text('No jobs are currently assigned to you.'));
         for (final r in primary) {
+          final jobStatus = (r['status'] ?? '').toString();
+          final jobActions = <Widget>[];
+          if (jobStatus == 'confirmed') {
+            jobActions.add(FilledButton(onPressed: busy ? null : () => updateDriverJob(r, 'in_progress'), child: const Text('Start job')));
+          } else if (jobStatus == 'in_progress') {
+            jobActions.add(FilledButton(onPressed: busy ? null : () => updateDriverJob(r, 'completed'), child: const Text('Complete job')));
+          }
           out.add(recordCard('${r['job_number'] ?? 'Job'} • ${r['service_type'] ?? ''}',
-            '${r['service_location'] ?? ''} • ${r['booked_for'] ?? ''} • ${r['status'] ?? ''}',
-            trailing: money(r['total_charge'])));
+            '${r['service_location'] ?? ''} • ${r['booked_for'] ?? ''} • ' + jobStatus,
+            trailing: money(r['total_charge']),
+            actions: jobActions.isEmpty ? null : Wrap(spacing: 8, children: jobActions)));
         }
         break;
       case 'mechanic':
