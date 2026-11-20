@@ -1347,6 +1347,27 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           child: Align(alignment: Alignment.centerRight, child: actions)),
       ])));
 
+  Future<void> updateMechanicJobStatus(Map<String,dynamic> row, String nextStatus) async {
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      await db.rpc('update_my_mechanic_job_status', params: {
+        'p_job_id': row['id'],
+        'p_status': nextStatus,
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Repair job status updated to ' + nextStatus.replaceAll('_',' ') + '.')),
+      );
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Widget partRequestCard(Map<String,dynamic> row) {
     final status = (row['status'] ?? 'requested').toString();
     final buttons = <Widget>[];
@@ -1407,9 +1428,22 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         out.add(sectionTitle('Assigned repair jobs', primary.length));
         if (primary.isEmpty) out.add(const Text('No repair jobs are currently assigned to you.'));
         for (final r in primary) {
+          final jobStatus = (r['status'] ?? '').toString();
+          final jobActions = <Widget>[];
+          if (jobStatus == 'requested') {
+            jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'accepted'), child: const Text('Accept job')));
+          } else if (jobStatus == 'accepted') {
+            jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'in_progress'), child: const Text('Start work')));
+          } else if (jobStatus == 'in_progress') {
+            jobActions.add(OutlinedButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'waiting_parts'), child: const Text('Waiting for parts')));
+            jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'completed'), child: const Text('Complete job')));
+          } else if (jobStatus == 'waiting_parts') {
+            jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'in_progress'), child: const Text('Resume work')));
+          }
           out.add(recordCard('${r['job_number'] ?? 'Repair job'}',
-            '${r['issue_description'] ?? ''} • ${r['location'] ?? ''} • ${r['status'] ?? ''}',
-            trailing: money(r['estimated_cost_kes'] ?? r['final_cost_kes'])));
+            '${r['issue_description'] ?? ''} • ${r['location'] ?? ''} • ' + jobStatus,
+            trailing: money(r['estimated_cost_kes'] ?? r['final_cost_kes']),
+            actions: jobActions.isEmpty ? null : Wrap(spacing: 8, children: jobActions)));
         }
         out.add(sectionTitle('Parts requests', requests.length));
         if (requests.isEmpty) out.add(const Text('No parts requests yet.'));
