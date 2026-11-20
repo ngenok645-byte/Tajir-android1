@@ -2200,7 +2200,7 @@ class _HomeShellState extends State<HomeShell> {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
       final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
-      if (mounted) setState(() { director = allowed; if (!allowed && index == 6) index = 0; });
+      if (mounted) setState(() { director = allowed; if (!allowed && index > 6) index = 0; });
     } catch (_) { if (mounted) setState(() => director = false); }
   }
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
@@ -2212,6 +2212,7 @@ class _HomeShellState extends State<HomeShell> {
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       if (director) ListTile(leading: const Icon(Icons.price_change), title: const Text('Marketplace Pricing & Offers'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
+      if (director) ListTile(leading: const Icon(Icons.scale), title: const Text('Branch Prices (KES/kg)'), selected: index == 10, onTap: () { Navigator.pop(sheetContext); selectPage(10); }),
       const SizedBox(height: 8),
     ])));
   }
