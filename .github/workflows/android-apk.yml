@@ -301,6 +301,7 @@ jobs:
                       storeFile = file(tajirSigning.getProperty("storeFile")!!)
                   }
               }
+          }
           '''
           s = s.replace('android {', signing, 1)
           s = s.replace('buildTypes {', 'buildTypes {\n        release { signingConfig = signingConfigs.getByName("release") }', 1)
