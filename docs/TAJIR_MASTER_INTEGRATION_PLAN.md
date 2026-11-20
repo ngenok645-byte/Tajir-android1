@@ -43,6 +43,50 @@ Every role dashboard must have: a clear welcome/identity area; one obvious prima
 
 Image and icon acceptance checks: verify every role on a small Android screen and a larger screen; verify all tabs and item categories have meaningful icons; verify pictures load/cached and have offline placeholders; verify text contrast and scaling; verify no image is stretched, misleading, or blocks task completion. Avoid external image downloads for essential workflow controls.
 
+## Connected role workflows and shared records
+
+TAJIR is one connected platform with role-specific workspaces. A dashboard is a view into shared, permission-controlled workflows and records; it is not a separate silo or a separate copy of the business.
+
+### Connected Farming Services lifecycle
+
+1. A client submits a tractor/service request and can see its status, request details and authorised contact options.
+2. The relevant tractor owner receives the request, reviews availability and price/terms, and accepts, declines or proposes a change.
+3. Once accepted, the tractor owner is responsible for contacting the client and assigning an eligible driver. The driver is notified and sees only the job and information needed to perform it.
+4. The client sees the confirmed provider, agreed job details, schedule and progress. Changes to schedule, price or scope are recorded and communicated; they are not silently overwritten.
+5. The driver updates permitted job states and submits completion/work-hour details. Server-side rules validate the transition and record who changed what and when.
+6. The client confirms service completion or raises a dispute. The owner reviews the result and authorised payment/receipt records are linked to the same job.
+7. If a tractor is unavailable or a fault is reported, the owner can create a maintenance request for a mechanic. The mechanic records diagnosis, work, parts and completion; the owner sees the maintenance history and can return the tractor to available status only when authorised.
+8. Workers receive assigned farm/branch duties and record attendance against the correct assignment. Managers/directors see only the oversight records their roles permit.
+
+### Connected Trading lifecycle
+
+- A director-approved product catalogue, unit rules, prices and branch settings are shared by authorised branches and customer-facing catalogue views.
+- A supplier receives a purchase order, confirms delivery arrangements, and can view the recorded receipt outcome. Branch staff record measured delivery and inspection; accepted stock enters the branch ledger once.
+- Branch stock availability is reflected in authorised customer browsing and order/quotation requests. An order reserves or commits stock only at the defined workflow transition.
+- A customer order links quotation, accepted terms, payment records, weighing, dispatch, receipt and any later dispute/refund. Payment confirmation and dispatch authorisation are visible to the authorised roles; goods are not released before confirmed payment.
+- An authorised stock transfer links dispatch from one branch to receipt at another, preserving both sides and any discrepancy.
+- Branch managers see their branch's operations and reconciliation. Directors see consolidated company oversight and branch comparisons according to their permissions.
+
+### Shared connection rules
+
+- Use stable record IDs and explicit links between client request, booking, tractor, owner, driver, mechanic task, worker assignment, purchase, stock movement, order, payment, receipt, branch and audit event.
+- Keep one authoritative status for each workflow record. Notify affected roles when an authorised status change occurs; show the same current status wherever that record appears.
+- Provide role-appropriate notifications and in-app history. A notification is a prompt, not a substitute for checking the authoritative record.
+- Contact actions use verified, registered phone numbers and expose only contacts authorised for that specific relationship/job/branch. The tractor owner remains the client-facing responsible party for awarded tractor jobs; driver contact is available only where permitted.
+- Enforce access in database policies and server-side functions, not just by hiding dashboard buttons. Test both allowed and forbidden access for every role.
+- Record approvals, assignment changes, status transitions, quantity/price changes, payments, corrections and disputes in an audit trail.
+- Avoid duplicate data entry: a role should update the shared record through its permitted action, and other authorised dashboards should reflect the update after server confirmation.
+- Handle intermittent network access honestly: mark unsent changes as pending, prevent duplicate submissions, and never display an unconfirmed booking, payment, stock movement or completion as final.
+
+### Cross-role acceptance scenarios
+
+- Client request → owner acceptance/contact → driver assignment → driver progress/completion → client confirmation/dispute → linked payment and receipt.
+- Tractor fault → owner maintenance request → mechanic diagnosis/parts/repair → owner inspection → tractor availability update.
+- Supplier purchase order → measured delivery/inspection → accepted stock → branch inventory → customer order → payment → weighing/dispatch → customer receipt.
+- Branch transfer → authorised dispatch → receiving branch measurement/acceptance → reconciled stock ledgers and discrepancy handling.
+- Worker assignment → check-in/out → manager oversight → director attendance report.
+- For each scenario, verify correct notifications, shared status, role permissions, audit history, retry/offline behaviour and that unauthorised users cannot read or change the record.
+
 ## Shared identity, roles and governance
 
 - Review and preserve the existing account model where safe; establish a single documented source of truth for authentication and profile/role mapping.
