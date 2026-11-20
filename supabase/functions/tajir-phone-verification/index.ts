@@ -15,7 +15,7 @@ const purposes = new Set<Purpose>(["customer_registration", "provider_registrati
 function normalizePhone(input: string): string | null {
   let digits = input.replace(/[^0-9]/g, "");
   if (digits.startsWith("0") && digits.length === 10) digits = "254" + digits.slice(1);
-  else if (digits.startsWith("7") && digits.length === 9) digits = "254" + digits;
+  else if ((digits.startsWith("7") || digits.startsWith("1")) && digits.length === 9) digits = "254" + digits;
   if (!/^254[17]\d{8}$/.test(digits)) return null;
   return "+" + digits;
 }
