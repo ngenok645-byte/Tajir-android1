@@ -5,7 +5,40 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-const double kgPerBag = 90.0;
+const double maizeBagWeightKg = 90.0;
+
+// Bag weight is product-variant data. The agreed 90 kg rule is the maize
+// fallback only; never apply it to beans or fertilizer by assumption.
+double? bagWeightKgForProduct(String product, Map<String, dynamic>? variant) {
+  final raw = variant?['bag_weight_kg'];
+  final configured = raw is num ? raw.toDouble() : double.tryParse(raw?.toString() ?? '');
+  if (configured != null && configured > 0) return configured;
+  return product.toLowerCase() == 'maize' ? maizeBagWeightKg : null;
+}
+
+String storedUnitSummary({
+  required String quantityText,
+  required String priceText,
+  required String unit,
+  required double? bagWeightKg,
+}) {
+  final quantity = double.tryParse(quantityText.trim());
+  final price = double.tryParse(priceText.trim());
+  if (quantity == null || price == null) return '';
+  if (unit == 'KG' && (bagWeightKg == null || bagWeightKg <= 0)) {
+    return 'Kilogram conversion is not configured for this product.';
+  }
+  final bags = unit == 'KG' ? quantity / bagWeightKg! : quantity;
+  final pricePerBag = unit == 'KG' ? price * bagWeightKg! : price;
+  final kgText = bagWeightKg == null ? '' : ' • ${(bags * bagWeightKg).toStringAsFixed(2)} KG';
+  return 'Stored as: ${bags.toStringAsFixed(3)} bags$kgText • ${pricePerBag.toStringAsFixed(2)} KES per bag';
+}
+
+String stockQuantityLabel(String product, double quantity) {
+  final weight = bagWeightKgForProduct(product, null);
+  final bags = '${quantity.toStringAsFixed(2)} bags';
+  return weight == null ? bags : '$bags\n${(quantity * weight).toStringAsFixed(1)} KG';
+}
 
 IconData productIconFor(String value) {
   final name = value.toLowerCase();
@@ -2988,6 +3021,13 @@ class _PurchasePageState extends State<PurchasePage> {
   bool loadingVariants = false;
   String message = '';
 
+  double? get selectedBagWeightKg {
+    for (final variant in variants) {
+      if (variant['id'] == selectedVariantId) return bagWeightKgForProduct(product, variant);
+    }
+    return bagWeightKgForProduct(product, null);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3048,7 +3088,7 @@ class _PurchasePageState extends State<PurchasePage> {
       );
       final loaded = await db
           .from('product_variants')
-          .select('id,variant_name,base_unit,sku')
+          .select('id,variant_name,base_unit,sku,bag_weight_kg')
           .eq('product_id', row['id'])
           .eq('is_active', true)
           .order('variant_name');
@@ -3100,7 +3140,7 @@ class _PurchasePageState extends State<PurchasePage> {
             'base_unit': 'bag',
             'is_active': true,
           })
-          .select('id,variant_name,base_unit,sku')
+          .select('id,variant_name,base_unit,sku,bag_weight_kg')
           .single();
       if (!mounted) return;
       setState(() {
@@ -3117,8 +3157,9 @@ class _PurchasePageState extends State<PurchasePage> {
   Future<void> save() async {
     final enteredQuantity = double.tryParse(qty.text);
     final enteredCost = double.tryParse(cost.text);
-    final q = enteredQuantity == null ? null : (quantityUnit == 'KG' ? enteredQuantity / kgPerBag : enteredQuantity);
-    final c = enteredCost == null ? null : (quantityUnit == 'KG' ? enteredCost * kgPerBag : enteredCost);
+    final bagWeightKg = selectedBagWeightKg;
+    final q = enteredQuantity == null ? null : (quantityUnit == 'KG' ? (bagWeightKg == null ? null : enteredQuantity / bagWeightKg) : enteredQuantity);
+    final c = enteredCost == null ? null : (quantityUnit == 'KG' ? (bagWeightKg == null ? null : enteredCost * bagWeightKg) : enteredCost);
     final transport = double.tryParse(transportCost.text.trim().isEmpty ? '0' : transportCost.text.trim());
     final loading = double.tryParse(loadingCost.text.trim().isEmpty ? '0' : loadingCost.text.trim());
     final labour = double.tryParse(labourCost.text.trim().isEmpty ? '0' : labourCost.text.trim());
@@ -3136,7 +3177,7 @@ class _PurchasePageState extends State<PurchasePage> {
       }
       if (amount > 0) customExpenses.add({'cost_type': 'other', 'description': name, 'amount': amount});
     }
-    if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null || transport == null || loading == null || labour == null || drying == null || [transport,loading,labour,drying].any((v)=>v<0) || invalidCustomExpense) {
+    if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null || (quantityUnit == 'KG' && bagWeightKg == null) || transport == null || loading == null || labour == null || drying == null || [transport,loading,labour,drying].any((v)=>v<0) || invalidCustomExpense) {
       setState(() => message = 'Choose a product option and enter a valid quantity and buying price.');
       return;
     }
@@ -3192,7 +3233,7 @@ class _PurchasePageState extends State<PurchasePage> {
             .toList(),
         onChanged: (v) {
           if (v == null) return;
-          setState(() => product = v);
+          setState(() { product = v; quantityUnit = 'BAGS'; });
           loadProductVariants();
         },
         decoration: const InputDecoration(labelText: 'Product'),
@@ -3204,7 +3245,10 @@ class _PurchasePageState extends State<PurchasePage> {
           value: v['id'] as String,
           child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(productIconFor(product), size: 20, color: brandGreen), const SizedBox(width: 10), Flexible(child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'))]),
         )).toList(),
-        onChanged: (v) => setState(() => selectedVariantId = v),
+        onChanged: (v) => setState(() {
+          selectedVariantId = v;
+          if (selectedBagWeightKg == null) quantityUnit = 'BAGS';
+        }),
         decoration: InputDecoration(
           labelText: product == 'Maize' ? 'Maize product ID' : (product == 'Beans' ? 'Bean variety and ID' : 'Fertilizer type and ID'),
         ),
@@ -3217,14 +3261,18 @@ class _PurchasePageState extends State<PurchasePage> {
         ),
       DropdownButtonFormField<String>(
         value: quantityUnit,
-        items: const [DropdownMenuItem(value: 'BAGS', child: Text('Bags (1 bag = 90 KG)')), DropdownMenuItem(value: 'KG', child: Text('Kilograms (KG)'))],
+        items: [
+          const DropdownMenuItem(value: 'BAGS', child: Text('Bags')),
+          if (selectedBagWeightKg != null)
+            DropdownMenuItem(value: 'KG', child: Text('Kilograms (1 bag = ' + selectedBagWeightKg!.toStringAsFixed(0) + ' KG)')),
+        ],
         onChanged: (v) => setState(() => quantityUnit = v ?? 'BAGS'),
         decoration: const InputDecoration(labelText: 'Quantity and price unit'),
       ),
       field(qty, 'Quantity (${quantityUnit == 'KG' ? 'KG' : 'bags'})', number: true, onChanged: () => setState(() {})),
       field(cost, 'Buying price per ${quantityUnit == 'KG' ? 'KG' : 'bag'} (KES)', number: true, onChanged: () => setState(() {})),
-      if (qty.text.trim().isNotEmpty && cost.text.trim().isNotEmpty) Text('Stored as: ${(double.tryParse(qty.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(qty.text.trim()) / kgPerBag : double.parse(qty.text.trim()))).toStringAsFixed(3)} bags • ${(double.tryParse(cost.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(cost.text.trim()) * kgPerBag : double.parse(cost.text.trim()))).toStringAsFixed(2)} KES per bag'),
-      liveKgPriceSummary(quantityText: qty.text, unitPriceText: cost.text, quantityUnit: quantityUnit),
+      if (qty.text.trim().isNotEmpty && cost.text.trim().isNotEmpty) Text(storedUnitSummary(quantityText: qty.text, priceText: cost.text, unit: quantityUnit, bagWeightKg: selectedBagWeightKg)),
+      liveKgPriceSummary(quantityText: qty.text, unitPriceText: cost.text, quantityUnit: quantityUnit, bagWeightKg: selectedBagWeightKg),
       const Text('Additional costs for this purchase (KES)',style:TextStyle(fontWeight:FontWeight.bold)),
       field(transportCost, 'Transport', number: true),
       field(loadingCost, 'Loading / offloading', number: true),
@@ -3296,6 +3344,13 @@ class _SalePageState extends State<SalePage> {
   bool loadingVariants = false;
   String message = '';
 
+  double? get selectedBagWeightKg {
+    for (final variant in variants) {
+      if (variant['id'] == selectedVariantId) return bagWeightKgForProduct(product, variant);
+    }
+    return bagWeightKgForProduct(product, null);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3343,7 +3398,7 @@ class _SalePageState extends State<SalePage> {
       );
       final loaded = await db
           .from('product_variants')
-          .select('id,variant_name,base_unit,sku')
+          .select('id,variant_name,base_unit,sku,bag_weight_kg')
           .eq('product_id', row['id'])
           .eq('is_active', true)
           .order('variant_name');
@@ -3395,7 +3450,7 @@ class _SalePageState extends State<SalePage> {
             'base_unit': 'bag',
             'is_active': true,
           })
-          .select('id,variant_name,base_unit,sku')
+          .select('id,variant_name,base_unit,sku,bag_weight_kg')
           .single();
       if (!mounted) return;
       setState(() {
@@ -3412,11 +3467,12 @@ class _SalePageState extends State<SalePage> {
   Future<void> save() async {
     final enteredQuantity = double.tryParse(qty.text);
     final enteredPrice = double.tryParse(price.text);
-    final q = enteredQuantity == null ? null : (quantityUnit == 'KG' ? enteredQuantity / kgPerBag : enteredQuantity);
-    final p = enteredPrice == null ? null : (quantityUnit == 'KG' ? enteredPrice * kgPerBag : enteredPrice);
+    final bagWeightKg = selectedBagWeightKg;
+    final q = enteredQuantity == null ? null : (quantityUnit == 'KG' ? (bagWeightKg == null ? null : enteredQuantity / bagWeightKg) : enteredQuantity);
+    final p = enteredPrice == null ? null : (quantityUnit == 'KG' ? (bagWeightKg == null ? null : enteredPrice * bagWeightKg) : enteredPrice);
     final amount = double.tryParse(paid.text) ?? 0;
     final deliveryFee = double.tryParse(fee.text) ?? 0;
-    if (q == null || p == null || q <= 0 || p < 0 || selectedVariantId == null ||
+    if (q == null || p == null || q <= 0 || p < 0 || selectedVariantId == null || (quantityUnit == 'KG' && bagWeightKg == null) ||
         customer.text.trim().isEmpty ||
         (mode == 'delivery' && address.text.trim().isEmpty)) {
       setState(() => message = 'Choose a product option and check the customer name, quantity, selling price and delivery address.');
@@ -3477,7 +3533,7 @@ class _SalePageState extends State<SalePage> {
             .toList(),
         onChanged: (v) {
           if (v == null) return;
-          setState(() => product = v);
+          setState(() { product = v; quantityUnit = 'BAGS'; });
           loadProductVariants();
         },
         decoration: const InputDecoration(labelText: 'Product'),
@@ -3489,7 +3545,10 @@ class _SalePageState extends State<SalePage> {
           value: v['id'] as String,
           child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(productIconFor(product), size: 20, color: brandGreen), const SizedBox(width: 10), Flexible(child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'))]),
         )).toList(),
-        onChanged: (v) => setState(() => selectedVariantId = v),
+        onChanged: (v) => setState(() {
+          selectedVariantId = v;
+          if (selectedBagWeightKg == null) quantityUnit = 'BAGS';
+        }),
         decoration: InputDecoration(
           labelText: product == 'Maize' ? 'Maize product ID' : (product == 'Beans' ? 'Bean variety and ID' : 'Fertilizer type and ID'),
         ),
@@ -3502,14 +3561,18 @@ class _SalePageState extends State<SalePage> {
         ),
       DropdownButtonFormField<String>(
         value: quantityUnit,
-        items: const [DropdownMenuItem(value: 'BAGS', child: Text('Bags (1 bag = 90 KG)')), DropdownMenuItem(value: 'KG', child: Text('Kilograms (KG)'))],
+        items: [
+          const DropdownMenuItem(value: 'BAGS', child: Text('Bags')),
+          if (selectedBagWeightKg != null)
+            DropdownMenuItem(value: 'KG', child: Text('Kilograms (1 bag = ' + selectedBagWeightKg!.toStringAsFixed(0) + ' KG)')),
+        ],
         onChanged: (v) => setState(() => quantityUnit = v ?? 'BAGS'),
         decoration: const InputDecoration(labelText: 'Quantity and price unit'),
       ),
       field(qty, 'Quantity (${quantityUnit == 'KG' ? 'KG' : 'bags'})', number: true, onChanged: () => setState(() {})),
       field(price, 'Selling price per ${quantityUnit == 'KG' ? 'KG' : 'bag'} (KES)', number: true, onChanged: () => setState(() {})),
-      if (qty.text.trim().isNotEmpty && price.text.trim().isNotEmpty) Text('Stored as: ${(double.tryParse(qty.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(qty.text.trim()) / kgPerBag : double.parse(qty.text.trim()))).toStringAsFixed(3)} bags • ${(double.tryParse(price.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(price.text.trim()) * kgPerBag : double.parse(price.text.trim()))).toStringAsFixed(2)} KES per bag'),
-      liveKgPriceSummary(quantityText: qty.text, unitPriceText: price.text, quantityUnit: quantityUnit),
+      if (qty.text.trim().isNotEmpty && price.text.trim().isNotEmpty) Text(storedUnitSummary(quantityText: qty.text, priceText: price.text, unit: quantityUnit, bagWeightKg: selectedBagWeightKg)),
+      liveKgPriceSummary(quantityText: qty.text, unitPriceText: price.text, quantityUnit: quantityUnit, bagWeightKg: selectedBagWeightKg),
       field(customer, 'Customer name'),
       field(customerPhone, 'Customer phone (required for a new customer)'),
       DropdownButtonFormField<String>(
@@ -4691,17 +4754,17 @@ class FormPage extends StatelessWidget {
   ]);
 }
 
-Widget liveKgPriceSummary({required String quantityText, required String unitPriceText, required String quantityUnit}) {
+Widget liveKgPriceSummary({required String quantityText, required String unitPriceText, required String quantityUnit, required double? bagWeightKg}) {
   final enteredQuantity = double.tryParse(quantityText.trim());
   final enteredPrice = double.tryParse(unitPriceText.trim());
-  if (enteredQuantity == null || enteredPrice == null || enteredQuantity <= 0 || enteredPrice < 0) return const SizedBox.shrink();
-  final quantityKg = quantityUnit == 'KG' ? enteredQuantity : enteredQuantity * kgPerBag;
-  final pricePerKg = quantityUnit == 'KG' ? enteredPrice : enteredPrice / kgPerBag;
+  if (bagWeightKg == null || bagWeightKg <= 0 || enteredQuantity == null || enteredPrice == null || enteredQuantity <= 0 || enteredPrice < 0) return const SizedBox.shrink();
+  final quantityKg = quantityUnit == 'KG' ? enteredQuantity : enteredQuantity * bagWeightKg;
+  final pricePerKg = quantityUnit == 'KG' ? enteredPrice : enteredPrice / bagWeightKg;
   final total = quantityKg * pricePerKg;
   return Card(color: brandGreen.withOpacity(.07), child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     const Text('LIVE KG PRICE CALCULATION', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
     const SizedBox(height: 5),
-    Text('${quantityKg.toStringAsFixed(2)} KG  •  ${(quantityKg / kgPerBag).toStringAsFixed(3)} bags'),
+    Text('${quantityKg.toStringAsFixed(2)} KG  •  ${(quantityKg / bagWeightKg).toStringAsFixed(3)} bags'),
     Text('Price: KES ${pricePerKg.toStringAsFixed(2)} per KG'),
     Text('Total: KES ${total.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
   ])));
@@ -4858,9 +4921,10 @@ class _PreviewHomeState extends State<PreviewHome> {
   void saveEntry(bool isSale) {
     final enteredQ = double.tryParse(quantity.text.trim());
     final enteredP = double.tryParse(price.text.trim());
-    final q = enteredQ == null ? null : (entryUnit == 'KG' ? enteredQ / kgPerBag : enteredQ);
-    final p = enteredP == null ? null : (entryUnit == 'KG' ? enteredP * kgPerBag : enteredP);
-    if (q == null || q <= 0 || p == null || p < 0) {
+    final bagWeightKg = bagWeightKgForProduct(product, null);
+    final q = enteredQ == null ? null : (entryUnit == 'KG' ? (bagWeightKg == null ? null : enteredQ / bagWeightKg) : enteredQ);
+    final p = enteredP == null ? null : (entryUnit == 'KG' ? (bagWeightKg == null ? null : enteredP * bagWeightKg) : enteredP);
+    if (q == null || q <= 0 || p == null || p < 0 || (entryUnit == 'KG' && bagWeightKg == null)) {
       setState(() => message = 'Enter a valid quantity and price.');
       return;
     }
@@ -4901,7 +4965,7 @@ class _PreviewHomeState extends State<PreviewHome> {
             value: product,
             decoration: const InputDecoration(labelText: 'Product', border: OutlineInputBorder()),
             items: const ['Maize', 'Beans', 'Fertilizer'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
-            onChanged: (v) => setState(() { product = v ?? 'Maize'; message = ''; }),
+            onChanged: (v) => setState(() { product = v ?? 'Maize'; entryUnit = 'BAGS'; message = ''; }),
           ),
           if (product == 'Beans') ...[
             const SizedBox(height: 12),
@@ -4929,7 +4993,11 @@ class _PreviewHomeState extends State<PreviewHome> {
           DropdownButtonFormField<String>(
             value: entryUnit,
             decoration: const InputDecoration(labelText: 'Quantity and price unit', border: OutlineInputBorder()),
-            items: const [DropdownMenuItem(value: 'BAGS', child: Text('Bags (1 bag = 90 KG)')), DropdownMenuItem(value: 'KG', child: Text('Kilograms (KG)'))],
+            items: [
+              const DropdownMenuItem(value: 'BAGS', child: Text('Bags')),
+              if (bagWeightKgForProduct(product, null) != null)
+                DropdownMenuItem(value: 'KG', child: Text('Kilograms (1 bag = ' + bagWeightKgForProduct(product, null)!.toStringAsFixed(0) + ' KG)')),
+            ],
             onChanged: (v) => setState(() => entryUnit = v ?? 'BAGS'),
           ),
           const SizedBox(height: 12),
@@ -4939,7 +5007,7 @@ class _PreviewHomeState extends State<PreviewHome> {
           TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: InputDecoration(labelText: isSale ? 'Selling price per ${entryUnit == 'KG' ? 'KG' : 'bag'} (KES)' : 'Buying price per ${entryUnit == 'KG' ? 'KG' : 'bag'} (KES)',
                   border: const OutlineInputBorder())),
-          if (quantity.text.trim().isNotEmpty && price.text.trim().isNotEmpty) Text('Equivalent: ${(double.tryParse(quantity.text.trim()) == null ? 0 : (entryUnit == 'KG' ? double.parse(quantity.text.trim()) / kgPerBag : double.parse(quantity.text.trim()))).toStringAsFixed(3)} bags • ${(double.tryParse(price.text.trim()) == null ? 0 : (entryUnit == 'KG' ? double.parse(price.text.trim()) * kgPerBag : double.parse(price.text.trim()))).toStringAsFixed(2)} KES per bag'),
+          if (quantity.text.trim().isNotEmpty && price.text.trim().isNotEmpty) Text(storedUnitSummary(quantityText: quantity.text, priceText: price.text, unit: entryUnit, bagWeightKg: bagWeightKgForProduct(product, null))),
           const SizedBox(height: 16),
           SizedBox(width: double.infinity, child: FilledButton.icon(
               onPressed: () => saveEntry(isSale), icon: const Icon(Icons.save),
@@ -4953,7 +5021,7 @@ class _PreviewHomeState extends State<PreviewHome> {
         if (records.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('No entries added yet.')),
         ...records.map((r) => Card(child: ListTile(
           title: Text('${r['product']} • ${r['variety']}'),
-          subtitle: Text('${r['date']}  |  ${r['quantity']} bags (${((double.tryParse(r['quantity'] ?? '0') ?? 0) * kgPerBag).toStringAsFixed(1)} KG)'),
+          subtitle: Text('${r['date']}  |  ${stockQuantityLabel(r['product'] as String, double.tryParse(r['quantity'] ?? '0') ?? 0)}'),
           trailing: Text('KES ${r['price']}'),
         ))),
       ],
@@ -5106,7 +5174,7 @@ class _PreviewHomeState extends State<PreviewHome> {
           const Text('Items tracked'), Text('${rows.length}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         ])))),
         Expanded(child: Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Net stock (bags / KG)'), Text('${total.toStringAsFixed(2)} bags\n${(total * kgPerBag).toStringAsFixed(1)} KG', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const Text('Net stock (bags)'), Text('${total.toStringAsFixed(2)} bags', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         ])))),
       ]),
       const SizedBox(height: 8),
@@ -5121,7 +5189,7 @@ class _PreviewHomeState extends State<PreviewHome> {
           leading: Icon(Icons.inventory_2, color: quantity <= 0 ? Colors.red : isLow ? Colors.orange : brandGreen),
           title: Text('${row['product']} • ${row['variety']}'),
           subtitle: Text(quantity <= 0 ? 'Out of stock' : isLow ? 'Low stock' : 'Available'),
-          trailing: Text('${quantity.toStringAsFixed(2)} bags\n${(quantity * kgPerBag).toStringAsFixed(1)} KG', textAlign: TextAlign.end, style: const TextStyle(fontWeight: FontWeight.bold)),
+          trailing: Text(stockQuantityLabel(row['product'] as String, quantity), textAlign: TextAlign.end, style: const TextStyle(fontWeight: FontWeight.bold)),
         ));
       }),
       const SizedBox(height: 14),
@@ -5132,7 +5200,7 @@ class _PreviewHomeState extends State<PreviewHome> {
               color: e['movement'] == 'Stock out' ? Colors.deepOrange : brandGreen),
           title: Text('${e['movement']} • ${e['product']} • ${e['variety']}'),
           subtitle: Text('${e['date']}'),
-          trailing: Text('${e['quantity']} bags\n${((double.tryParse(e['quantity'] ?? '0') ?? 0) * kgPerBag).toStringAsFixed(1)} KG', textAlign: TextAlign.end),
+          trailing: Text(stockQuantityLabel(e['product'] as String, double.tryParse(e['quantity'] ?? '0') ?? 0), textAlign: TextAlign.end),
         ))),
     ]);
   }
