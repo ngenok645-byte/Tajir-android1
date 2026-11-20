@@ -2138,12 +2138,67 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
  Future<void> book()async{try{if(tractor==null)throw const FormatException('No tractor available.');if(location.text.trim().length<3)throw const FormatException('Enter farm location.');final r=await Supabase.instance.client.rpc('customer_book_tractor_service',params:{'p_tractor_id':tractor,'p_service_type':service,'p_service_location':location.text.trim(),'p_area_acres':acres.text.trim().isEmpty?null:double.parse(acres.text),'p_booked_for':date.toUtc().toIso8601String(),'p_notes':null});if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Booking submitted: '+(r as List).first['job_number'].toString())));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(18),children:[const Text('Book tractor service',style:TextStyle(fontSize:21,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(tractors.isNotEmpty)DropdownButtonFormField<String>(value:tractor,items:tractors.map((t)=>DropdownMenuItem(value:t['tractor_id'].toString(),child:Text(t['selection_label'].toString()))).toList(),onChanged:(v)=>setState(()=>tractor=v),decoration:const InputDecoration(labelText:'Available tractor')),if(tractors.isEmpty&&!busy)const Text('No tractors available.'),DropdownButtonFormField<String>(value:service,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v)=>setState(()=>service=v??'ploughing'),decoration:const InputDecoration(labelText:'Service')),TextField(controller:location,decoration:const InputDecoration(labelText:'Farm location')),TextField(controller:acres,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Acres')),ListTile(title:Text('Booking date: '+date.toLocal().toString().split(' ')[0]),trailing:TextButton(onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)setState(()=>date=d);},child:const Text('Choose'))),FilledButton(onPressed:busy||tractors.isEmpty?null:book,child:const Text('Book service'))]);
 }
-class CustomerTractorBookingsPage extends StatefulWidget{@override State<CustomerTractorBookingsPage> createState()=>_CustomerTractorBookingsPageState();}
-class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPage>{
- List<Map<String,dynamic>> rows=[];bool busy=true;
- @override void initState(){super.initState();load();}
- Future<void> load()async{try{final r=await Supabase.instance.client.rpc('customer_list_tractor_bookings');if(mounted)setState(()=>rows=List<Map<String,dynamic>>.from(r));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}if(mounted)setState(()=>busy=false);}
- @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[const Text('Tractor booking history',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(!busy&&rows.isEmpty)const Text('No bookings yet.'),...rows.map((r)=>Card(child:ListTile(title:Text(r['service_type'].toString()+' • '+r['job_number'].toString()),subtitle:Text(r['service_location'].toString()+' • '+r['status'].toString()),trailing:Text('KES '+r['total_charge'].toString()))))]));
+
+class CustomerTractorBookingsPage extends StatefulWidget {
+  @override State<CustomerTractorBookingsPage> createState() => _CustomerTractorBookingsPageState();
+}
+class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPage> {
+  List<Map<String,dynamic>> rows = [];
+  bool busy = true;
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    try {
+      final r = await Supabase.instance.client.rpc('customer_list_tractor_bookings_with_owner');
+      if (mounted) setState(() => rows = List<Map<String,dynamic>>.from(r));
+    } catch (_) {
+      try {
+        final r = await Supabase.instance.client.rpc('customer_list_tractor_bookings');
+        if (mounted) setState(() => rows = List<Map<String,dynamic>>.from(r));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+      }
+    }
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: load,
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      const Text('Tractor booking history', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+      const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Text('The Tractor Owner is responsible for contacting you about the booking. Once the owner accepts, you can call the owner from this page.'),
+      ),
+      if (busy) const LinearProgressIndicator(),
+      if (!busy && rows.isEmpty) const Text('No bookings yet.'),
+      ...rows.map((r) {
+        final ownerPhone = (r['owner_phone'] ?? '').toString();
+        final ownerName = (r['owner_name'] ?? '').toString();
+        final quote = r['owner_quote_kes'];
+        final response = (r['owner_response_status'] ?? 'pending').toString();
+        final contactLogged = r['owner_contacted_at'] != null;
+        return Card(child: Padding(padding: const EdgeInsets.all(8), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text('${r['service_type']} • ${r['job_number']}'),
+            subtitle: Text('${r['service_location']} • ${r['status']}'),
+            trailing: quote == null ? null : Text('KES ${(quote as num).toStringAsFixed(2)}'),
+          ),
+          if (response == 'pending') const Text('Waiting for the Tractor Owner to respond. The owner will contact you.'),
+          if (response == 'declined') const Text('The Tractor Owner declined this booking. Please contact TAJIR for assistance.'),
+          if (contactLogged) const Text('The Tractor Owner has logged a customer contact attempt.'),
+          if (ownerPhone.isNotEmpty) Row(children: [
+            Expanded(child: Text(ownerName.isEmpty ? 'Tractor Owner' : ownerName)),
+            FilledButton.icon(onPressed: () async {
+              try { await callTajirPhone(ownerPhone); }
+              catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+            }, icon: const Icon(Icons.call), label: const Text('Call owner')),
+          ]),
+        ])));
+      }),
+    ]),
+  );
 }
 
 class AccountRouter extends StatelessWidget {
