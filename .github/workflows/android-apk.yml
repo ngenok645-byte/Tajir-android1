@@ -14,9 +14,11 @@ name: Build TAJIR Android APK
   pull_request:
     branches:
       - main
+      - tajir-master-integration
   push:
     branches:
       - main
+      - tajir-master-integration
 
 concurrency:
   group: tajir-android-${{ github.ref }}
