@@ -1,11 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-const int tajirBuildNumber = 1;
-const String tajirVersionName = '1.0.0';
+const int tajirBuildNumber = int.fromEnvironment('TAJIR_BUILD_NUMBER', defaultValue: 1);
+const String tajirVersionName = String.fromEnvironment('TAJIR_VERSION_NAME', defaultValue: '1.0.0');
 const MethodChannel _tajirUpdateChannel = MethodChannel('tajir/update');
 
 // Kept only in memory while the Director temporarily accesses another account.
@@ -1434,63 +1435,23 @@ class DirectorReadOnlyDashboardPage extends StatelessWidget {
   }
 }
 
-class DirectorAppUpdatesPage extends StatefulWidget {
+class DirectorAppUpdatesPage extends StatelessWidget {
   const DirectorAppUpdatesPage({super.key});
-  @override State<DirectorAppUpdatesPage> createState() => _DirectorAppUpdatesPageState();
-}
-class _DirectorAppUpdatesPageState extends State<DirectorAppUpdatesPage> {
-  final code = TextEditingController(), name = TextEditingController(), url = TextEditingController(), notes = TextEditingController();
-  bool mandatory = false, busy = false, loading = true;
-  String? message;
-  @override void initState() { super.initState(); load(); }
-  @override void dispose() { code.dispose(); name.dispose(); url.dispose(); notes.dispose(); super.dispose(); }
-  Future<void> load() async {
-    try {
-      final rows = await Supabase.instance.client.from('app_releases').select().eq('id', 1).limit(1);
-      if (rows.isNotEmpty) {
-        final r = rows.first;
-        code.text = r['version_code'].toString(); name.text = r['version_name'].toString();
-        url.text = r['apk_url'].toString(); notes.text = (r['release_notes'] ?? '').toString();
-        mandatory = r['is_mandatory'] == true;
-      }
-    } catch (e) { message = friendlyError(e); }
-    if (mounted) setState(() => loading = false);
-  }
-  Future<void> publish() async {
-    final number = int.tryParse(code.text.trim());
-    final link = Uri.tryParse(url.text.trim());
-    if (number == null || number <= tajirBuildNumber) { setState(() => message = 'Version code must be greater than ' + tajirBuildNumber.toString() + '.'); return; }
-    if (name.text.trim().isEmpty || link == null || link.scheme != 'https' || link.host.isEmpty) { setState(() => message = 'Enter a version name and valid HTTPS APK link.'); return; }
-    setState(() { busy = true; message = null; });
-    try {
-      await Supabase.instance.client.from('app_releases').upsert({
-        'id': 1, 'version_code': number, 'version_name': name.text.trim(),
-        'apk_url': link.toString(), 'release_notes': notes.text.trim(),
-        'is_mandatory': mandatory, 'is_active': true,
-        'published_by': Supabase.instance.client.auth.currentUser?.id,
-        'published_at': DateTime.now().toUtc().toIso8601String(),
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      });
-      if (mounted) setState(() => message = 'Release published. TAJIR checks automatically on app start, when reopened and every 5 minutes while open.');
-    } catch (e) { if (mounted) setState(() => message = friendlyError(e)); }
-    if (mounted) setState(() => busy = false);
-  }
   @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Director • App Updates'), actions: [IconButton(onPressed: load, icon: const Icon(Icons.refresh))]),
-    body: loading ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(16), children: [
-      const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('Publish a newer APK here. Users will be notified inside TAJIR and Android will ask them to approve installation.'))),
-      Text('Installed version: ' + tajirVersionName + ' (build ' + tajirBuildNumber.toString() + ')'),
-      const SizedBox(height: 12),
-      TextField(controller: name, decoration: const InputDecoration(labelText: 'New version name', border: OutlineInputBorder())),
+    appBar: AppBar(title: const Text('Director • App Updates')),
+    body: ListView(padding: const EdgeInsets.all(16), children: [
+      const Card(child: Padding(padding: EdgeInsets.all(16), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.system_update_alt, size: 38, color: brandGreen),
+          SizedBox(height: 10),
+          Text('Automatic TAJIR updates', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          SizedBox(height: 8),
+          Text('New production builds are published automatically when the approved Android build completes. Installed TAJIR apps check GitHub Releases when opened, when resumed and every five minutes while running. Android will ask the user to approve installation.'),
+        ],
+      ))),
+      Text('Installed version: $tajirVersionName (build $tajirBuildNumber)'),
       const SizedBox(height: 10),
-      TextField(controller: code, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'New version code', border: OutlineInputBorder())),
-      const SizedBox(height: 10),
-      TextField(controller: url, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'HTTPS APK download link', border: OutlineInputBorder())),
-      const SizedBox(height: 10),
-      TextField(controller: notes, minLines: 3, maxLines: 5, decoration: const InputDecoration(labelText: 'Release notes', border: OutlineInputBorder())),
-      SwitchListTile(contentPadding: EdgeInsets.zero, value: mandatory, onChanged: (v) => setState(() => mandatory = v), title: const Text('Mandatory update'), subtitle: const Text('Require users to update before continuing.')),
-      if (message != null) Padding(padding: const EdgeInsets.all(8), child: Text(message!, style: const TextStyle(color: brandGreen))),
-      FilledButton.icon(onPressed: busy ? null : publish, icon: const Icon(Icons.publish), label: Text(busy ? 'Publishing…' : 'Publish update')),
+      const Text('No manual APK link is required. Keep the app installed and use the update prompt when one is available.'),
     ]),
   );
 }
@@ -1500,22 +1461,39 @@ bool _tajirUpdateDialogOpen = false;
 
 Future<void> checkForTajirUpdate(BuildContext context) async {
   if (_tajirUpdateDialogOpen) return;
+  HttpClient? client;
   try {
-    final rows = await Supabase.instance.client.from('app_releases')
-      .select('version_code,version_name,apk_url,release_notes,is_mandatory')
-      .eq('id', 1).eq('is_active', true).limit(1);
-    if (rows.isEmpty || !context.mounted) return;
-    final r = rows.first;
-    final latest = int.tryParse(r['version_code'].toString()) ?? 0;
+    client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
+    final request = await client.getUrl(Uri.parse(
+      'https://api.github.com/repos/ngenok645-byte/Tajir-android1/releases/latest',
+    ));
+    request.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
+    request.headers.set(HttpHeaders.userAgentHeader, 'TAJIR-Android');
+    final response = await request.close();
+    if (response.statusCode != HttpStatus.ok) return;
+    final payload = jsonDecode(await response.transform(utf8.decoder).join());
+    if (payload is! Map<String, dynamic> || !context.mounted) return;
+    final tag = (payload['tag_name'] ?? '').toString();
+    final match = RegExp(r'^tajir-(\\d+)$').firstMatch(tag);
+    final latest = int.tryParse(match?.group(1) ?? '') ?? 0;
     if (latest <= tajirBuildNumber || latest == _tajirDismissedUpdateVersion) return;
-    final required = r['is_mandatory'] == true;
+    final assets = payload['assets'];
+    if (assets is! List) return;
+    final apkAssets = assets.whereType<Map>().where((a) =>
+      (a['name'] ?? '').toString().toLowerCase().endsWith('.apk')).toList();
+    if (apkAssets.isEmpty) return;
+    final apkUrl = (apkAssets.first['browser_download_url'] ?? '').toString();
+    if (Uri.tryParse(apkUrl)?.scheme != 'https') return;
+    final version = (payload['name'] ?? 'Build $latest').toString();
+    final notes = (payload['body'] ?? 'A new TAJIR version is available.').toString();
+    final required = (payload['body'] ?? '').toString().contains('[MANDATORY]');
     _tajirUpdateDialogOpen = true;
     try {
       await showDialog<void>(context: context, barrierDismissible: !required, builder: (dialogContext) => PopScope(
         canPop: !required,
         child: AlertDialog(
-          title: Text('TAJIR update ' + r['version_name'].toString() + ' available'),
-          content: Text((r['release_notes'] ?? 'A new version is available.').toString() + (required ? '\n\nThis update is required.' : '')),
+          title: Text('TAJIR update $version available'),
+          content: Text(notes.replaceAll('[MANDATORY]', '').trim() + (required ? '\\n\\nThis update is required.' : '')),
           actions: [
             if (!required) TextButton(onPressed: () {
               _tajirDismissedUpdateVersion = latest;
@@ -1523,7 +1501,7 @@ Future<void> checkForTajirUpdate(BuildContext context) async {
             }, child: const Text('Later')),
             FilledButton(onPressed: () async {
               Navigator.pop(dialogContext);
-              await downloadAndInstallTajirApk(context, r['apk_url'].toString());
+              await downloadAndInstallTajirApk(context, apkUrl);
             }, child: const Text('Download update')),
           ],
         ),
@@ -1531,7 +1509,11 @@ Future<void> checkForTajirUpdate(BuildContext context) async {
     } finally {
       _tajirUpdateDialogOpen = false;
     }
-  } catch (_) { /* Offline update checks must not block app access. */ }
+  } catch (_) {
+    // An offline or unavailable release service must not prevent sign-in.
+  } finally {
+    client?.close(force: true);
+  }
 }
 
 Future<void> downloadAndInstallTajirApk(BuildContext context, String url) async {
