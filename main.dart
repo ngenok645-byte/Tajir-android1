@@ -5079,7 +5079,6 @@ class ProviderPendingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final approved = status == 'approved';
     final rejected = status == 'rejected';
     return Scaffold(
       appBar: AppBar(title: const Text('Provider application')),
@@ -5095,6 +5094,8 @@ class ProviderPendingPage extends StatelessWidget {
           const SizedBox(height: 8),
           const Text('TAJIR will enable your provider dashboard after a Director reviews and approves your application. Your account details and saved records are kept safe.',
             textAlign: TextAlign.center),
+          const SizedBox(height: 16),
+          const TajirDirectorContacts(),
           const SizedBox(height: 18),
           FilledButton(onPressed: () => Supabase.instance.client.auth.signOut(scope: SignOutScope.local),
             child: const Text('Sign out')),
