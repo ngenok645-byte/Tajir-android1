@@ -853,7 +853,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    dynamic r;
    if(widget.mode=='buy'){
     // The buyer catalogue is TAJIR's actual branch stock, not seller listings.
-    r=await db.rpc('get_stock_balances');
+    r=await db.rpc('customer_list_tajir_products');
    }else if(widget.mode=='sell'){
     r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
    }else{
