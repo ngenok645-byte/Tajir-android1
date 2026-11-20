@@ -270,7 +270,7 @@ jobs:
           TAJIR_KEY_PASSWORD: ${{ secrets.TAJIR_KEY_PASSWORD }}
         run: |
           if [ -z "$TAJIR_KEYSTORE_BASE64" ]; then
-            echo "::warning::Persistent signing key is not configured. This build cannot be published as an install-over-existing-app update."
+            echo "::warning::Persistent signing key is not configured; this APK cannot be published as an update for existing installations."
             echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -287,89 +287,23 @@ jobs:
           from pathlib import Path
           p = Path('android/app/build.gradle.kts')
           s = p.read_text()
-          if 'signingConfigs {' not in s:
-              s = s.replace('android {', '''import java.util.Properties
+          signing = '''import java.util.Properties
           val tajirSigning = Properties().apply {
               val f = rootProject.file("key.properties")
               if (f.exists()) f.inputStream().use { load(it) }
           }
           android {
               signingConfigs {
-                  if (tajirSigning.getProperty("storeFile") != null) {
-                      create("release") {
-                          keyAlias = tajirSigning.getProperty("keyAlias")
-                          keyPassword = tajirSigning.getProperty("keyPassword")
-                          storePassword = tajirSigning.getProperty("storePassword")
-                          storeFile = file("${'
-        shell: bash
-        run: |
-          set -euo pipefail
-          NDK_VERSION="28.2.13676358"
-          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          # Accept SDK licences separately. The install command must not be piped
-          # through yes: sdkmanager exits early after unzipping and causes SIGPIPE.
-          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-          for attempt in 1 2 3 4; do
-            echo "Installing Android NDK $NDK_VERSION (attempt $attempt/4)"
-            rm -rf "$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
-            rm -rf "$ANDROID_SDK_ROOT/.temp/"*
-            if "$SDKMANAGER" --install "ndk;$NDK_VERSION"; then
-              test -d "$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
-              echo "Android NDK $NDK_VERSION installed."
-              exit 0
-            fi
-            if [ "$attempt" -lt 4 ]; then
-              sleep $((attempt * 15))
-            fi
-          done
-          echo "NDK installation failed after four attempts."
-          exit 1
-
-      - name: Build TAJIR Android APK
-        working-directory: TAJIR_flutter_app
-        env:
-          SUPABASE_URL: https://zgqwjlyyinaapfmiomjo.supabase.co
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        run: |
-          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
-            echo "Missing SUPABASE_URL or SUPABASE_ANON_KEY repository secrets."
-            exit 1
-          fi
-          flutter build apk --release \
-            --build-number="$GITHUB_RUN_NUMBER" \
-            --build-name="1.0.$GITHUB_RUN_NUMBER" \
-            --dart-define=TAJIR_BUILD_NUMBER="$GITHUB_RUN_NUMBER" \
-            --dart-define=TAJIR_VERSION_NAME="1.0.$GITHUB_RUN_NUMBER" \
-            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
-            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
-            --android-skip-build-dependency-validation
-
-      - name: Publish signed TAJIR release for in-app updates
-        if: steps.signing.outputs.signed == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: tajir-${{ github.run_number }}
-          name: TAJIR 1.0.${{ github.run_number }}
-          body: |
-            Automatic TAJIR Android release.
-            Build: ${{ github.run_number }}
-          files: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-release.apk
-          make_latest: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload TAJIR Android APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: TAJIR-Android-APK
-          path: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
-}{tajirSigning.getProperty("storeFile")}")
-                      }
+                  create("release") {
+                      keyAlias = tajirSigning.getProperty("keyAlias")
+                      keyPassword = tajirSigning.getProperty("keyPassword")
+                      storePassword = tajirSigning.getProperty("storePassword")
+                      storeFile = file(tajirSigning.getProperty("storeFile")!!)
                   }
-              }''')
-          if 'signingConfig = signingConfigs.getByName("release")' not in s:
-              s = s.replace('buildTypes {', 'buildTypes {\n        release { signingConfig = signingConfigs.getByName("release") }')
+              }
+          '''
+          s = s.replace('android {', signing, 1)
+          s = s.replace('buildTypes {', 'buildTypes {\n        release { signingConfig = signingConfigs.getByName("release") }', 1)
           p.write_text(s)
           PY
       - name: Install Android NDK with retry
