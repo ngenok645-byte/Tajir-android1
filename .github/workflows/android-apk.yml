@@ -13,7 +13,7 @@ name: Build TAJIR Android APK
       - main
 
 concurrency:
-  group: tajir-android-${{ github.ref }}
+  group: tajir-android-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:
