@@ -1717,11 +1717,15 @@ class DirectorAppUpdatesPage extends StatelessWidget {
 int _tajirDismissedUpdateVersion = 0;
 bool _tajirUpdateDialogOpen = false;
 
+Future<int> _tajirDownloadedUpdateVersion = Future<int>.value(0);
+bool _tajirUpdateDialogOpen = false;
+
 Future<void> checkForTajirUpdate(BuildContext context) async {
-  if (_tajirUpdateDialogOpen) return;
+  if (_tajirUpdateDialogOpen || !context.mounted) return;
+  _tajirUpdateDialogOpen = true;
   HttpClient? client;
   try {
-    client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
+    client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     final request = await client.getUrl(Uri.parse(
       'https://api.github.com/repos/ngenok645-byte/Tajir-android1/releases/latest',
     ));
@@ -1732,63 +1736,80 @@ Future<void> checkForTajirUpdate(BuildContext context) async {
     final payload = jsonDecode(await response.transform(utf8.decoder).join());
     if (payload is! Map<String, dynamic> || !context.mounted) return;
     final tag = (payload['tag_name'] ?? '').toString();
-    final match = RegExp(r'^tajir-(\d+)$').firstMatch(tag);
+    final match = RegExp(r'^tajir-(\\d+)$').firstMatch(tag);
     final latest = int.tryParse(match?.group(1) ?? '') ?? 0;
-    if (latest <= tajirBuildNumber || latest == _tajirDismissedUpdateVersion) return;
+    if (latest <= tajirBuildNumber) return;
+    final previousDownload = await _tajirDownloadedUpdateVersion;
+    if (previousDownload == latest) return;
     final assets = payload['assets'];
     if (assets is! List) return;
     final apkAssets = assets.whereType<Map>().where((a) =>
       (a['name'] ?? '').toString().toLowerCase().endsWith('.apk')).toList();
     if (apkAssets.isEmpty) return;
     final apkUrl = (apkAssets.first['browser_download_url'] ?? '').toString();
-    if (Uri.tryParse(apkUrl)?.scheme != 'https') return;
-    final version = (payload['name'] ?? 'Build $latest').toString();
-    final notes = (payload['body'] ?? 'A new TAJIR version is available.').toString();
-    final required = (payload['body'] ?? '').toString().contains('[MANDATORY]');
-    _tajirUpdateDialogOpen = true;
+    final uri = Uri.tryParse(apkUrl);
+    if (uri == null || uri.scheme != 'https') return;
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('A new TAJIR version was found. Downloading it automatically...')),
+      );
+    }
+    final downloadClient = HttpClient()..connectionTimeout = const Duration(seconds: 30);
     try {
-      await showDialog<void>(context: context, barrierDismissible: !required, builder: (dialogContext) => PopScope(
-        canPop: !required,
-        child: AlertDialog(
-          title: Text('TAJIR update $version available'),
-          content: Text(notes.replaceAll('[MANDATORY]', '').trim() + (required ? '\n\nThis update is required.' : '')),
+      final downloadResponse = await (await downloadClient.getUrl(uri)).close();
+      if (downloadResponse.statusCode != HttpStatus.ok) {
+        throw HttpException('TAJIR update download failed.');
+      }
+      final file = File(Directory.systemTemp.path + '/tajir-update.apk');
+      await downloadResponse.pipe(file.openWrite());
+      if (!await file.exists() || await file.length() < 100000) {
+        throw const FormatException('Downloaded TAJIR update is incomplete.');
+      }
+      _tajirDownloadedUpdateVersion = Future<int>.value(latest);
+      if (!context.mounted) return;
+      final version = (payload['name'] ?? 'Build $latest').toString();
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('TAJIR $version is ready'),
+          content: const Text(
+            'The update has downloaded automatically. Select Install to open Android\'s secure installer. Your existing app data is retained when Android accepts the update.',
+          ),
           actions: [
-            if (!required) TextButton(onPressed: () {
-              _tajirDismissedUpdateVersion = latest;
-              Navigator.pop(dialogContext);
-            }, child: const Text('Later')),
-            FilledButton(onPressed: () async {
-              Navigator.pop(dialogContext);
-              await downloadAndInstallTajirApk(context, apkUrl);
-            }, child: const Text('Download update')),
+            FilledButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                try {
+                  await _tajirUpdateChannel.invokeMethod<void>(
+                    'installApk', {'path': file.path},
+                  );
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Could not open Android installer: ' + friendlyError(e))),
+                    );
+                  }
+                }
+              },
+              child: const Text('Install update'),
+            ),
           ],
         ),
-      ));
+      );
     } finally {
-      _tajirUpdateDialogOpen = false;
+      downloadClient.close(force: true);
     }
-  } catch (_) {
-    // An offline or unavailable release service must not prevent sign-in.
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('TAJIR update check failed: ' + friendlyError(e))),
+      );
+    }
   } finally {
     client?.close(force: true);
-  }
-}
-
-Future<void> downloadAndInstallTajirApk(BuildContext context, String url) async {
-  try {
-    final uri = Uri.parse(url);
-    if (uri.scheme != 'https') throw const FormatException('Update link must use HTTPS.');
-    final client = HttpClient();
-    final response = await (await client.getUrl(uri)).close();
-    if (response.statusCode != 200) throw HttpException('APK download failed.');
-    final bytes = await response.fold<List<int>>(<int>[], (all, chunk) => all..addAll(chunk));
-    client.close();
-    if (bytes.length < 100000) throw const FormatException('Downloaded APK is incomplete.');
-    final file = File(Directory.systemTemp.path + '/tajir-update.apk');
-    await file.writeAsBytes(bytes, flush: true);
-    await _tajirUpdateChannel.invokeMethod<void>('installApk', {'path': file.path});
-  } catch (e) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Update failed: ' + friendlyError(e))));
+    _tajirUpdateDialogOpen = false;
   }
 }
 
