@@ -35,6 +35,7 @@ Deno.serve(async (req) => {
     const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
     const phone = typeof body.phone === "string" ? normalizePhone(body.phone) : "";
     const pin = typeof body.pin === "string" ? body.pin.trim() : "";
+    const verificationId = typeof body.verification_id === "string" ? body.verification_id : "";
     const businessName = typeof body.business_name === "string" ? body.business_name.trim() : "";
     const location = typeof body.location === "string" ? body.location.trim() : "";
     const services = Array.isArray(body.services)
@@ -61,6 +62,20 @@ Deno.serve(async (req) => {
     });
     if (rateError) throw rateError;
     if (allowed !== true) return json({ error: "Too many registration attempts. Please try again later." }, 429);
+
+    // Consume a verified, unexpired phone challenge exactly once before creating an account.
+    const { data: verification, error: verificationError } = await db.from("tajir_phone_verifications")
+      .update({ consumed_at: new Date().toISOString() })
+      .eq("id", verificationId)
+      .eq("phone_e164", phone)
+      .eq("purpose", "provider_registration")
+      .not("verified_at", "is", null)
+      .is("consumed_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .select("id")
+      .maybeSingle();
+    if (verificationError) throw verificationError;
+    if (!verification) return json({ error: "Verify control of this phone number before applying." }, 403);
 
     const { data: profiles, error: profileReadError } = await db.from("profiles").select("id,phone");
     if (profileReadError) throw profileReadError;
