@@ -76,6 +76,47 @@ Future<void> showTajirNationalId(BuildContext context, String profileId) async {
   }
 }
 
+Future<void> addMyTajirNationalId(BuildContext context) async {
+  final controller = TextEditingController();
+  try {
+    final entered = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Register your National ID'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Your full National ID is encrypted. Only you and an authorised TAJIR Director can view it.'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            maxLength: 8,
+            decoration: const InputDecoration(labelText: '7 or 8 digit National ID', border: OutlineInputBorder(), counterText: ''),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Save securely')),
+        ],
+      ),
+    );
+    if (entered == null || !context.mounted) return;
+    if (!RegExp(r'^\\d{7,8}$').hasMatch(entered)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid 7 or 8 digit National ID.')));
+      return;
+    }
+    await Supabase.instance.client.rpc('register_my_national_id', params: {'p_national_id': entered});
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('National ID saved securely.')));
+    await showTajirNationalId(context, Supabase.instance.client.auth.currentUser!.id);
+  } catch (e) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(friendlyError(e))),
+    );
+  } finally {
+    controller.dispose();
+  }
+}
+
 class TajirCallButton extends StatelessWidget {
   final String profileId;
   final String label;
@@ -869,6 +910,11 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
         onPressed: () => showTajirNationalId(context, Supabase.instance.client.auth.currentUser!.id),
         icon: const Icon(Icons.verified_user_outlined),
         label: const Text('View my National ID'),
+      ),
+      OutlinedButton.icon(
+        onPressed: () => addMyTajirNationalId(context),
+        icon: const Icon(Icons.add_moderator_outlined),
+        label: const Text('Add or retry National ID registration'),
       )
     ])
   );
