@@ -161,11 +161,14 @@ If the original key cannot be recovered, the first stable release signed with th
 ### Live schema and workflow gaps confirmed
 
 - The live database has **79 applied migrations, 74 public base tables and 42 public functions**. The repository contains only a subset of the applied migration sources.
-- The live price-separation tables and RLS policies are not yet used by the Flutter screens. The customer catalogue does not show the Director-controlled per-kg price before a request. The seller listing screen still writes and reads legacy `marketplace_listings.price_per_unit`.
-- The legacy marketplace price guard runs on UPDATE, while the seller INSERT policy remains. The legacy price column remains readable under marketplace SELECT policies. This needs a reviewed migration and app correction before marketplace release.
+- The live price-separation tables are now integrated in the audit branch: customers see Director-controlled branch prices per kg and bag equivalent; buyers browse priced seller listings; sellers see their own private buying price; and Directors have a price-management screen.
+- The seller form no longer accepts a public price and writes only a zero legacy placeholder. The new migration `20261121120000_marketplace_director_price_guard_and_request_snapshot.sql` forces the legacy field to zero and snapshots request prices server-side. It is syntax-tested but not deployed.
+- Until that migration is applied, the live legacy price column and INSERT path remain a release blocker.
 - The customer product-request trigger calculates price server-side from the branch price per kg. Keep this as the source of truth.
 - The live payment-method enum has four labels; the product plan calls for six payment workflows. Split payments and credit balances must be modelled without pretending they are additional tender types.
-- The tractor booking schema does not explicitly link a service job to its Tractor Owner. The owner acceptance/contact workflow remains unimplemented; the Driver must not replace the owner as customer contact.
+- The new migration `20261121130000_tractor_owner_booking_contact_workflow.sql` links service jobs to verified owners and adds owner accept/decline, quotes, contact logging and scoped booking RPCs. The audit-branch app now has the owner booking inbox, owner-to-customer call action and customer-to-owner call button after acceptance. The migration is syntax-tested but not deployed.
+- The live owner profile status is `verified`, not `approved`; the earlier app guard would have blocked verified owners. The audit branch now accepts the live status.
+- Driver invitation and owner-to-driver assignment remain to be implemented; the Driver still must not receive the customer-contact role.
 - The full National ID migration for all roles is preserved in source control, but the corresponding registration UI and Vault-key checks remain pending.
 - The PWA is a local-storage prototype, not the secure production app. Its maize profit formula also needs correction before reuse.
 
