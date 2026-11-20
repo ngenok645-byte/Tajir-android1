@@ -806,6 +806,7 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
   final currentPin = TextEditingController(), newPin = TextEditingController(), confirmPin = TextEditingController();
   bool isCustomer = false, loading = true, busy = false;
   String? error;
+  bool get directorAssumedAccount => _directorAccessingAccount != null;
   @override void initState() { super.initState(); loadAccount(); }
   @override void dispose() { currentPin.dispose(); newPin.dispose(); confirmPin.dispose(); super.dispose(); }
   Future<void> loadAccount() async {
@@ -817,13 +818,22 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
   }
   Future<void> savePin() async {
     final oldPin = currentPin.text.trim(), nextPin = newPin.text.trim();
-    if (oldPin.length != 4 || int.tryParse(oldPin) == null || nextPin.length != 4 || int.tryParse(nextPin) == null) { setState(() => error = 'Enter your current PIN and a new four-digit PIN.'); return; }
+    if (nextPin.length != 4 || int.tryParse(nextPin) == null) { setState(() => error = 'Enter a new four-digit PIN.'); return; }
+    if (!directorAssumedAccount && (oldPin.length != 4 || int.tryParse(oldPin) == null)) { setState(() => error = 'Enter your current four-digit PIN.'); return; }
     if (nextPin != confirmPin.text.trim()) { setState(() => error = 'The new PIN entries do not match.'); return; }
-    if (oldPin == nextPin) { setState(() => error = 'Choose a different PIN from your current PIN.'); return; }
+    if (!directorAssumedAccount && oldPin == nextPin) { setState(() => error = 'Choose a different PIN from your current PIN.'); return; }
     setState(() { busy = true; error = null; });
     try {
       final db = Supabase.instance.client;
-      if (isCustomer) {
+      if (directorAssumedAccount && !isCustomer) {
+        // Director has opened this exact account through the protected
+        // assume-account flow. The target's authenticated session may set its
+        // own password without knowing the previous PIN.
+        await db.auth.updateUser(UserAttributes(password: staffAuthPassword(nextPin)));
+      } else if (isCustomer) {
+        if (directorAssumedAccount) {
+          throw const FormatException('Customer PIN resets must be completed from the Director Customers screen.');
+        }
         final response = await db.functions.invoke('tajir-customer-change-pin', body: {'current_pin': oldPin, 'new_pin': nextPin});
         final data = response.data;
         if (response.status != 200 || data is! Map || data['success'] != true) throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'PIN update failed.') : 'PIN update failed.');
@@ -848,11 +858,11 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
     appBar: AppBar(title: const Text('Account security')),
     body: loading ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(20), children: [
       const Icon(Icons.shield_outlined, size: 52, color: brandGreen),
-      const Text('Change your four-digit PIN', textAlign: TextAlign.center, style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
-      const Text('Your PIN is private. Do not share it with anyone.', textAlign: TextAlign.center),
+      Text(directorAssumedAccount ? 'Set a new PIN for ${_directorAccessingAccount}' : 'Change your four-digit PIN', textAlign: TextAlign.center, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
+      Text(directorAssumedAccount ? 'Director account access is active. Set a new PIN for this account without requesting the old PIN.' : 'Your PIN is private. Do not share it with anyone.', textAlign: TextAlign.center),
       const SizedBox(height: 20),
-      TextField(controller: currentPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Current PIN', border: OutlineInputBorder(), counterText: '')),
-      const SizedBox(height: 10),
+      if (!directorAssumedAccount) TextField(controller: currentPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Current PIN', border: OutlineInputBorder(), counterText: '')),
+      if (!directorAssumedAccount) const SizedBox(height: 10),
       TextField(controller: newPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'New four-digit PIN', border: OutlineInputBorder(), counterText: '')),
       const SizedBox(height: 10),
       TextField(controller: confirmPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Confirm new PIN', border: OutlineInputBorder(), counterText: '')),
