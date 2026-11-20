@@ -2067,11 +2067,86 @@ class BrandMark extends StatelessWidget {
   ]);
 }
 
+class DirectorySearchPage extends StatefulWidget {
+  const DirectorySearchPage({super.key});
+  @override State<DirectorySearchPage> createState() => _DirectorySearchPageState();
+}
+class _DirectorySearchPageState extends State<DirectorySearchPage> {
+  final query = TextEditingController();
+  bool busy = false;
+  String? error;
+  List<Map<String,dynamic>> results = [];
+  @override void dispose() { query.dispose(); super.dispose(); }
+
+  Future<void> search() async {
+    final value = query.text.trim();
+    if (value.length < 4) {
+      setState(() { error = 'Enter at least 4 characters of a phone number or TAJIR ID.'; results = []; });
+      return;
+    }
+    setState(() { busy = true; error = null; results = []; });
+    try {
+      final response = await Supabase.instance.client.rpc('tajir_directory_search', params: {'p_query': value});
+      final rows = List<Map<String,dynamic>>.from(response ?? const []);
+      if (mounted) setState(() { results = rows; if (rows.isEmpty) error = 'No matching TAJIR account was found.'; });
+    } catch (e) {
+      if (mounted) setState(() => error = friendlyError(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(16),
+    children: [
+      const Text('TAJIR DIRECTORY', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      const Text('Find clients and service providers using their registered phone number or TAJIR ID. Results are limited to information your account may view.'),
+      const SizedBox(height: 16),
+      TextField(
+        controller: query,
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => search(),
+        decoration: InputDecoration(
+          labelText: 'Phone number or TAJIR ID',
+          hintText: 'e.g. 0712345678 or TJ-12AB34CD',
+          prefixIcon: const Icon(Icons.search),
+          border: const OutlineInputBorder(),
+          suffixIcon: IconButton(
+            tooltip: 'Clear search',
+            onPressed: () { query.clear(); setState(() { results = []; error = null; }); },
+            icon: const Icon(Icons.close),
+          ),
+        ),
+      ),
+      const SizedBox(height: 10),
+      FilledButton.icon(
+        onPressed: busy ? null : search,
+        icon: busy ? const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)) : const Icon(Icons.search),
+        label: Text(busy ? 'Searching…' : 'Search directory'),
+      ),
+      if (error != null) Padding(
+        padding: const EdgeInsets.only(top: 14),
+        child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+      ),
+      const SizedBox(height: 8),
+      ...results.map((row) => Card(
+        child: ListTile(
+          leading: const CircleAvatar(child: Icon(Icons.person_search)),
+          title: Text((row['display_name'] ?? 'TAJIR account').toString()),
+          subtitle: Text('${row['tajir_id']} • ${row['account_type']}\n${row['account_status']} • Phone: ${row['phone_masked']}'),
+          isThreeLine: true,
+        ),
+      )),
+    ],
+  );
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
 }
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   bool checkingUpdate = false;
   Map<String, dynamic>? availableUpdate;
 
@@ -2101,11 +2176,11 @@ class _HomeShellState extends State<HomeShell> {
 
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenMarketplace: () => selectPage(8)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage(), if (director) const BranchKgPricingPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Marketplace Pricing', if (director) 'Branch Prices (KES/kg)'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change, if (director) Icons.scale];
-  @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
-  Future<void> loadAccess() async {
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenMarketplace: () => selectPage(8)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const MarketplacePricingPage(), if (director) const BranchKgPricingPage(), const DirectorySearchPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Marketplace Pricing', if (director) 'Branch Prices (KES/kg)', 'TAJIR Directory'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change, if (director) Icons.scale, Icons.manage_search];
+  @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
+  @override void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }\n  Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
       final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
