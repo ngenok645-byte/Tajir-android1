@@ -20,6 +20,7 @@ name: Build TAJIR Android APK
     branches:
       - main
       - tajir-master-integration
+      - tajir-audit-hardening-20261120
 
 concurrency:
   group: tajir-android-${{ github.ref }}
