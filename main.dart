@@ -2140,6 +2140,7 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
 }
 
 class CustomerTractorBookingsPage extends StatefulWidget {
+  const CustomerTractorBookingsPage({super.key});
   @override State<CustomerTractorBookingsPage> createState() => _CustomerTractorBookingsPageState();
 }
 class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPage> {
