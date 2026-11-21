@@ -50,6 +50,26 @@ jobs:
         with:
           channel: stable
 
+      - name: Ensure Flutter's included Gradle build resolves Kotlin from Maven Central
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          sdk = Path(os.environ["FLUTTER_ROOT"])
+          settings = sdk / "packages/flutter_tools/gradle/settings.gradle.kts"
+          if not settings.exists():
+              raise SystemExit(f"Flutter Gradle settings not found: {settings}")
+          source = settings.read_text()
+          if "pluginManagement" not in source:
+              raise SystemExit("Flutter Gradle pluginManagement block not found")
+          # The failing dependency is resolved inside Flutter's included :gradle build,
+          # which has its own pluginManagement repositories, separate from the app.
+          if "mavenCentral()" not in source:
+              source = source.replace("repositories {", "repositories {\\n        google()\\n        mavenCentral()", 1)
+              settings.write_text(source)
+          print(f"Verified Maven Central for Flutter's included Gradle build: {settings}")
+          PY
+
       - name: Extract TAJIR Flutter app
         run: |
           python - <<'PY'
