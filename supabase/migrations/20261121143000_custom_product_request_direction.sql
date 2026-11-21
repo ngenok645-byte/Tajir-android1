@@ -20,7 +20,8 @@ returns table(
   product_name text,
   product_variant_id uuid,
   variant_name text,
-  unit text
+  unit text,
+  official_buy_price_per_kg numeric
 )
 language plpgsql
 stable
@@ -37,12 +38,14 @@ begin
 
   return query
   select b.id, b.name::text, p.id, p.name::text, pv.id, pv.variant_name::text,
-         pv.base_unit::text
+         pv.base_unit::text, prices.selling_price_per_kg
   from public.products p
   join public.product_variants pv on pv.product_id = p.id and pv.is_active = true
   cross join public.branches b
   left join public.branch_product_settings bps
     on bps.branch_id = b.id and bps.product_variant_id = pv.id
+  left join public.branch_product_selling_prices prices
+    on prices.branch_id = b.id and prices.product_variant_id = pv.id
   where p.is_active = true
     and b.is_active = true
     and coalesce(bps.is_available_for_sale, true) = true
@@ -51,39 +54,3 @@ end;
 $function$;
 revoke all on function public.customer_list_tajir_products() from public, anon;
 grant execute on function public.customer_list_tajir_products() to authenticated;
-
--- Track the customer's explicit acceptance of the Director-approved custom quote.
-alter table public.customer_custom_product_requests
-  add column if not exists customer_confirmed_at timestamptz;
-
-create or replace function public.customer_confirm_custom_product_request(p_request_id uuid)
-returns void
-language plpgsql
-security definer
-set search_path = ''
-as $function$
-begin
-  if auth.uid() is null then
-    raise exception 'Sign in with your customer account to continue.';
-  end if;
-
-  update public.customer_custom_product_requests r
-  set customer_confirmed_at = now(), updated_at = now()
-  where r.id = p_request_id
-    and r.status = 'approved'
-    and r.customer_confirmed_at is null
-    and exists (
-      select 1 from public.customers c
-      where c.id = r.customer_id
-        and c.profile_id = auth.uid()
-        and c.active = true
-    );
-
-  if not found then
-    raise exception 'This request is not approved, is already confirmed, or does not belong to your account.';
-  end if;
-end;
-$function$;
-
-revoke all on function public.customer_confirm_custom_product_request(uuid) from public, anon;
-grant execute on function public.customer_confirm_custom_product_request(uuid) to authenticated;
