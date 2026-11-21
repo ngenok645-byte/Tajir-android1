@@ -3362,7 +3362,8 @@ class _SalePageState extends State<SalePage> {
   Future<void> save() async {
     final enteredQuantity = double.tryParse(qty.text.trim());
     final enteredPrice = double.tryParse(price.text.trim());
-    final selected = variants.where((v) => v['id'] == selectedVariantId).firstOrNull ?? <String, dynamic>{};
+    final selectedRows = variants.where((v) => v['id'] == selectedVariantId).toList();
+    final selected = selectedRows.isNotEmpty ? selectedRows.first : <String, dynamic>{};
     final stockUnit = (selected['base_unit'] ?? 'bag').toString().toLowerCase();
     double? q;
     double? p;
