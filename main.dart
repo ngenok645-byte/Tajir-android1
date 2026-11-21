@@ -2889,7 +2889,7 @@ class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProduc
    Text('${r['request_direction']=='SELL_TO_TAJIR'?'Customer offers to sell to TAJIR':'Customer wants to buy from TAJIR'} • ${r['quantity']} ${r['quantity_unit']}'),
    Text('Client-proposed price: KES ${r['proposed_unit_price_kes']} / ${r['quantity_unit']} • Status: ${r['status']}${r['customer_confirmed_at']==null?'':' • Customer confirmed order request'}'),
    if((r['description']??'').toString().isNotEmpty)Text('Details: ${r['description']}'),
-   if(customer.isNotEmpty)Text('Customer: ${customer['full_name']??'Customer'} • ${customer['phone_number']??''}'),
+   if(customer.isNotEmpty)Text('Customer: ${customer['full_name']??'Customer'} • ${customer['phone']??''}'),
    TextField(controller:prices[id],keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Agreed / negotiated unit price (KES)')),
    TextField(controller:notes[id],maxLines:2,decoration:const InputDecoration(labelText:'Director response / negotiation notes')),
    Wrap(spacing:8,children:[OutlinedButton(onPressed:saving?null:()=>review(r,'negotiation'),child:const Text('Negotiate')),FilledButton(onPressed:saving?null:()=>review(r,'approved'),child:const Text('Approve')),TextButton(onPressed:saving?null:()=>review(r,'rejected'),child:const Text('Reject'))])
