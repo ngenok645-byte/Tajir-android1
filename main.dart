@@ -1740,9 +1740,11 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    }else{
     final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
     final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name)').order('created_at',ascending:false);
+    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,request_direction,status,director_response,agreed_unit_price_kes,created_at').order('created_at',ascending:false);
     r=[
      ...List<Map<String,dynamic>>.from(marketplaceRows),
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
+     ...List<Map<String,dynamic>>.from(customRows).map((x)=>{...x,'_is_custom_request':true}),
     ]..sort((a,b)=>DateTime.parse(b['created_at'].toString()).compareTo(DateTime.parse(a['created_at'].toString())));
    }
    if(mounted){
@@ -1782,9 +1784,43 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   if(ok==true){try{
    final amount=double.tryParse(quantity.text.trim());if(amount==null||amount<=0)throw const FormatException('Enter a quantity greater than zero.');
    await Supabase.instance.client.from('customer_product_requests').insert({'customer_id':widget.customer['id'],'product_id':item['product_id'],'product_variant_id':item['product_variant_id'],'branch_id':item['branch_id'],'quantity_requested':amount,'quantity_unit':unit,'note':note.text.trim().isEmpty?null:note.text.trim()});
-   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your request has been sent. TAJIR will confirm availability and the official total.')));
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your request has been sent. The Director will review your order and arrange fulfilment. This is a request, not a stock reservation.')));
   }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   quantity.dispose();note.dispose();
+ }
+ Future<void> requestCustomProduct()async{
+  final name=TextEditingController(),description=TextEditingController(),quantity=TextEditingController(text:'1'),proposedPrice=TextEditingController();
+  String unit='KG',direction='BUY_FROM_TAJIR';
+  final ok=await showDialog<bool>(context:context,builder:(x)=>StatefulBuilder(builder:(x,setDialog)=>AlertDialog(
+   title:const Text('Request a product not listed'),
+   content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+    const Text('Send the product details to the Director for review. Your proposed price is not an official TAJIR price and may be discussed or changed.'),
+    TextField(controller:name,textCapitalization:TextCapitalization.words,decoration:const InputDecoration(labelText:'Product name')),
+    TextField(controller:description,maxLines:2,decoration:const InputDecoration(labelText:'Description / grade (optional)')),
+    DropdownButtonFormField<String>(value:direction,decoration:const InputDecoration(labelText:'Request type'),items:const [
+     DropdownMenuItem(value:'BUY_FROM_TAJIR',child:Text('I want to buy from TAJIR')),
+     DropdownMenuItem(value:'SELL_TO_TAJIR',child:Text('I want TAJIR to buy from me')),
+    ],onChanged:(v)=>setDialog(()=>direction=v??'BUY_FROM_TAJIR')),
+    TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Quantity')),
+    DropdownButtonFormField<String>(value:unit,decoration:const InputDecoration(labelText:'Unit'),items:const [
+     DropdownMenuItem(value:'KG',child:Text('Kilograms (KG)')),DropdownMenuItem(value:'BAG',child:Text('Bags'))
+    ],onChanged:(v)=>setDialog(()=>unit=v??'KG')),
+    TextField(controller:proposedPrice,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:direction=='BUY_FROM_TAJIR'?'Your proposed price per unit (KES)':'Your expected price per unit (KES)')),
+   ])),
+   actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Send to Director'))],
+  )));
+  if(ok==true){try{
+   final q=double.tryParse(quantity.text.trim()),p=double.tryParse(proposedPrice.text.trim()),n=name.text.trim();
+   if(n.length<2||q==null||q<=0||p==null||p<=0)throw const FormatException('Enter a product name, a positive quantity and a proposed price greater than zero.');
+   await Supabase.instance.client.from('customer_custom_product_requests').insert({
+    'customer_id':widget.customer['id'],'branch_id':widget.customer['default_branch_id'],
+    'product_name':n,'description':description.text.trim().isEmpty?null:description.text.trim(),
+    'quantity':q,'quantity_unit':unit,'proposed_unit_price_kes':p,'request_direction':direction,
+   });
+   await load();
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your product request and proposed price have been sent to the Director for review.')));
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  name.dispose();description.dispose();quantity.dispose();proposedPrice.dispose();
  }
  Future<void> createListing()async{
   final db=Supabase.instance.client;final q=TextEditingController(text:'1'),loc=TextEditingController(),desc=TextEditingController();
@@ -1828,11 +1864,12 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   child:ListView(padding:const EdgeInsets.all(16),children:[
    Row(children:[
     Expanded(child:Text(widget.mode=='buy'?'TAJIR products available':widget.mode=='sell'?'Your listings':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),
-    if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Add listing'))
+    if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Add listing')),
+     if(widget.mode=='buy')OutlinedButton.icon(onPressed:requestCustomProduct,icon:const Icon(Icons.add),label:const Text('Request unlisted product'))
    ]),
    if(busy)const LinearProgressIndicator(),
    if(error!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(error!,style:const TextStyle(color:Colors.red))),
-   if(!busy&&rows.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(widget.mode=='buy'?'No TAJIR stock is currently available. Please check again or contact your branch.':'No marketplace records yet.')),
+   if(!busy&&rows.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(widget.mode=='buy'?'No listed products are showing right now. You can still request a product that is not listed.':'No marketplace records yet.')),
    ...rows.map((r){
     if(widget.mode=='buy'){
      final variant=(r['variant_name']??'').toString();
@@ -1846,7 +1883,17 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      ));
     }
     if(widget.mode=='requests'){
-     if(r['_is_tajir_request']==true){
+     if(r['_is_custom_request']==true){
+       final dir=r['request_direction']=='SELL_TO_TAJIR'?'You offered to sell to TAJIR':'You requested to buy from TAJIR';
+       final agreed=r['agreed_unit_price_kes'];
+       return Card(child:ListTile(
+        leading:const Icon(Icons.playlist_add_outlined),
+        title:Text((r['product_name']??'Custom product').toString()),
+        subtitle:Text('$dir • ${r['quantity']} ${r['quantity_unit']} • Proposed: KES ${r['proposed_unit_price_kes']} / ${r['quantity_unit']} • Status: ${r['status']}${agreed==null?'':' • Agreed: KES $agreed'}${(r['director_response']??'').toString().isEmpty?'':'\\nDirector: ${r['director_response']}'}'),
+        trailing:const Icon(Icons.hourglass_top),
+       ));
+      }
+      if(r['_is_tajir_request']==true){
       final p=(r['products'] as Map?)?.cast<String,dynamic>()??{};
       final v=(r['product_variants'] as Map?)?.cast<String,dynamic>()??{};
       final name=(p['name']??'TAJIR product').toString();
