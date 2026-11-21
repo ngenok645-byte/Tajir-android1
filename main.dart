@@ -4382,6 +4382,16 @@ class _CustomersPageState extends State<CustomersPage> {
     referenceController.dispose();
   }
 
+  Future<void> verifyCustomerPayment(String paymentId, Map<String,dynamic> customer) async {
+    try {
+      await Supabase.instance.client.rpc('verify_customer_sale_payment',params:{'p_payment_id':paymentId});
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer payment verified successfully.')));
+      if(mounted)await showCustomer(customer);
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not verify payment: '+friendlyError(e))));
+    }
+  }
+
   Future<void> showCustomer(Map<String,dynamic> customer) async {
     final db=Supabase.instance.client;
     try {
@@ -4392,6 +4402,8 @@ class _CustomersPageState extends State<CustomersPage> {
       ]);
       final sales=List<Map<String,dynamic>>.from(results[0]);
       final payments=List<Map<String,dynamic>>.from(results[1]);
+      final roleRows=await db.from('user_role_assignments').select('app_roles(code)').eq('user_id',db.auth.currentUser!.id).eq('is_active',true);
+      final canVerifyPayments=roleRows.any((r)=>r['app_roles'] is Map && ['director','accountant'].contains((r['app_roles'] as Map)['code']));
       final totalSales=sales.fold<double>(0,(s,r)=>s+((r['total_amount'] as num?)?.toDouble()??0));
       final verified=payments.where((p)=>p['status']=='verified').fold<double>(0,(s,r)=>s+((r['amount'] as num?)?.toDouble()??0));
       final pending=payments.where((p)=>p['status']=='pending').fold<double>(0,(s,r)=>s+((r['amount'] as num?)?.toDouble()??0));
@@ -4433,7 +4445,12 @@ class _CustomersPageState extends State<CustomersPage> {
           const Divider(),
           const Text('Payments',style:TextStyle(fontWeight:FontWeight.bold)),
           if(payments.isEmpty)const Text('No payments recorded.'),
-          ...payments.map((p)=>ListTile(contentPadding:EdgeInsets.zero,title:Text('KES ${((p['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)} • ${p['method']}'),subtitle:Text('${p['status']} • ${p['payment_number']}'))),
+          ...payments.map((p)=>ListTile(
+            contentPadding:EdgeInsets.zero,
+            title:Text('KES ${((p['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)} • ${p['method']}'),
+            subtitle:Text('${p['status']} • ${p['payment_number']}'),
+            trailing:p['status']=='pending'&&canVerifyPayments?TextButton(onPressed:(){Navigator.pop(context);verifyCustomerPayment(p['id'].toString(),customer);},child:const Text('Verify')):null,
+          )),
         ]))),
         actions:[
           if(unallocatedBalance>0.009) OutlinedButton.icon(onPressed:(){Navigator.pop(context);recordCustomerPayment(customer,sales,payments);},icon:const Icon(Icons.payments_outlined),label:const Text('Record payment')),
