@@ -2313,9 +2313,10 @@ class _HomeShellState extends State<HomeShell> {
   int index = 0;
   bool director = false;
   bool accountant = false;
+  bool branchManager = false;
   bool accessLoaded = false;
   List<Widget> get pages {
-    if (accountant && !director) {
+    if (accountant && !director && !branchManager) {
       return [
         DashboardPage(onOpenItems: () => selectPage(1), onOpenFinancial: () => selectPage(2)),
         const StockPage(),
@@ -2331,10 +2332,10 @@ class _HomeShellState extends State<HomeShell> {
       if (director) const DirectorCustomProductRequestsPage(),
     ];
   }
-  List<String> get labels => accountant && !director
+  List<String> get labels => accountant && !director && !branchManager
     ? ['Dashboard','Stock','Financial Records']
     : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests'];
-  List<IconData> get icons => accountant && !director
+  List<IconData> get icons => accountant && !director && !branchManager
     ? [Icons.dashboard,Icons.inventory_2,Icons.account_balance]
     : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
@@ -2343,15 +2344,16 @@ class _HomeShellState extends State<HomeShell> {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
       final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
       final finance = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'accountant');
-      if (mounted) setState(() { director = allowed; accountant = finance; accessLoaded = true; index = 0; });
-    } catch (_) { if (mounted) setState(() { director = false; accountant = false; accessLoaded = true; index = 0; }); }
+      final manager = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'branch_manager');
+      if (mounted) setState(() { director = allowed; accountant = finance; branchManager = manager; accessLoaded = true; index = 0; });
+    } catch (_) { if (mounted) setState(() { director = false; accountant = false; branchManager = false; accessLoaded = true; index = 0; }); }
   }
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
   void openMoreMenu() {
     showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
-      if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
+      if (director || accountant) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       if (director) ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       if (director) ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Custom Requests'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
@@ -2371,9 +2373,9 @@ class _HomeShellState extends State<HomeShell> {
         ])),
       ]),
       bottomNavigationBar: wide ? null : NavigationBar(
-        selectedIndex: accountant && !director ? index : (index < 4 ? index : 4),
-        onDestinationSelected: accountant && !director ? selectPage : (v) { if (v == 4) { openMoreMenu(); } else { selectPage(v); } },
-        destinations: accountant && !director ? const [
+        selectedIndex: accountant && !director && !branchManager ? index : (index < 4 ? index : 4),
+        onDestinationSelected: accountant && !director && !branchManager ? selectPage : (v) { if (v == 4) { openMoreMenu(); } else { selectPage(v); } },
+        destinations: accountant && !director && !branchManager ? const [
           NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
           NavigationDestination(icon: Icon(Icons.inventory_2), label: 'Stock'),
           NavigationDestination(icon: Icon(Icons.account_balance), label: 'Financials'),
