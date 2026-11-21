@@ -22,31 +22,59 @@ const brandGold = Color(0xFFD6A52D);
 const tajirUpdateChannel = MethodChannel('tajir/update');
 const tajirVersion = String.fromEnvironment('TAJIR_VERSION', defaultValue: '0');
 
-Future<Map<String, dynamic>?> checkTajirUpdate() async {
+Future<Map<String, dynamic>> checkTajirUpdate() async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
   try {
-    final request = await client.getUrl(Uri.parse('https://api.github.com/repos/ngenok645-byte/Tajir-android1/releases/latest'));
+    final request = await client.getUrl(Uri.parse(
+      'https://api.github.com/repos/ngenok645-byte/Tajir-android1/releases/latest',
+    ));
     request.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
     request.headers.set(HttpHeaders.userAgentHeader, 'TAJIR-Android');
-    final response = await request.close();
-    if (response.statusCode != 200) return null;
-    final payload = jsonDecode(await response.transform(utf8.decoder).join());
-    if (payload is! Map) return null;
-    final tag = (payload['tag_name'] ?? '').toString().replaceFirst(RegExp(r'^[vV]'), '');
-    final remote = int.tryParse(tag) ?? 0;
-    final local = int.tryParse(tajirVersion) ?? 0;
-    if (remote <= local) return null;
+    final response = await request.close().timeout(const Duration(seconds: 15));
+    if (response.statusCode != HttpStatus.ok) {
+      return {
+        'status': 'error',
+        'message': 'The update service returned HTTP ${response.statusCode}.',
+      };
+    }
+
+    final payload = jsonDecode(
+      await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 15)),
+    );
+    if (payload is! Map) {
+      return {'status': 'error', 'message': 'The update response was invalid.'};
+    }
+
+    final tag = (payload['tag_name'] ?? '')
+        .toString()
+        .replaceFirst(RegExp(r'^[vV]'), '');
+    final remote = int.tryParse(tag);
+    final local = int.tryParse(tajirVersion);
+    if (remote == null || remote <= 0 || local == null || local < 0) {
+      return {'status': 'error', 'message': 'The app or release version is invalid.'};
+    }
+    if (remote <= local) {
+      return {'status': 'current', 'version': tag};
+    }
+
     final assets = payload['assets'];
-    if (assets is! List) return null;
+    if (assets is! List) {
+      return {'status': 'error', 'message': 'The release has no downloadable APK.'};
+    }
     for (final asset in assets) {
-      if (asset is Map && (asset['name'] ?? '').toString().toLowerCase().endsWith('.apk')) {
+      if (asset is Map &&
+          (asset['name'] ?? '').toString().toLowerCase().endsWith('.apk')) {
         final url = (asset['browser_download_url'] ?? '').toString();
-        if (url.startsWith('https://')) return {'version': tag, 'url': url};
+        if (url.startsWith('https://')) {
+          return {'status': 'available', 'version': tag, 'url': url};
+        }
       }
     }
-    return null;
+    return {'status': 'error', 'message': 'The latest release has no valid APK download.'};
+  } on TimeoutException {
+    return {'status': 'error', 'message': 'The update check timed out. Check your internet connection.'};
   } catch (_) {
-    return null;
+    return {'status': 'error', 'message': 'Could not check for updates. Check your internet connection and try again.'};
   } finally {
     client.close(force: true);
   }
@@ -59,11 +87,12 @@ Future<void> openTajirUpdate(String url) async {
 Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = false}) async {
   final found = await checkTajirUpdate();
   if (!context.mounted) return;
-  if (found == null) {
+  if (found['status'] != 'available') {
     if (showCurrent) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('TAJIR is up to date.')),
-      );
+      final message = found['status'] == 'current'
+          ? 'TAJIR is up to date.'
+          : (found['message'] ?? 'Could not check for updates.').toString();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
     return;
   }
@@ -1487,7 +1516,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
 
  Future<void> checkCustomerUpdates() async {
   final found = await checkTajirUpdate();
-  if (!mounted || found == null) return;
+  if (!mounted || found['status'] != 'available') return;
   showDialog<void>(context:context,builder:(ctx)=>AlertDialog(
    title:const Text('TAJIR update available'),
    content:Text('A newer version (${found['version']}) is ready. Update to get the latest improvements and fixes.'),
@@ -2623,7 +2652,7 @@ class _HomeShellState extends State<HomeShell> {
     final found = await checkTajirUpdate();
     if (!mounted) return;
     setState(() { availableUpdate = found; checkingUpdate = false; });
-    if (found != null) {
+    if (found['status'] == 'available') {
       showDialog<void>(context: context, builder: (ctx) => AlertDialog(
         title: const Text('TAJIR update available'),
         content: Text('A newer version (${found['version']}) is ready. Update to get the latest improvements and fixes.'),
@@ -2637,7 +2666,10 @@ class _HomeShellState extends State<HomeShell> {
         ],
       ));
     } else if (showCurrent) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('TAJIR is up to date.')));
+      final message = found['status'] == 'current'
+          ? 'TAJIR is up to date.'
+          : (found['message'] ?? 'Could not check for updates.').toString();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
