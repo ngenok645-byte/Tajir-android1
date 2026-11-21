@@ -51,24 +51,34 @@ jobs:
         with:
           channel: stable
 
-      - name: Ensure Flutter's included Gradle build resolves Kotlin from Maven Central
+      - name: Configure plugin repositories for Flutter's included Gradle build
         run: |
           python - <<'PY'
           from pathlib import Path
           import os
-          sdk = Path(os.environ["FLUTTER_ROOT"])
-          settings = sdk / "packages/flutter_tools/gradle/settings.gradle.kts"
-          if not settings.exists():
+          settings = Path(os.environ["FLUTTER_ROOT"]) / "packages/flutter_tools/gradle/settings.gradle.kts"
+          if not settings.is_file():
               raise SystemExit(f"Flutter Gradle settings not found: {settings}")
           source = settings.read_text()
+          # The included Flutter Gradle build resolves Kotlin DSL plugins via
+          # pluginManagement, which is separate from dependencyResolutionManagement.
           if "pluginManagement" not in source:
-              raise SystemExit("Flutter Gradle pluginManagement block not found")
-          # The failing dependency is resolved inside Flutter's included :gradle build,
-          # which has its own pluginManagement repositories, separate from the app.
-          if "mavenCentral()" not in source:
-              source = source.replace("repositories {", "repositories {\\n        google()\\n        mavenCentral()", 1)
-              settings.write_text(source)
-          print(f"Verified Maven Central for Flutter's included Gradle build: {settings}")
+              block = """pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          """
+              settings.write_text(block + source)
+          else:
+              print("Flutter pluginManagement already exists; leaving it unchanged.")
+          verified = settings.read_text()
+          if "pluginManagement" not in verified or "mavenCentral()" not in verified:
+              raise SystemExit("Flutter plugin repositories were not configured.")
+          print(f"Configured Flutter included-build plugin repositories: {settings}")
           PY
 
       - name: Extract TAJIR Flutter app
