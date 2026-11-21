@@ -2301,9 +2301,9 @@ class _HomeShellState extends State<HomeShell> {
 
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const DirectorPriceManagementPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -2319,6 +2319,7 @@ class _HomeShellState extends State<HomeShell> {
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
+      if (director) ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       const SizedBox(height: 8),
     ])));
   }
@@ -2355,7 +2356,8 @@ class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenItems;
   final VoidCallback? onOpenFinancial;
   final VoidCallback? onOpenStaff;
-  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff});
+  final VoidCallback? onOpenPrices;
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -2448,6 +2450,16 @@ class _DashboardPageState extends State<DashboardPage> {
         subtitle: const Text('Read-only directory of registered staff and assigned roles'),
         trailing: const Icon(Icons.chevron_right),
         onTap: widget.onOpenStaff,
+      )),
+    ],
+    if(director) ...[
+      const SizedBox(height: 8),
+      Card(child: ListTile(
+        leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.price_change_outlined, color: brandGreen)),
+        title: const Text('Director Catalogue Prices', style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('Set separate TAJIR selling prices and TAJIR buying prices per KG for each branch'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: widget.onOpenPrices,
       )),
     ],
     const SizedBox(height: 18),
@@ -3237,6 +3249,187 @@ class _SalePageState extends State<SalePage> {
         style: TextStyle(fontSize: 12, color: Colors.black54),
       ),
     ],
+  );
+}
+
+class DirectorPriceManagementPage extends StatefulWidget {
+  const DirectorPriceManagementPage({super.key});
+  @override State<DirectorPriceManagementPage> createState() => _DirectorPriceManagementPageState();
+}
+
+class _DirectorPriceManagementPageState extends State<DirectorPriceManagementPage> {
+  final db = Supabase.instance.client;
+  List<Map<String, dynamic>> branches = [];
+  List<Map<String, dynamic>> variants = [];
+  final Map<String, TextEditingController> customerBuy = {};
+  final Map<String, TextEditingController> tajirBuy = {};
+  String? branchId;
+  String message = '';
+  bool loading = true;
+  String? savingVariant;
+
+  @override void initState() {
+    super.initState();
+    load();
+  }
+
+  @override void dispose() {
+    for (final c in customerBuy.values) { c.dispose(); }
+    for (final c in tajirBuy.values) { c.dispose(); }
+    super.dispose();
+  }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; message = ''; });
+    try {
+      final results = await Future.wait([
+        db.from('branches').select('id,code,name').eq('is_active', true).order('name'),
+        db.from('product_variants').select('id,variant_name,base_unit,sku,products(name)').eq('is_active', true).order('variant_name'),
+      ]);
+      branches = List<Map<String, dynamic>>.from(results[0]);
+      variants = List<Map<String, dynamic>>.from(results[1]);
+      if (branchId == null || !branches.any((b) => b['id'].toString() == branchId)) {
+        branchId = branches.isEmpty ? null : branches.first['id'].toString();
+      }
+      await loadBranchPrices();
+    } catch (e) {
+      if (mounted) setState(() { message = 'Could not load catalogue prices: ' + friendlyError(e); loading = false; });
+    }
+  }
+
+  Future<void> loadBranchPrices() async {
+    if (branchId == null) {
+      if (mounted) setState(() { loading = false; });
+      return;
+    }
+    try {
+      final rows = await db.from('branch_product_selling_prices')
+        .select('product_variant_id,selling_price_per_kg,buying_price_per_kg')
+        .eq('branch_id', branchId!);
+      final prices = <String, Map<String, dynamic>>{
+        for (final row in List<Map<String, dynamic>>.from(rows))
+          row['product_variant_id'].toString(): row,
+      };
+      for (final c in customerBuy.values) { c.dispose(); }
+      for (final c in tajirBuy.values) { c.dispose(); }
+      customerBuy.clear();
+      tajirBuy.clear();
+      for (final variant in variants) {
+        final id = variant['id'].toString();
+        final row = prices[id] ?? const <String, dynamic>{};
+        customerBuy[id] = TextEditingController(text: row['selling_price_per_kg']?.toString() ?? '');
+        tajirBuy[id] = TextEditingController(text: row['buying_price_per_kg']?.toString() ?? '');
+      }
+      if (mounted) setState(() { loading = false; message = ''; });
+    } catch (e) {
+      if (mounted) setState(() { loading = false; message = 'Could not load prices for this branch: ' + friendlyError(e); });
+    }
+  }
+
+  Future<void> savePrice(Map<String, dynamic> variant) async {
+    final id = variant['id'].toString();
+    final customerPrice = double.tryParse(customerBuy[id]?.text.trim() ?? '');
+    final tajirPriceText = tajirBuy[id]?.text.trim() ?? '';
+    final tajirPrice = tajirPriceText.isEmpty ? null : double.tryParse(tajirPriceText);
+    if (branchId == null || customerPrice == null || customerPrice <= 0 ||
+        (tajirPriceText.isNotEmpty && (tajirPrice == null || tajirPrice <= 0))) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a positive TAJIR selling price per KG. The TAJIR buying price may be left blank until needed.')));
+      return;
+    }
+    setState(() { savingVariant = id; message = ''; });
+    try {
+      await db.from('branch_product_selling_prices').upsert({
+        'branch_id': branchId,
+        'product_variant_id': id,
+        'selling_price_per_kg': customerPrice,
+        'buying_price_per_kg': tajirPrice,
+        'updated_by': db.auth.currentUser!.id,
+      }, onConflict: 'branch_id,product_variant_id');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Official branch prices saved. Customer BUY and TAJIR BUY prices remain separate.')));
+        setState(() { savingVariant = null; });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() { savingVariant = null; message = 'Price save failed: ' + friendlyError(e); });
+      }
+    }
+  }
+
+  @override Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: load,
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      const Text('Director catalogue prices', style: TextStyle(fontSize: 23, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 5),
+      const Text('Only an authorised Director can change these official prices. All prices are stored per KG; 1 bag = 90 KG.'),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<String>(
+        value: branchId,
+        decoration: const InputDecoration(labelText: 'Branch', border: OutlineInputBorder()),
+        items: branches.map((b) => DropdownMenuItem<String>(value: b['id'].toString(), child: Text('\${b['name']} (\${b['code']})'))).toList(),
+        onChanged: loading ? null : (v) async {
+          setState(() { branchId = v; loading = true; });
+          await loadBranchPrices();
+        },
+      ),
+      const SizedBox(height: 12),
+      const Card(child: Padding(padding: EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Customer BUY price', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text('TAJIR sells to the customer. This is the official price shown in the customer catalogue.'),
+        SizedBox(height: 8),
+        Text('TAJIR BUY price', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text('TAJIR buys produce from the customer. This is a separate price and is never substituted for the customer BUY price.'),
+      ]))),
+      if (loading) const LinearProgressIndicator(),
+      if (message.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(message, style: const TextStyle(color: Colors.red))),
+      if (!loading && branches.isEmpty) const Text('No active branches are configured.'),
+      if (!loading && variants.isEmpty) const Text('No active product variants are configured.'),
+      ...variants.map((variant) {
+        final id = variant['id'].toString();
+        final product = (variant['products'] as Map?)?.cast<String, dynamic>() ?? {};
+        final name = (product['name'] ?? 'Product').toString() + ' • ' + (variant['variant_name'] ?? 'Standard').toString();
+        final customer = double.tryParse(customerBuy[id]?.text.trim() ?? '');
+        final supplier = double.tryParse(tajirBuy[id]?.text.trim() ?? '');
+        return Card(margin: const EdgeInsets.symmetric(vertical: 7), child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(productIconFor(name), color: brandGreen),
+              const SizedBox(width: 8),
+              Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.bold))),
+            ]),
+            const SizedBox(height: 10),
+            TextField(
+              controller: customerBuy[id],
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(labelText: 'Customer BUY price • KES per KG', border: OutlineInputBorder()),
+            ),
+            if (customer != null && customer > 0) Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('Customer pays KES \${(customer * kgPerBag).toStringAsFixed(2)} per 90 KG bag'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: tajirBuy[id],
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(labelText: 'TAJIR BUY price • KES per KG (optional)', border: OutlineInputBorder()),
+            ),
+            if (supplier != null && supplier > 0) Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('TAJIR pays KES \${(supplier * kgPerBag).toStringAsFixed(2)} per 90 KG bag'),
+            ),
+            const SizedBox(height: 10),
+            Align(alignment: Alignment.centerRight, child: FilledButton.icon(
+              onPressed: savingVariant == id || loading ? null : () => savePrice(variant),
+              icon: Icon(savingVariant == id ? Icons.hourglass_top : Icons.save),
+              label: Text(savingVariant == id ? 'Saving…' : 'Save official prices'),
+            )),
+          ]),
+        ));
+      }),
+    ]),
   );
 }
 
