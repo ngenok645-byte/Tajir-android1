@@ -51,3 +51,39 @@ end;
 $function$;
 revoke all on function public.customer_list_tajir_products() from public, anon;
 grant execute on function public.customer_list_tajir_products() to authenticated;
+
+-- Track the customer's explicit acceptance of the Director-approved custom quote.
+alter table public.customer_custom_product_requests
+  add column if not exists customer_confirmed_at timestamptz;
+
+create or replace function public.customer_confirm_custom_product_request(p_request_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+begin
+  if auth.uid() is null then
+    raise exception 'Sign in with your customer account to continue.';
+  end if;
+
+  update public.customer_custom_product_requests r
+  set customer_confirmed_at = now(), updated_at = now()
+  where r.id = p_request_id
+    and r.status = 'approved'
+    and r.customer_confirmed_at is null
+    and exists (
+      select 1 from public.customers c
+      where c.id = r.customer_id
+        and c.profile_id = auth.uid()
+        and c.active = true
+    );
+
+  if not found then
+    raise exception 'This request is not approved, is already confirmed, or does not belong to your account.';
+  end if;
+end;
+$function$;
+
+revoke all on function public.customer_confirm_custom_product_request(uuid) from public, anon;
+grant execute on function public.customer_confirm_custom_product_request(uuid) to authenticated;
