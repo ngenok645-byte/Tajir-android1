@@ -3494,7 +3494,7 @@ class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProduc
         title: const Text('Review customer-submitted request'),
         content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text((row['product_name'] ?? 'Product').toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
-          Text('Proposed by customer: KES \${row['proposed_unit_price_kes']} per \${row['quantity_unit']}'),
+          Text('Proposed by customer: KES ${row['proposed_unit_price_kes']} per ${row['quantity_unit']}'),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
             value: status,
@@ -3510,7 +3510,7 @@ class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProduc
           TextField(
             controller: price,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(labelText: status == 'SELL_TO_TAJIR' ? 'Agreed TAJIR buying price (KES)' : 'Agreed official price (KES) per \${row['quantity_unit']}'),
+            decoration: InputDecoration(labelText: row['request_direction'] == 'SELL_TO_TAJIR' ? 'Agreed TAJIR buying price (KES)' : 'Agreed official price (KES) per ${row['quantity_unit']}'),
           ),
           TextField(controller: response, maxLines: 3, decoration: const InputDecoration(labelText: 'Director response / conditions')),
           const SizedBox(height: 6),
@@ -3573,11 +3573,11 @@ class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProduc
               Chip(label: Text(status.replaceAll('_', ' '))),
             ]),
             Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-            Text('Customer: \${customer['full_name'] ?? 'Customer'} • \${customer['phone'] ?? 'No phone'}'),
-            Text('Quantity: \${row['quantity']} \${row['quantity_unit']} • Proposed: KES \${row['proposed_unit_price_kes']} / \${row['quantity_unit']}'),
-            if (row['agreed_unit_price_kes'] != null) Text('Agreed official price: KES \${row['agreed_unit_price_kes']} / \${row['quantity_unit']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            if ((row['description'] ?? '').toString().isNotEmpty) Text('Details: \${row['description']}'),
-            if ((row['director_response'] ?? '').toString().isNotEmpty) Text('Director response: \${row['director_response']}'),
+            Text('Customer: ${customer['full_name'] ?? 'Customer'} • ${customer['phone'] ?? 'No phone'}'),
+            Text('Quantity: ${row['quantity']} ${row['quantity_unit']} • Proposed: KES ${row['proposed_unit_price_kes']} / ${row['quantity_unit']}'),
+            if (row['agreed_unit_price_kes'] != null) Text('Agreed official price: KES ${row['agreed_unit_price_kes']} / ${row['quantity_unit']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            if ((row['description'] ?? '').toString().isNotEmpty) Text('Details: ${row['description']}'),
+            if ((row['director_response'] ?? '').toString().isNotEmpty) Text('Director response: ${row['director_response']}'),
             if (confirmed) const Text('Customer confirmed the approved offer.', style: TextStyle(color: brandGreen, fontWeight: FontWeight.bold)),
             if (canReview) Align(alignment: Alignment.centerRight, child: FilledButton.icon(
               onPressed: busyId == row['id'].toString() ? null : () => review(row),
