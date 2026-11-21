@@ -1740,7 +1740,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    }else{
     final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
     final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name)').order('created_at',ascending:false);
-    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,request_direction,status,director_response,agreed_unit_price_kes,created_at').order('created_at',ascending:false);
+    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,request_direction,status,director_response,agreed_unit_price_kes,customer_confirmed_at,created_at').order('created_at',ascending:false);
     r=[
      ...List<Map<String,dynamic>>.from(marketplaceRows),
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
@@ -1822,6 +1822,13 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   name.dispose();description.dispose();quantity.dispose();proposedPrice.dispose();
  }
+ Future<void> confirmCustomProductRequest(Map<String,dynamic> item)async{
+  try{
+   await Supabase.instance.client.rpc('customer_confirm_custom_product_request',params:{'p_request_id':item['id']});
+   await load();
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your approved product request is now confirmed as an order request. The Director will arrange fulfilment.')));
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+ }
  Future<void> createListing()async{
   final db=Supabase.instance.client;final q=TextEditingController(text:'1'),loc=TextEditingController(),desc=TextEditingController();
   String unit='BAG';String? selectedVariantId;List<Map<String,dynamic>> productOptions=[];Map<String,double> officialSellPrices={};String? branchId;
@@ -1889,8 +1896,8 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
        return Card(child:ListTile(
         leading:const Icon(Icons.playlist_add_outlined),
         title:Text((r['product_name']??'Custom product').toString()),
-        subtitle:Text('$dir • ${r['quantity']} ${r['quantity_unit']} • Proposed: KES ${r['proposed_unit_price_kes']} / ${r['quantity_unit']} • Status: ${r['status']}${agreed==null?'':' • Agreed: KES $agreed'}${(r['director_response']??'').toString().isEmpty?'':'\\nDirector: ${r['director_response']}'}'),
-        trailing:const Icon(Icons.hourglass_top),
+        subtitle:Text('$dir • ${r['quantity']} ${r['quantity_unit']} • Client-submitted proposed price: KES ${r['proposed_unit_price_kes']} / ${r['quantity_unit']} • Status: ${r['status']}${agreed==null?'':' • Agreed: KES $agreed'}${(r['director_response']??'').toString().isEmpty?'':'\\nDirector: ${r['director_response']}'}'),
+        trailing:r['status']=='approved'&&r['customer_confirmed_at']==null?FilledButton.tonal(onPressed:()=>confirmCustomProductRequest(r),child:const Text('Proceed')):Icon(r['customer_confirmed_at']!=null?Icons.check_circle:Icons.hourglass_top,color:r['customer_confirmed_at']!=null?Colors.green:null),
        ));
       }
       if(r['_is_tajir_request']==true){
