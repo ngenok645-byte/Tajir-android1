@@ -2315,6 +2315,7 @@ class _HomeShellState extends State<HomeShell> {
   bool accountant = false;
   bool branchManager = false;
   bool accessLoaded = false;
+  String? accessError;
   List<Widget> get pages {
     if (accountant && !director && !branchManager) {
       return [
@@ -2346,7 +2347,7 @@ class _HomeShellState extends State<HomeShell> {
       final finance = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'accountant');
       final manager = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'branch_manager');
       if (mounted) setState(() { director = allowed; accountant = finance; branchManager = manager; accessLoaded = true; index = 0; });
-    } catch (_) { if (mounted) setState(() { director = false; accountant = false; branchManager = false; accessLoaded = true; index = 0; }); }
+    } catch (_) { if (mounted) setState(() { director = false; accountant = false; branchManager = false; accessError = 'Could not verify your role permissions. Please sign in again.'; accessLoaded = true; index = 0; }); }
   }
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
   void openMoreMenu() {
@@ -2362,6 +2363,7 @@ class _HomeShellState extends State<HomeShell> {
   }
   @override Widget build(BuildContext context) {
     if (!accessLoaded) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (accessError != null) return const AccountAccessIssuePage();
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
       appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
