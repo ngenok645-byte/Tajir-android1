@@ -270,7 +270,7 @@ class _TajirDirectorContactsState extends State<TajirDirectorContacts> {
             dense: true,
             contentPadding: EdgeInsets.zero,
             title: Text(name),
-            subtitle: Text('Registered Director • $phone'),
+            subtitle: Text('TAJIR Director contact • $phone'),
             trailing: IconButton(
               tooltip: 'Call $name',
               onPressed: phone.trim().isEmpty ? null : () => callDirector(phone),
