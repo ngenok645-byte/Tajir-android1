@@ -56,6 +56,18 @@ This checklist is the acceptance baseline for every production change. A feature
 - [ ] Seller listings appear in the buyer catalogue only when active and permitted.
 - [ ] Buyer and seller permissions are independently respected for dual-role accounts.
 
+
+## Director-controlled client product pricing (KG / bags)
+- [ ] Only Director-authorised users can create or change official TAJIR product/variant selling prices.
+- [ ] Client product selection offers only the units enabled for that product (KG, bag, or both).
+- [ ] Client enters quantity only; there is no client control to edit official unit price, discount or payable total.
+- [ ] Client sees current approved unit price, selected unit, quantity and correctly calculated KES total.
+- [ ] Per-product/per-branch bag weight and unit conversion are respected; no universal 90 kg assumption is applied to every product.
+- [ ] Server recalculates the order total from authoritative price and quantity; altered client-submitted price/total is rejected or ignored.
+- [ ] Price edits are role-protected, audited and effective-dated; accepted orders retain their original price snapshot.
+- [ ] Missing, inactive, stale or unsupported pricing blocks order submission rather than creating a zero-price order.
+- [ ] Totals and rounding match between client, server order, director dashboard and receipt.
+
 ## Business workflows
 - [ ] Purchases validate quantities, prices, suppliers, and totals.
 - [ ] Purchase-related expenses are itemized and included exactly once in costs.
@@ -82,3 +94,17 @@ This checklist is the acceptance baseline for every production change. A feature
 
 ## Regression rule
 For every fix, rerun the directly affected checks plus authentication, role routing, purchases, sales, stock, and APK build checks. Record failures and their causes before making another code change. Never mark an item passed without a real test result.
+
+
+## National ID consistency regression checks
+
+- [ ] Customer and service-provider registration capture account name separately from National ID number and exact full ID name.
+- [ ] Director, branch manager, accountant, worker and driver can add/view only their own ID details from Account Security.
+- [ ] Every ID form validates 7–8 digits and a 2–100 character full ID name; the server repeats validation.
+- [ ] National ID number and full ID name are encrypted at rest; no plaintext is available through ordinary profile/table reads.
+- [ ] User can view their own ID details; only an authorised Director can view another user's details; all other cross-account reads are rejected.
+- [ ] Duplicate IDs are rejected across both legacy customer records and the all-role identity store.
+- [ ] Legacy customer ID number is preserved; user must supply the exact ID name rather than having TAJIR assume it from the account name.
+- [ ] A different ID number cannot overwrite an existing identity; correction is escalated to the authorised correction workflow.
+- [ ] Missing Vault key or encryption secret blocks identity writes/reads with a safe user-facing error.
+- [ ] UI clearly states that TAJIR does not verify identity against government records unless a verification integration is added.

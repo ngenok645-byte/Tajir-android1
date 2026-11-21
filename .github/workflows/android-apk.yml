@@ -19,6 +19,7 @@ name: Build TAJIR Android APK
     branches:
       - main
       - tajir-master-integration
+      - tajir-stability-release
 
 concurrency:
   group: tajir-android-${{ github.ref }}
@@ -34,6 +35,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # For pull requests, build the actual PR branch commit, not GitHub's
+          # synthetic merge commit (which can contain an empty/stale root main.dart).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -45,6 +50,36 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+
+      - name: Configure plugin repositories for Flutter's included Gradle build
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          settings = Path(os.environ["FLUTTER_ROOT"]) / "packages/flutter_tools/gradle/settings.gradle.kts"
+          if not settings.is_file():
+              raise SystemExit(f"Flutter Gradle settings not found: {settings}")
+          source = settings.read_text()
+          # The included Flutter Gradle build resolves Kotlin DSL plugins via
+          # pluginManagement, which is separate from dependencyResolutionManagement.
+          if "pluginManagement" not in source:
+              block = """pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          """
+              settings.write_text(block + source)
+          else:
+              print("Flutter pluginManagement already exists; leaving it unchanged.")
+          verified = settings.read_text()
+          if "pluginManagement" not in verified or "mavenCentral()" not in verified:
+              raise SystemExit("Flutter plugin repositories were not configured.")
+          print(f"Configured Flutter included-build plugin repositories: {settings}")
+          PY
 
       - name: Extract TAJIR Flutter app
         run: |
@@ -66,9 +101,11 @@ jobs:
 
       - name: Apply TAJIR application entry point
         run: |
-          test -f main.dart
+          test -s main.dart
+          grep -q "package:flutter/material.dart" main.dart
           test -f TAJIR_flutter_app/lib/main.dart
           cp main.dart TAJIR_flutter_app/lib/main.dart
+          echo "Applied root main.dart ($(wc -c < main.dart) bytes) to Flutter app."
 
       - name: Prepare Flutter Android project
         working-directory: TAJIR_flutter_app
