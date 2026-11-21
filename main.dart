@@ -5207,10 +5207,10 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       final hasFinanceAccess = roles.any((r) => r['app_roles'] is Map && ['director','accountant'].contains((r['app_roles'] as Map)['code']));
       if (!hasFinanceAccess) throw Exception('This financial report is available to Director and Accountant accounts only.');
       final data = await Future.wait([
-        db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,sale_items(line_cost)').order('sale_date',ascending:false),
+        db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,customer_id,customer:customers(full_name),sale_items(line_cost)').order('sale_date',ascending:false),
         db.from('purchase_costs').select('id,purchase_id,purchase_item_id,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
         db.from('purchases').select('id,purchase_number,purchase_date,status,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
-        db.from('customer_payments').select('payment_number,sale_id,amount,status,method,received_at').order('received_at',ascending:false),
+        db.from('customer_payments').select('id,payment_number,sale_id,amount,status,method,received_at').order('received_at',ascending:false),
         db.from('supplier_payments').select('amount,status,method,payment_date,transaction_reference').order('payment_date',ascending:false),
       ]);
       final sr = List<Map<String,dynamic>>.from(data[0]).where((r)=>within(r['sale_date'])).toList();
@@ -5241,6 +5241,110 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     } catch(e) { if(mounted)setState(()=>error=friendlyError(e)); }
     finally { if(mounted)setState(()=>loading=false); }
   }
+  Future<void> recordCustomerPayment() async {
+    try {
+      final db=Supabase.instance.client;
+      final allResults=await Future.wait([
+        db.from('sales').select('id,sale_number,sale_date,total_amount,customer:customers(full_name)').order('sale_date',ascending:false),
+        db.from('customer_payments').select('sale_id,amount,status').inFilter('status',['pending','verified']),
+      ]);
+      final allSales=List<Map<String,dynamic>>.from(allResults[0]);
+      final allPayments=List<Map<String,dynamic>>.from(allResults[1]);
+      final paidBySale=<String,double>{};
+      for(final p in allPayments){
+        final id=p['sale_id']?.toString();
+        if(id==null)continue;
+        paidBySale[id]=(paidBySale[id]??0)+numVal(p['amount']);
+      }
+      double dueFor(Map<String,dynamic> sale)=>(numVal(sale['total_amount'])-(paidBySale[sale['id'].toString()]??0)).clamp(0,double.infinity).toDouble();
+      final openSales=allSales.where((sale)=>dueFor(sale)>0.009).toList();
+      if(openSales.isEmpty){
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('There are no customer sale balances waiting for payment.')));
+        return;
+      }
+      String selectedSaleId=openSales.first['id'].toString();
+      String method='cash';
+      final amountController=TextEditingController();
+      final referenceController=TextEditingController();
+      final accepted=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(dialogContext,setDialogState)=>AlertDialog(
+        title:const Text('Record customer payment'),
+        content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+          DropdownButtonFormField<String>(
+            value:selectedSaleId,
+            isExpanded:true,
+            items:openSales.map((sale){
+              final customer=(sale['customer'] as Map?)?.cast<String,dynamic>()??{};
+              return DropdownMenuItem<String>(value:sale['id'].toString(),
+                child:Text((sale['sale_number']??'Sale').toString()+' • '+(customer['full_name']??'Customer').toString()+' • Due KES '+dueFor(sale).toStringAsFixed(2),overflow:TextOverflow.ellipsis));
+            }).toList(),
+            onChanged:(v)=>setDialogState(()=>selectedSaleId=v??selectedSaleId),
+            decoration:const InputDecoration(labelText:'Sale / customer balance'),
+          ),
+          TextField(controller:amountController,keyboardType:const TextInputType.numberWithOptions(decimal:true),
+            decoration:const InputDecoration(labelText:'Payment amount (KES)')),
+          DropdownButtonFormField<String>(
+            value:method,
+            items:const [
+              DropdownMenuItem(value:'cash',child:Text('Cash')),
+              DropdownMenuItem(value:'mpesa',child:Text('M-Pesa')),
+              DropdownMenuItem(value:'bank_transfer',child:Text('Bank transfer')),
+              DropdownMenuItem(value:'other',child:Text('Other / manual payment')),
+            ],
+            onChanged:(v)=>setDialogState(()=>method=v??'cash'),
+            decoration:const InputDecoration(labelText:'Payment method'),
+          ),
+          if(method!='cash')TextField(controller:referenceController,
+            decoration:InputDecoration(labelText:method=='other'?'Receipt / manual note':'Payment reference')),
+          const SizedBox(height:6),
+          const Text('Pending transfers are not counted as verified receipts until approved.',style:TextStyle(fontSize:12,color:Colors.black54)),
+        ]),
+        actions:[
+          TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+          FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Record payment')),
+        ],
+      )));
+      if(accepted==true){
+        final amount=double.tryParse(amountController.text.trim());
+        if(amount==null||amount<=0)throw const FormatException('Enter a payment amount greater than zero.');
+        final selected=allSales.firstWhere((sale)=>sale['id'].toString()==selectedSaleId);
+        if(amount>dueFor(selected)+0.009)throw const FormatException('Payment exceeds the remaining sale balance.');
+        final result=await db.rpc('record_customer_sale_payment',params:{
+          'p_sale_id':selectedSaleId,'p_amount':amount,'p_method':method,'p_reference':referenceController.text.trim(),
+        });
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(
+          'Payment recorded: '+result['payment_number'].toString()+'. Unallocated balance: KES '+(result['unallocated_balance']??0).toString(),
+        )));
+        await load();
+      }
+      amountController.dispose();
+      referenceController.dispose();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not record customer payment: '+friendlyError(e))));
+    }
+  }
+
+  Future<void> verifyCustomerPayment(Map<String,dynamic> payment) async {
+    try{
+      await Supabase.instance.client.rpc('verify_customer_sale_payment',params:{'p_payment_id':payment['id']});
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Customer payment verified.')));
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not verify customer payment: '+friendlyError(e))));
+    }
+  }
+
+  Widget pendingPaymentsSection() => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Divider(height:24),
+    const Text('Pending customer payments',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    if(pendingCustomerPaymentRows.isEmpty)const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No customer payments are waiting for verification.')),
+    ...pendingCustomerPaymentRows.take(40).map((p)=>ListTile(
+      dense:true,
+      title:Text((p['payment_number']??'Payment').toString()+' • '+(p['method']??'').toString()),
+      subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['received_at']??'Awaiting confirmation').toString()),
+      trailing:FilledButton.tonal(onPressed:loading?null:()=>verifyCustomerPayment(p),child:const Text('Verify')),
+    )),
+  ]);
+
   String cash(double v) => 'KSh ' + v.toStringAsFixed(2);
   Widget metric(String title,double value,{bool highlight=false}) => Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     Text(title,style:const TextStyle(fontSize:13,color:Colors.black54)),const SizedBox(height:5),
@@ -5256,6 +5360,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     final net = gross;
     return RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
       const Text('Financial Records & Profit',style:TextStyle(fontSize:23,fontWeight:FontWeight.bold)),
+      Align(alignment:Alignment.centerLeft,child:OutlinedButton.icon(onPressed:loading?null:recordCustomerPayment,icon:const Icon(Icons.payments_outlined),label:const Text('Record customer payment'))),
       const Text('Director & Accountant reports • amounts in Kenya shillings'),
       const SizedBox(height:12),
       DropdownButtonFormField<String>(value:period,decoration:const InputDecoration(labelText:'Reporting period',border:OutlineInputBorder()),
@@ -5274,7 +5379,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       section('Expenses attached to purchases',purchaseCostRows,'incurred_at','amount','cost_type'),
       section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number'),
       section('Verified customer payments',customerPaymentRows,'received_at','amount','payment_number'),
-      section('Pending customer payments',pendingCustomerPaymentRows,'received_at','amount','payment_number'),
+      pendingPaymentsSection(),
       section('Verified supplier payments',supplierPaymentRows,'payment_date','amount','transaction_reference'),
       const Padding(padding:EdgeInsets.only(top:14),child:Text('Profit method: trading profit = recorded sales revenue less the cost of goods sold. Purchase-related costs such as transport, loading, labour and drying are attached to each purchase and included in landed stock cost, so they are not deducted a second time. This is trading profit before any separate business overheads. Figures depend on complete and correctly approved records.',style:TextStyle(fontSize:12,color:Colors.black54))),
       Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:loading?null:load,icon:const Icon(Icons.refresh),label:const Text('Refresh'))),
