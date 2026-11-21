@@ -4396,6 +4396,7 @@ class _CustomersPageState extends State<CustomersPage> {
       final verified=payments.where((p)=>p['status']=='verified').fold<double>(0,(s,r)=>s+((r['amount'] as num?)?.toDouble()??0));
       final pending=payments.where((p)=>p['status']=='pending').fold<double>(0,(s,r)=>s+((r['amount'] as num?)?.toDouble()??0));
       final balance=totalSales-verified;
+      final unallocatedBalance=totalSales-verified-pending;
       if(!mounted)return;
       await showDialog<void>(context:context,builder:(context)=>AlertDialog(
         title:Text(customer['full_name']?.toString()??'Customer'),
@@ -4423,6 +4424,7 @@ class _CustomersPageState extends State<CustomersPage> {
           Text('Total purchases: KES ${totalSales.toStringAsFixed(2)}'),
           Text('Verified payments: KES ${verified.toStringAsFixed(2)}'),
           Text('Pending verification: KES ${pending.toStringAsFixed(2)}'),
+          Text('Unallocated balance: KES ${unallocatedBalance.clamp(0,double.infinity).toStringAsFixed(2)}'),
           Text('Outstanding balance: KES ${balance.toStringAsFixed(2)}',style:TextStyle(fontWeight:FontWeight.bold,color:balance>0?Colors.red:brandGreen)),
           const Divider(),
           const Text('Purchase history',style:TextStyle(fontWeight:FontWeight.bold)),
@@ -4434,7 +4436,7 @@ class _CustomersPageState extends State<CustomersPage> {
           ...payments.map((p)=>ListTile(contentPadding:EdgeInsets.zero,title:Text('KES ${((p['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)} • ${p['method']}'),subtitle:Text('${p['status']} • ${p['payment_number']}'))),
         ]))),
         actions:[
-          if(balance>0.009) OutlinedButton.icon(onPressed:(){Navigator.pop(context);recordCustomerPayment(customer,sales,payments);},icon:const Icon(Icons.payments_outlined),label:const Text('Record payment')),
+          if(unallocatedBalance>0.009) OutlinedButton.icon(onPressed:(){Navigator.pop(context);recordCustomerPayment(customer,sales,payments);},icon:const Icon(Icons.payments_outlined),label:const Text('Record payment')),
           TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Close')),
         ],
       ));
