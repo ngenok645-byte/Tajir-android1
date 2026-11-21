@@ -38,7 +38,7 @@ create policy custom_product_requests_director_update on public.customer_custom_
  for update to authenticated using (
   (select private.is_director())
  ) with check (
-  exists (select 1 from public.profiles p where p.id=auth.uid() and lower(coalesce(p.role,'')) in ('director','owner'))
+  (select private.is_director())
  );
 grant select, insert on public.customer_custom_product_requests to authenticated;
 grant update on public.customer_custom_product_requests to authenticated;
