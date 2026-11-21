@@ -4294,18 +4294,107 @@ class _CustomersPageState extends State<CustomersPage> {
     pin.dispose();confirm.dispose();
   }
 
+  Future<void> recordCustomerPayment(
+    Map<String,dynamic> customer,
+    List<Map<String,dynamic>> sales,
+    List<Map<String,dynamic>> payments,
+  ) async {
+    final paidBySale = <String,double>{};
+    for (final payment in payments) {
+      final saleId = payment['sale_id']?.toString();
+      if (saleId == null || !['pending','verified'].contains(payment['status'])) continue;
+      paidBySale[saleId] = (paidBySale[saleId] ?? 0) + ((payment['amount'] as num?)?.toDouble() ?? 0);
+    }
+    double dueFor(Map<String,dynamic> sale) {
+      final total = (sale['total_amount'] as num?)?.toDouble() ?? 0;
+      return (total - (paidBySale[sale['id'].toString()] ?? 0)).clamp(0, double.infinity).toDouble();
+    }
+    final openSales = sales.where((sale) => dueFor(sale) > 0.009).toList();
+    if (openSales.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('This customer has no unallocated sale balance to pay.')));
+      return;
+    }
+
+    String selectedSaleId = openSales.first['id'].toString();
+    String method = 'cash';
+    final amountController = TextEditingController();
+    final referenceController = TextEditingController();
+    final accepted = await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(dialogContext,setDialogState)=>AlertDialog(
+      title:Text('Record customer payment'),
+      content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Text(customer['full_name']?.toString() ?? 'Customer',style:const TextStyle(fontWeight:FontWeight.bold)),
+        const SizedBox(height:8),
+        DropdownButtonFormField<String>(
+          value:selectedSaleId,
+          isExpanded:true,
+          items:openSales.map((sale)=>DropdownMenuItem<String>(
+            value:sale['id'].toString(),
+            child:Text((sale['sale_number']??'Sale').toString()+' • Due KES '+dueFor(sale).toStringAsFixed(2),overflow:TextOverflow.ellipsis),
+          )).toList(),
+          onChanged:(value)=>setDialogState(()=>selectedSaleId=value??selectedSaleId),
+          decoration:const InputDecoration(labelText:'Sale / outstanding balance'),
+        ),
+        TextField(controller:amountController,keyboardType:const TextInputType.numberWithOptions(decimal:true),
+          decoration:const InputDecoration(labelText:'Payment amount (KES)')),
+        DropdownButtonFormField<String>(
+          value:method,
+          items:const [
+            DropdownMenuItem(value:'cash',child:Text('Cash')),
+            DropdownMenuItem(value:'mpesa',child:Text('M-Pesa')),
+            DropdownMenuItem(value:'bank_transfer',child:Text('Bank transfer')),
+            DropdownMenuItem(value:'other',child:Text('Other / manual payment')),
+          ],
+          onChanged:(value)=>setDialogState(()=>method=value??'cash'),
+          decoration:const InputDecoration(labelText:'Payment method'),
+        ),
+        if(method!='cash') TextField(controller:referenceController,
+          decoration:InputDecoration(labelText:method=='other'?'Receipt / manual note':'Payment reference')),
+        const SizedBox(height:6),
+        const Text('M-Pesa and bank transfers remain pending until verified. Cash is recorded as received.',style:TextStyle(fontSize:12,color:Colors.black54)),
+      ]),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Record payment')),
+      ],
+    )));
+    if(accepted==true){
+      try{
+        final amount=double.tryParse(amountController.text.trim());
+        if(amount==null||amount<=0)throw const FormatException('Enter a payment amount greater than zero.');
+        final selected=openSales.firstWhere((sale)=>sale['id'].toString()==selectedSaleId);
+        if(amount>dueFor(selected)+0.009)throw const FormatException('Payment exceeds the remaining sale balance.');
+        final result=await Supabase.instance.client.rpc('record_customer_sale_payment',params:{
+          'p_sale_id':selectedSaleId,
+          'p_amount':amount,
+          'p_method':method,
+          'p_reference':referenceController.text.trim(),
+        });
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(
+          'Payment recorded: '+result['payment_number'].toString()+
+          '. Remaining unallocated balance: KES '+(result['unallocated_balance']??0).toString(),
+        )));
+        if(mounted)await showCustomer(customer);
+      }catch(e){
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not record payment: '+friendlyError(e))));
+      }
+    }
+    amountController.dispose();
+    referenceController.dispose();
+  }
+
   Future<void> showCustomer(Map<String,dynamic> customer) async {
     final db=Supabase.instance.client;
     try {
       final id=customer['id'];
       final results=await Future.wait([
-        db.from('sales').select('id,sale_number,sale_date,total_amount').eq('customer_id',id).order('sale_date',ascending:false),
-        db.from('customer_payments').select('id,payment_number,amount,method,status,received_at,created_at').eq('customer_id',id).order('created_at',ascending:false),
+        db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode').eq('customer_id',id).order('sale_date',ascending:false),
+        db.from('customer_payments').select('id,payment_number,sale_id,amount,method,status,received_at,created_at').eq('customer_id',id).order('created_at',ascending:false),
       ]);
       final sales=List<Map<String,dynamic>>.from(results[0]);
       final payments=List<Map<String,dynamic>>.from(results[1]);
       final totalSales=sales.fold<double>(0,(s,r)=>s+((r['total_amount'] as num?)?.toDouble()??0));
       final verified=payments.where((p)=>p['status']=='verified').fold<double>(0,(s,r)=>s+((r['amount'] as num?)?.toDouble()??0));
+      final pending=payments.where((p)=>p['status']=='pending').fold<double>(0,(s,r)=>s+((r['amount'] as num?)?.toDouble()??0));
       final balance=totalSales-verified;
       if(!mounted)return;
       await showDialog<void>(context:context,builder:(context)=>AlertDialog(
@@ -4333,17 +4422,21 @@ class _CustomersPageState extends State<CustomersPage> {
           const SizedBox(height:12),
           Text('Total purchases: KES ${totalSales.toStringAsFixed(2)}'),
           Text('Verified payments: KES ${verified.toStringAsFixed(2)}'),
+          Text('Pending verification: KES ${pending.toStringAsFixed(2)}'),
           Text('Outstanding balance: KES ${balance.toStringAsFixed(2)}',style:TextStyle(fontWeight:FontWeight.bold,color:balance>0?Colors.red:brandGreen)),
           const Divider(),
           const Text('Purchase history',style:TextStyle(fontWeight:FontWeight.bold)),
           if(sales.isEmpty)const Text('No sales recorded for this customer.'),
-          ...sales.map((s)=>ListTile(contentPadding:EdgeInsets.zero,title:Text('${s['sale_number']}'),subtitle:Text('${s['sale_date']}'),trailing:Text('KES ${((s['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'))),
+          ...sales.map((s)=>ListTile(contentPadding:EdgeInsets.zero,title:Text('${s['sale_number']}'),subtitle:Text('${s['sale_date']} • Payment: ${s['payment_mode']??'credit'}'),trailing:Text('KES ${((s['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'))),
           const Divider(),
           const Text('Payments',style:TextStyle(fontWeight:FontWeight.bold)),
           if(payments.isEmpty)const Text('No payments recorded.'),
           ...payments.map((p)=>ListTile(contentPadding:EdgeInsets.zero,title:Text('KES ${((p['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)} • ${p['method']}'),subtitle:Text('${p['status']} • ${p['payment_number']}'))),
         ]))),
-        actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Close'))],
+        actions:[
+          if(balance>0.009) OutlinedButton.icon(onPressed:(){Navigator.pop(context);recordCustomerPayment(customer,sales,payments);},icon:const Icon(Icons.payments_outlined),label:const Text('Record payment')),
+          TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Close')),
+        ],
       ));
     } catch(e) {
       if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Customer financial history is not available for this account: ${friendlyError(e)}')));
