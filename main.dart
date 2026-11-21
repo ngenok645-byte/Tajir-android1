@@ -3257,12 +3257,11 @@ class _SalePageState extends State<SalePage> {
       final db = Supabase.instance.client;
       final branch = await db.from('branches').select('id').eq('code', 'NTULELE').single();
       branchId = branch['id'] as String;
-      final row = await db.from('branch_product_selling_prices')
-        .select('selling_price_per_kg')
-        .eq('branch_id', branchId!)
-        .eq('product_variant_id', variantId)
-        .maybeSingle();
-      final value = (row?['selling_price_per_kg'] as num?)?.toDouble();
+      final row = await db.rpc('staff_get_branch_sale_price', params: {
+        'p_branch_id': branchId,
+        'p_product_variant_id': variantId,
+      });
+      final value = (row as num?)?.toDouble();
       if (!mounted) return;
       setState(() {
         officialPricePerKg = value;
