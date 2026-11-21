@@ -205,22 +205,77 @@ class TajirCallButton extends StatelessWidget {
 }
 
 
-class TajirDirectorContacts extends StatelessWidget {
+class TajirDirectorContacts extends StatefulWidget {
   const TajirDirectorContacts({super.key});
-  Future<void> _call(BuildContext context, String phone) async {
-    try { await callTajirPhone(phone); }
-    catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+  @override State<TajirDirectorContacts> createState() => _TajirDirectorContactsState();
+}
+
+class _TajirDirectorContactsState extends State<TajirDirectorContacts> {
+  List<Map<String, dynamic>> directors = [];
+  bool loading = true;
+  String? error;
+
+  @override void initState() {
+    super.initState();
+    loadDirectors();
   }
+
+  Future<void> loadDirectors() async {
+    try {
+      final db = Supabase.instance.client;
+      final assignments = await db.from('user_role_assignments')
+        .select('user_id,app_roles!inner(code)')
+        .eq('is_active', true)
+        .eq('app_roles.code', 'director');
+      final ids = assignments.map((row) => row['user_id'].toString()).toSet().toList();
+      if (ids.isEmpty) {
+        if (mounted) setState(() { directors = []; loading = false; });
+        return;
+      }
+      final profiles = await db.from('profiles')
+        .select('id,display_name')
+        .inFilter('id', ids)
+        .order('display_name');
+      if (mounted) setState(() {
+        directors = List<Map<String, dynamic>>.from(profiles);
+        loading = false;
+        error = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() {
+        loading = false;
+        error = friendlyError(e);
+      });
+    }
+  }
+
   @override Widget build(BuildContext context) => Card(
     margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-    child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Row(children: [Icon(Icons.support_agent, color: brandGreen), SizedBox(width: 8), Expanded(child: Text('TAJIR Director contacts', style: TextStyle(fontWeight: FontWeight.bold)))]),
-        ListTile(dense: true, contentPadding: EdgeInsets.zero, title: const Text('Director'), subtitle: const Text('0700020140'),
-          trailing: IconButton(tooltip: 'Call Director', onPressed: () => _call(context, '0700020140'), icon: const Icon(Icons.call, color: brandGreen))),
-        ListTile(dense: true, contentPadding: EdgeInsets.zero, title: const Text('Mercy • Director'), subtitle: const Text('0713971207'),
-          trailing: IconButton(tooltip: 'Call Mercy', onPressed: () => _call(context, '0713971207'), icon: const Icon(Icons.call, color: brandGreen))),
-      ])),
+        const Row(children: [
+          Icon(Icons.support_agent, color: brandGreen),
+          SizedBox(width: 8),
+          Expanded(child: Text('TAJIR Director contacts', style: TextStyle(fontWeight: FontWeight.bold))),
+        ]),
+        if (loading) const LinearProgressIndicator(),
+        if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
+        if (!loading && error == null && directors.isEmpty)
+          const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('No active Director contacts are available.')),
+        ...directors.map((director) {
+          final id = director['id'].toString();
+          final name = (director['display_name'] ?? 'TAJIR Director').toString();
+          return ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Text(name),
+            subtitle: const Text('Registered Director contact'),
+            trailing: TajirCallButton(profileId: id, label: 'Call'),
+          );
+        }),
+      ]),
+    ),
   );
 }
 
