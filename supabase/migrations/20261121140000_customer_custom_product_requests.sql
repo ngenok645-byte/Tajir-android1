@@ -24,7 +24,7 @@ drop policy if exists custom_product_requests_customer_read on public.customer_c
 create policy custom_product_requests_customer_read on public.customer_custom_product_requests
  for select to authenticated using (
   exists (select 1 from public.customers c where c.id=customer_id and c.profile_id=auth.uid())
-  or exists (select 1 from public.profiles p where p.id=auth.uid() and lower(coalesce(p.role,'')) in ('director','owner'))
+  or (select private.is_director())
  );
 drop policy if exists custom_product_requests_customer_insert on public.customer_custom_product_requests;
 create policy custom_product_requests_customer_insert on public.customer_custom_product_requests
@@ -36,7 +36,7 @@ create policy custom_product_requests_customer_insert on public.customer_custom_
 drop policy if exists custom_product_requests_director_update on public.customer_custom_product_requests;
 create policy custom_product_requests_director_update on public.customer_custom_product_requests
  for update to authenticated using (
-  exists (select 1 from public.profiles p where p.id=auth.uid() and lower(coalesce(p.role,'')) in ('director','owner'))
+  (select private.is_director())
  ) with check (
   exists (select 1 from public.profiles p where p.id=auth.uid() and lower(coalesce(p.role,'')) in ('director','owner'))
  );
