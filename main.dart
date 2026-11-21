@@ -222,22 +222,11 @@ class _TajirDirectorContactsState extends State<TajirDirectorContacts> {
 
   Future<void> loadDirectors() async {
     try {
-      final db = Supabase.instance.client;
-      final assignments = await db.from('user_role_assignments')
-        .select('user_id,app_roles!inner(code)')
-        .eq('is_active', true)
-        .eq('app_roles.code', 'director');
-      final ids = assignments.map((row) => row['user_id'].toString()).toSet().toList();
-      if (ids.isEmpty) {
-        if (mounted) setState(() { directors = []; loading = false; });
-        return;
-      }
-      final profiles = await db.from('profiles')
-        .select('id,display_name')
-        .inFilter('id', ids)
-        .order('display_name');
+      // This narrowly scoped RPC returns only active Director contact details.
+      // It is required because customer/staff RLS intentionally hides other profiles.
+      final result = await Supabase.instance.client.rpc('tajir_director_contacts');
       if (mounted) setState(() {
-        directors = List<Map<String, dynamic>>.from(profiles);
+        directors = List<Map<String, dynamic>>.from(result);
         loading = false;
         error = null;
       });
@@ -246,6 +235,16 @@ class _TajirDirectorContactsState extends State<TajirDirectorContacts> {
         loading = false;
         error = friendlyError(e);
       });
+    }
+  }
+
+  Future<void> callDirector(String phone) async {
+    try {
+      await callTajirPhone(phone);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
     }
   }
 
@@ -264,14 +263,18 @@ class _TajirDirectorContactsState extends State<TajirDirectorContacts> {
         if (!loading && error == null && directors.isEmpty)
           const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('No active Director contacts are available.')),
         ...directors.map((director) {
-          final id = director['id'].toString();
           final name = (director['display_name'] ?? 'TAJIR Director').toString();
+          final phone = (director['phone'] ?? '').toString();
           return ListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
             title: Text(name),
             subtitle: const Text('Registered Director contact'),
-            trailing: TajirCallButton(profileId: id, label: 'Call'),
+            trailing: IconButton(
+              tooltip: 'Call $name',
+              onPressed: phone.trim().isEmpty ? null : () => callDirector(phone),
+              icon: const Icon(Icons.call, color: brandGreen),
+            ),
           );
         }),
       ]),
