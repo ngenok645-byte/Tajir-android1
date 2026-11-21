@@ -2528,7 +2528,7 @@ class _DashboardPageState extends State<DashboardPage> {
     ]),
     const SizedBox(height: 12),
     if(branches.isNotEmpty) DropdownButtonFormField<String>(value:selectedBranch,decoration:const InputDecoration(labelText:'Dashboard branch',border:OutlineInputBorder()),items:branches.map((b)=>DropdownMenuItem(value:b['id'].toString(),child:Text(b['name'].toString()+' ('+b['code'].toString()+')'))).toList(),onChanged:(v)=>setState(()=>selectedBranch=v)),
-    OutlinedButton.icon(onPressed:()=>showDialog<void>(context:context,builder:(_)=>const Dialog(child:SizedBox(width:520,height:560,child:BranchRequestPanel()))),icon:const Icon(Icons.add_location_alt),label:const Text('Request a new branch')),
+    if(!accountant) OutlinedButton.icon(onPressed:()=>showDialog<void>(context:context,builder:(_)=>const Dialog(child:SizedBox(width:520,height:560,child:BranchRequestPanel()))),icon:const Icon(Icons.add_location_alt),label:const Text('Request a new branch')),
     if(director) ...[
       Text('Branch requests awaiting approval ('+pendingRequests.length.toString()+')',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
       if(pendingRequests.isEmpty)const Text('No pending branch requests.'),
