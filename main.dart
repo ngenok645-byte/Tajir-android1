@@ -392,7 +392,7 @@ class SetupRequiredApp extends StatelessWidget {
     title: 'TAJIR', theme: appTheme,
     home: const Scaffold(body: Center(child: Padding(
       padding: EdgeInsets.all(28),
-      child: Text('TAJIR setup required\\n\\nBuild with SUPABASE_URL and SUPABASE_ANON_KEY. See README.md.',
+      child: Text('TAJIR setup required\n\nBuild with SUPABASE_URL and SUPABASE_ANON_KEY. See README.md.',
         textAlign: TextAlign.center, style: TextStyle(fontSize: 18)),
     ))),
   );
@@ -1352,13 +1352,13 @@ class _RepairMarketplacePageState extends State<RepairMarketplacePage> with Sing
     const Text('Choose a mechanic',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
     const Text('Browse approved mechanics and request help for your tractor.'),
     if(!busy&&mechanics.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No approved mechanics are listed yet.')),
-    ...mechanics.map((m)=>Card(child:ListTile(isThreeLine:true,leading:const CircleAvatar(child:Icon(Icons.handyman)),title:Text(m['business_name'].toString()),subtitle:Text('${m['location']} • ${m['phone']}\\n${(m['services'] as List).join(', ')}'),trailing:FilledButton(onPressed:()=>requestRepair(m),child:const Text('Choose')))))
+    ...mechanics.map((m)=>Card(child:ListTile(isThreeLine:true,leading:const CircleAvatar(child:Icon(Icons.handyman)),title:Text(m['business_name'].toString()),subtitle:Text('${m['location']} • ${m['phone']}\n${(m['services'] as List).join(', ')}'),trailing:FilledButton(onPressed:()=>requestRepair(m),child:const Text('Choose')))))
    ])),
    RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(12),children:[
     const Text('Available spare parts',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
     const Text('Parts listed by approved auto-spares shops.'),
     if(!busy&&parts.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No spare parts are listed yet.')),
-    ...parts.map((p){final shop=(p['auto_spares_profiles'] as Map?)?.cast<String,dynamic>()??{};return Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.settings)),title:Text(p['part_name'].toString()),subtitle:Text('${shop['shop_name']??'Auto spares'} • ${shop['location']??''}\\nRef: ${p['part_reference']??'Not supplied'} • Stock: ${p['quantity']} ${p['unit']}'),trailing:Text('KES ${p['price_kes']}',style:const TextStyle(fontWeight:FontWeight.bold))));})
+    ...parts.map((p){final shop=(p['auto_spares_profiles'] as Map?)?.cast<String,dynamic>()??{};return Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.settings)),title:Text(p['part_name'].toString()),subtitle:Text('${shop['shop_name']??'Auto spares'} • ${shop['location']??''}\nRef: ${p['part_reference']??'Not supplied'} • Stock: ${p['quantity']} ${p['unit']}'),trailing:Text('KES ${p['price_kes']}',style:const TextStyle(fontWeight:FontWeight.bold))));})
    ]))
   ]))
  ]);
@@ -1542,8 +1542,8 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    Row(children:[
     Expanded(child:Text(widget.mode=='buy'?'TAJIR products available':widget.mode=='sell'?'Your listings':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),
     if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Add listing')),
-    if(widget.mode=='buy')OutlinedButton.icon(onPressed:createCustomProductRequest,icon:const Icon(Icons.add_circle_outline),label:const Text('Request unlisted product'))
    ]),
+   if(widget.mode=='buy')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:createCustomProductRequest,icon:const Icon(Icons.add_circle_outline),label:const Text('Request unlisted product'))),
    if(busy)const LinearProgressIndicator(),
    if(error!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(error!,style:const TextStyle(color:Colors.red))),
    if(!busy&&rows.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(widget.mode=='buy'?'No TAJIR stock is currently available. Please check again or contact your branch.':'No marketplace records yet.')),
@@ -1557,7 +1557,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      return Card(child:ListTile(
       leading:const CircleAvatar(child:Icon(Icons.inventory_2_outlined)),
       title:Text(title),
-      subtitle:Text(branch+'\\n'+(price==null?'Official price not set':'Official TAJIR price: KES '+price.toStringAsFixed(2)+' / KG')),
+      subtitle:Text(branch+'\n'+(price==null?'Official price not set':'Official TAJIR price: KES '+price.toStringAsFixed(2)+' / KG')),
       isThreeLine:true,
       trailing:FilledButton.tonal(onPressed:price==null?null:()=>requestTajirProduct(r),child:const Text('Select'))
      ));
@@ -1570,7 +1570,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
       return Card(child:ListTile(
        leading:const Icon(Icons.assignment_late_outlined,color:Colors.deepOrange),
        title:Text((r['product_name']??'Custom product').toString()),
-       subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • Director price: KES '+agreed.toString()+'/'+unit)+'\\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\\nDirector: '+response)),
+       subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • Director price: KES '+agreed.toString()+'/'+unit)+'\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\nDirector: '+response)),
        isThreeLine:true,
        trailing:const Icon(Icons.hourglass_top),
       ));
@@ -1583,7 +1583,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
       return Card(child:ListTile(
        leading:const Icon(Icons.inventory_2_outlined),
        title:Text(variant.isEmpty?name:'$name • $variant'),
-       subtitle:Text('Quantity: '+r['quantity_requested'].toString()+' '+(r['quantity_unit']??'BAG').toString()+' • '+(r['branches'] is Map?(r['branches'] as Map)['name']??'TAJIR branch':'TAJIR branch').toString()+'\\nOfficial total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()),
+       subtitle:Text('Quantity: '+r['quantity_requested'].toString()+' '+(r['quantity_unit']??'BAG').toString()+' • '+(r['branches'] is Map?(r['branches'] as Map)['name']??'TAJIR branch':'TAJIR branch').toString()+'\nOfficial total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()),
        trailing:const Icon(Icons.hourglass_top),
       ));
      }
