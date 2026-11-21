@@ -2313,6 +2313,7 @@ class _HomeShellState extends State<HomeShell> {
   int index = 0;
   bool director = false;
   bool accountant = false;
+  bool accessLoaded = false;
   List<Widget> get pages {
     if (accountant && !director) {
       return [
@@ -2342,8 +2343,8 @@ class _HomeShellState extends State<HomeShell> {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
       final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
       final finance = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'accountant');
-      if (mounted) setState(() { director = allowed; accountant = finance; index = 0; });
-    } catch (_) { if (mounted) setState(() => director = false); }
+      if (mounted) setState(() { director = allowed; accountant = finance; accessLoaded = true; index = 0; });
+    } catch (_) { if (mounted) setState(() { director = false; accountant = false; accessLoaded = true; index = 0; }); }
   }
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
   void openMoreMenu() {
@@ -2358,6 +2359,7 @@ class _HomeShellState extends State<HomeShell> {
     ])));
   }
   @override Widget build(BuildContext context) {
+    if (!accessLoaded) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
       appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
