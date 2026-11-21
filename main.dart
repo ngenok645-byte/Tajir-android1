@@ -1268,7 +1268,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
       Row(children:[
        Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse all products available in the marketplace',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0)),
        const SizedBox(width:8),
-       Expanded(child:homeTile(title:'SELL PRODUCTS',subtitle:sell?'List any product and set your price':'Access locked',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined,section:1,locked:!sell))
+       Expanded(child:homeTile(title:'SELL PRODUCTS',subtitle:sell?'Choose a catalogue product and view the Director-approved TAJIR buying price':'Access locked',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined,section:1,locked:!sell))
       ]),
       const SizedBox(height:10),
       homeTile(title:'TRACTOR & MACHINERY SERVICES',subtitle:'Book ploughing, planting, harvesting and more',imageUrl:TajirPictures.tractor,icon:Icons.agriculture,section:3,large:true),
@@ -1624,7 +1624,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   child:ListView(padding:const EdgeInsets.all(16),children:[
    Row(children:[
     Expanded(child:Text(widget.mode=='buy'?'TAJIR products available':widget.mode=='sell'?'Your listings':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),
-    if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Add listing')),
+    if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Offer produce')),
    ]),
    if(widget.mode=='buy')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('BUY_FROM_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Request unlisted product'))),
    if(widget.mode=='sell')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('SELL_TO_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Offer unlisted product to TAJIR'))),
