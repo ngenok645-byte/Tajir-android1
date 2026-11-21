@@ -2404,20 +2404,21 @@ class _HomeShellState extends State<HomeShell> {
       ];
     }
     return [
-      DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9)),
+      DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9), onOpenMarketplacePrices: () => selectPage(10)),
       const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(),
       if (director || accountant) const FinancialRecordsPage(),
       if (director) const StaffAccountsPage(),
       if (director) const DirectorPriceManagementPage(),
       if (director) const DirectorCustomProductRequestsPage(),
+      if (director) const DirectorMarketplacePricesPage(),
     ];
   }
   List<String> get labels => accountant && !director && !branchManager
     ? ['Dashboard','Stock','Financial Records']
-    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests'];
+    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices'];
   List<IconData> get icons => accountant && !director && !branchManager
     ? [Icons.dashboard,Icons.inventory_2,Icons.account_balance]
-    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined];
+    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -2437,6 +2438,7 @@ class _HomeShellState extends State<HomeShell> {
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       if (director) ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       if (director) ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Custom Requests'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
+      if (director) ListTile(leading: const Icon(Icons.storefront_outlined), title: const Text('Marketplace Prices'), selected: index == 10, onTap: () { Navigator.pop(sheetContext); selectPage(10); }),
       const SizedBox(height: 8),
     ])));
   }
@@ -2481,7 +2483,8 @@ class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenStaff;
   final VoidCallback? onOpenPrices;
   final VoidCallback? onOpenCustomRequests;
-  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices, this.onOpenCustomRequests});
+  final VoidCallback? onOpenMarketplacePrices;
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices, this.onOpenCustomRequests, this.onOpenMarketplacePrices});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -2596,6 +2599,16 @@ class _DashboardPageState extends State<DashboardPage> {
         subtitle: const Text('Review unlisted product requests and offers, set the agreed price, or decline'),
         trailing: const Icon(Icons.chevron_right),
         onTap: widget.onOpenCustomRequests,
+      )),
+    ],
+    if(director) ...[
+      const SizedBox(height: 8),
+      Card(child: ListTile(
+        leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.storefront_outlined, color: brandGreen)),
+        title: const Text('Marketplace Listing Prices', style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('Set separate TAJIR BUY and TAJIR SELL prices for farmer-listed produce'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: widget.onOpenMarketplacePrices,
       )),
     ],
     const SizedBox(height: 18),
@@ -3696,6 +3709,127 @@ class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProduc
               onPressed: busyId == row['id'].toString() ? null : () => review(row),
               icon: Icon(busyId == row['id'].toString() ? Icons.hourglass_top : Icons.rate_review_outlined),
               label: const Text('Review request'),
+            )),
+          ]),
+        ));
+      }),
+    ]),
+  );
+}
+
+class DirectorMarketplacePricesPage extends StatefulWidget {
+  const DirectorMarketplacePricesPage({super.key});
+  @override State<DirectorMarketplacePricesPage> createState() => _DirectorMarketplacePricesPageState();
+}
+
+class _DirectorMarketplacePricesPageState extends State<DirectorMarketplacePricesPage> {
+  final db = Supabase.instance.client;
+  List<Map<String, dynamic>> listings = [];
+  final Map<String, TextEditingController> buying = {};
+  final Map<String, TextEditingController> selling = {};
+  bool loading = true;
+  String? savingId;
+  String message = '';
+
+  @override void initState() { super.initState(); load(); }
+
+  @override void dispose() {
+    for (final c in buying.values) { c.dispose(); }
+    for (final c in selling.values) { c.dispose(); }
+    super.dispose();
+  }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; message = ''; });
+    try {
+      final result = await db.from('marketplace_listings')
+        .select('id,product_name,quantity,unit,price_per_unit,total_value_kes,location,marketplace_listing_buying_prices(buying_price_kes),marketplace_listing_selling_prices(selling_price_kes),customers(full_name),branches(name)')
+        .eq('status', 'active')
+        .order('created_at', ascending: false);
+      listings = List<Map<String, dynamic>>.from(result);
+      for (final c in buying.values) { c.dispose(); }
+      for (final c in selling.values) { c.dispose(); }
+      buying.clear();
+      selling.clear();
+      for (final row in listings) {
+        final id = row['id'].toString();
+        final buyRow = (row['marketplace_listing_buying_prices'] as Map?)?.cast<String, dynamic>() ?? {};
+        final sellRow = (row['marketplace_listing_selling_prices'] as Map?)?.cast<String, dynamic>() ?? {};
+        buying[id] = TextEditingController(text: (buyRow['buying_price_kes'] ?? row['price_per_unit'] ?? '').toString());
+        selling[id] = TextEditingController(text: (sellRow['selling_price_kes'] ?? '').toString());
+      }
+      if (mounted) setState(() { loading = false; });
+    } catch (e) {
+      if (mounted) setState(() { loading = false; message = 'Could not load marketplace prices: ' + friendlyError(e); });
+    }
+  }
+
+  Future<void> save(Map<String, dynamic> listing) async {
+    final id = listing['id'].toString();
+    final buy = double.tryParse(buying[id]?.text.trim() ?? '');
+    final sell = double.tryParse(selling[id]?.text.trim() ?? '');
+    if (buy == null || buy <= 0 || sell == null || sell <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter both positive Director-approved prices before publishing this listing to buyers.')));
+      return;
+    }
+    setState(() { savingId = id; message = ''; });
+    try {
+      final now = DateTime.now().toUtc().toIso8601String();
+      await db.from('marketplace_listing_buying_prices').upsert({
+        'listing_id': id,
+        'buying_price_kes': buy,
+        'updated_by': db.auth.currentUser!.id,
+        'updated_at': now,
+      }, onConflict: 'listing_id');
+      await db.from('marketplace_listing_selling_prices').upsert({
+        'listing_id': id,
+        'selling_price_kes': sell,
+        'updated_by': db.auth.currentUser!.id,
+        'updated_at': now,
+      }, onConflict: 'listing_id');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Marketplace BUY and SELL prices saved separately.')));
+        setState(() { savingId = null; });
+      }
+    } catch (e) {
+      if (mounted) setState(() { savingId = null; message = 'Could not save marketplace prices: ' + friendlyError(e); });
+    }
+  }
+
+  @override Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: load,
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      const Text('Marketplace listing prices', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 6),
+      const Text('Set two separate prices for each farmer offer. TAJIR BUY is what the seller receives; TAJIR SELL is what the customer pays. Both are per listing unit.'),
+      if (loading) const LinearProgressIndicator(),
+      if (message.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(message, style: const TextStyle(color: Colors.red))),
+      if (!loading && listings.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 18), child: Text('No active farmer offers are waiting for Director pricing.')),
+      ...listings.map((row) {
+        final id = row['id'].toString();
+        final seller = (row['customers'] as Map?)?.cast<String, dynamic>() ?? {};
+        final branch = (row['branches'] as Map?)?.cast<String, dynamic>() ?? {};
+        final unit = (row['unit'] ?? 'BAG').toString();
+        final buy = double.tryParse(buying[id]?.text.trim() ?? '');
+        final sell = double.tryParse(selling[id]?.text.trim() ?? '');
+        final quantity = (row['quantity'] as num?)?.toDouble() ?? 0;
+        return Card(margin: const EdgeInsets.symmetric(vertical: 7), child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text((row['product_name'] ?? 'Produce').toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text('Seller: \${seller['full_name'] ?? 'Customer'} • Branch: \${branch['name'] ?? 'TAJIR branch'}'),
+            Text('Available: \${row['quantity']} \${unit} • \${row['location']}'),
+            const SizedBox(height: 10),
+            TextField(controller: buying[id], keyboardType: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() {}), decoration: InputDecoration(labelText: 'TAJIR BUY price • KES per \${unit}', border: const OutlineInputBorder())),
+            if (buy != null && buy > 0) Text('Seller receives KES \${(buy * quantity).toStringAsFixed(2)} for all available quantity'),
+            const SizedBox(height: 10),
+            TextField(controller: selling[id], keyboardType: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() {}), decoration: InputDecoration(labelText: 'TAJIR SELL price • KES per \${unit}', border: const OutlineInputBorder())),
+            if (sell != null && sell > 0) Text('Customer pays KES \${(sell * quantity).toStringAsFixed(2)} for all available quantity'),
+            const SizedBox(height: 10),
+            Align(alignment: Alignment.centerRight, child: FilledButton.icon(
+              onPressed: savingId == id || loading ? null : () => save(row),
+              icon: Icon(savingId == id ? Icons.hourglass_top : Icons.save),
+              label: Text(savingId == id ? 'Saving…' : 'Save both prices'),
             )),
           ]),
         ));
