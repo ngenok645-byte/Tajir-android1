@@ -5163,8 +5163,8 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   bool loading = false;
   String error = '';
   String period = 'This month';
-  double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, supplierPayments = 0;
-  List<Map<String,dynamic>> salesRows = [], purchaseCostRows = [], purchaseRows = [], customerPaymentRows = [], supplierPaymentRows = [];
+  double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, pendingCustomerReceipts = 0, supplierPayments = 0;
+  List<Map<String,dynamic>> salesRows = [], purchaseCostRows = [], purchaseRows = [], customerPaymentRows = [], pendingCustomerPaymentRows = [], supplierPaymentRows = [];
   double numVal(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
   DateTime? get startDate {
     final now = DateTime.now();
@@ -5188,16 +5188,18 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       final hasFinanceAccess = roles.any((r) => r['app_roles'] is Map && ['director','accountant'].contains((r['app_roles'] as Map)['code']));
       if (!hasFinanceAccess) throw Exception('This financial report is available to Director and Accountant accounts only.');
       final data = await Future.wait([
-        db.from('sales').select('id,sale_number,sale_date,total_amount,sale_items(line_cost)').order('sale_date',ascending:false),
+        db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,sale_items(line_cost)').order('sale_date',ascending:false),
         db.from('purchase_costs').select('id,purchase_id,purchase_item_id,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
         db.from('purchases').select('id,purchase_number,purchase_date,status,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
-        db.from('customer_payments').select('payment_number,amount,status,method,received_at').order('received_at',ascending:false),
+        db.from('customer_payments').select('payment_number,sale_id,amount,status,method,received_at').order('received_at',ascending:false),
         db.from('supplier_payments').select('amount,status,method,payment_date,transaction_reference').order('payment_date',ascending:false),
       ]);
       final sr = List<Map<String,dynamic>>.from(data[0]).where((r)=>within(r['sale_date'])).toList();
       final pcr = List<Map<String,dynamic>>.from(data[1]).where((r)=>within(r['incurred_at'])).toList();
       final pr = List<Map<String,dynamic>>.from(data[2]).where((r)=>within(r['purchase_date']) && r['status']=='accepted').toList();
-      final cr = List<Map<String,dynamic>>.from(data[3]).where((r)=>within(r['received_at']) && r['status']=='verified').toList();
+      final allCustomerRows = List<Map<String,dynamic>>.from(data[3]).where((r)=>within(r['received_at'])).toList();
+      final cr = allCustomerRows.where((r)=>r['status']=='verified').toList();
+      final pendingCr = allCustomerRows.where((r)=>r['status']=='pending').toList();
       final spr = List<Map<String,dynamic>>.from(data[4]).where((r)=>within(r['payment_date']) && r['status']=='verified').toList();
       double rev=0,cogs=0,buy=0;
       for(final row in sr) {
@@ -5211,9 +5213,10 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       }
       if(!mounted)return;
       setState(() {
-        salesRows=sr; purchaseCostRows=pcr; purchaseRows=pr; customerPaymentRows=cr; supplierPaymentRows=spr;
+        salesRows=sr; purchaseCostRows=pcr; purchaseRows=pr; customerPaymentRows=cr; pendingCustomerPaymentRows=pendingCr; supplierPaymentRows=spr;
         revenue=rev; costOfGoods=cogs; purchaseCostsTotal=pcr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         purchaseTotal=buy; customerReceipts=cr.fold(0.0,(v,r)=>v+numVal(r['amount']));
+        pendingCustomerReceipts=pendingCr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         supplierPayments=spr.fold(0.0,(v,r)=>v+numVal(r['amount']));
       });
     } catch(e) { if(mounted)setState(()=>error=friendlyError(e)); }
@@ -5224,10 +5227,10 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     Text(title,style:const TextStyle(fontSize:13,color:Colors.black54)),const SizedBox(height:5),
     Text(cash(value),style:TextStyle(fontSize:19,fontWeight:FontWeight.bold,color:highlight?Colors.green: null)),
   ])));
-  Widget section(String title,List<Map<String,dynamic>> rows,String dateField,String amountField,String nameField) => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+  Widget section(String title,List<Map<String,dynamic>> rows,String dateField,String amountField,String nameField,{String? extraField}) => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Divider(height:24),Text(title,style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
     if(rows.isEmpty) const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No records for this period.')),
-    ...rows.take(40).map((r)=>ListTile(dense:true,title:Text((r[nameField]??title).toString()),subtitle:Text((r[dateField]??'').toString()),trailing:Text(cash(numVal(r[amountField]))))),
+    ...rows.take(40).map((r)=>ListTile(dense:true,title:Text((r[nameField]??title).toString()),subtitle:Text((r[dateField]??'').toString()+(extraField==null?'':' • '+(r[extraField]??'').toString())),trailing:Text(cash(numVal(r[amountField]))))),
   ]);
   @override Widget build(BuildContext context) {
     final gross = revenue-costOfGoods;
@@ -5246,12 +5249,13 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         metric('Sales revenue',revenue),metric('Cost of goods sold',costOfGoods),
         metric('Trading profit (including landed stock cost)',gross,highlight:true),metric('Purchase-related expenses',purchaseCostsTotal),
         metric('Net trading result before other overheads',net,highlight:true),metric('Accepted purchases / stock cost',purchaseTotal),
-        metric('Verified customer receipts',customerReceipts),metric('Verified supplier payments',supplierPayments),
+        metric('Verified customer receipts',customerReceipts),metric('Pending customer payments',pendingCustomerReceipts),metric('Verified supplier payments',supplierPayments),
       ]),
-      section('Sales records',salesRows,'sale_date','total_amount','sale_number'),
+      section('Sales records',salesRows,'sale_date','total_amount','sale_number',extraField:'payment_mode'),
       section('Expenses attached to purchases',purchaseCostRows,'incurred_at','amount','cost_type'),
       section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number'),
       section('Verified customer payments',customerPaymentRows,'received_at','amount','payment_number'),
+      section('Pending customer payments',pendingCustomerPaymentRows,'received_at','amount','payment_number'),
       section('Verified supplier payments',supplierPaymentRows,'payment_date','amount','transaction_reference'),
       const Padding(padding:EdgeInsets.only(top:14),child:Text('Profit method: trading profit = recorded sales revenue less the cost of goods sold. Purchase-related costs such as transport, loading, labour and drying are attached to each purchase and included in landed stock cost, so they are not deducted a second time. This is trading profit before any separate business overheads. Figures depend on complete and correctly approved records.',style:TextStyle(fontSize:12,color:Colors.black54))),
       Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:loading?null:load,icon:const Icon(Icons.refresh),label:const Text('Refresh'))),
