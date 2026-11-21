@@ -2662,6 +2662,7 @@ class _HomeShellState extends State<HomeShell> {
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       if (director) ListTile(leading: const Icon(Icons.price_change), title: const Text('Product Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
+      if (director) ListTile(leading: const Icon(Icons.playlist_add_check), title: const Text('Client Requests'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
       const SizedBox(height: 8),
     ])));
   }
