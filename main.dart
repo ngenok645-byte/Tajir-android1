@@ -1870,7 +1870,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   onRefresh:load,
   child:ListView(padding:const EdgeInsets.all(16),children:[
    Row(children:[
-    Expanded(child:Text(widget.mode=='buy'?'TAJIR products available':widget.mode=='sell'?'Your listings':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),
+    Expanded(child:Text(widget.mode=='buy'?'TAJIR product catalogue':widget.mode=='sell'?'Your listings':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),
     if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Add listing')),
      if(widget.mode=='buy')OutlinedButton.icon(onPressed:requestCustomProduct,icon:const Icon(Icons.add),label:const Text('Request unlisted product'))
    ]),
