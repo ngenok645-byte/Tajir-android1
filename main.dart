@@ -1748,10 +1748,12 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     final branch=(r['branches'] as Map?)?.cast<String,dynamic>()??{};
     final buyingRow=(r['marketplace_listing_buying_prices'] as Map?)?.cast<String,dynamic>()??{};
     final officialBuy=buyingRow['buying_price_kes']??r['price_per_unit'];
+    final buyValue=double.tryParse(officialBuy.toString())??0;
+    final listingQuantity=(r['quantity'] as num?)?.toDouble()??0;
     return Card(child:ListTile(
      leading:const Icon(Icons.local_florist_outlined,color:brandGreen),
      title:Text(r['product_name'].toString()),
-     subtitle:Text('Quantity: '+r['quantity'].toString()+' '+r['unit'].toString()+' • TAJIR BUY price: KES '+officialBuy.toString()+' / '+r['unit'].toString()+' • Total: KES '+(r['total_value_kes']??'Pending').toString()+' • '+(branch['name']??'TAJIR branch').toString()+' • '+r['location'].toString()),
+     subtitle:Text('Quantity: '+r['quantity'].toString()+' '+r['unit'].toString()+' • TAJIR BUY price: KES '+officialBuy.toString()+' / '+r['unit'].toString()+' • Total: KES '+(buyValue*listingQuantity).toStringAsFixed(2)+' • '+(branch['name']??'TAJIR branch').toString()+' • '+r['location'].toString()),
      isThreeLine:true,
      trailing:PopupMenuButton<String>(onSelected:(v)=>change(r,v,true),itemBuilder:(_)=>const [PopupMenuItem(value:'active',child:Text('Active')),PopupMenuItem(value:'paused',child:Text('Pause')),PopupMenuItem(value:'sold',child:Text('Sold'))])
     ));
