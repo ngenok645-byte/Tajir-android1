@@ -1427,7 +1427,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    }else if(widget.mode=='sell'){
     r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status,total_value_kes,quantity_kg,branch_id,branches(name),marketplace_listing_buying_prices(buying_price_kes)').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
    }else if(widget.mode=='marketplace_buy'){
-    r=await db.from('marketplace_listings').select('id,product_name,description,quantity,unit,location,status,total_value_kes,branch_id,branches(name),marketplace_listing_selling_prices(selling_price_kes)').eq('status','active').order('created_at',ascending:false);
+    r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status,total_value_kes,branch_id,branches(name),marketplace_listing_selling_prices(selling_price_kes)').eq('status','active').neq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
    }else{
     final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
     final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').order('created_at',ascending:false);
@@ -1755,7 +1755,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      title:Text(r['product_name'].toString()),
      subtitle:Text('Quantity: '+r['quantity'].toString()+' '+r['unit'].toString()+' • TAJIR BUY price: KES '+officialBuy.toString()+' / '+r['unit'].toString()+' • Total: KES '+(buyValue*listingQuantity).toStringAsFixed(2)+' • '+(branch['name']??'TAJIR branch').toString()+' • '+r['location'].toString()),
      isThreeLine:true,
-     trailing:PopupMenuButton<String>(onSelected:(v)=>change(r,v,true),itemBuilder:(_)=>const [PopupMenuItem(value:'active',child:Text('Active')),PopupMenuItem(value:'paused',child:Text('Pause')),PopupMenuItem(value:'sold',child:Text('Sold'))])
+     trailing:(r['status']=='sold'||listingQuantity<=0)?null:PopupMenuButton<String>(onSelected:(v)=>change(r,v,true),itemBuilder:(_)=>const [PopupMenuItem(value:'active',child:Text('Active')),PopupMenuItem(value:'paused',child:Text('Pause')),PopupMenuItem(value:'sold',child:Text('Sold'))])
     ));
    })
   ])
