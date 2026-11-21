@@ -1496,11 +1496,11 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   quantity.dispose();note.dispose();
  }
 
- Future<void> createCustomProductRequest()async{
+ Future<void> createCustomProductRequest(String direction)async{
   final product=TextEditingController(),description=TextEditingController(),quantity=TextEditingController(text:'1'),proposedPrice=TextEditingController();
   String unit='BAG';
   final ok=await showDialog<bool>(context:context,builder:(x)=>StatefulBuilder(builder:(dialogContext,setDialogState)=>AlertDialog(
-   title:const Text('Request a product not in TAJIR catalogue'),
+   title:Text(direction=='SELL_TO_TAJIR'?'Offer an unlisted product to TAJIR':'Request a product not in TAJIR catalogue'),
    content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
     TextField(controller:product,decoration:const InputDecoration(labelText:'Product name')),
     TextField(controller:description,maxLines:2,decoration:const InputDecoration(labelText:'Description / specification (optional)')),
@@ -1508,7 +1508,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:unit=='KG'?'Required quantity (KG)':'Required quantity (bags)')),
     TextField(controller:proposedPrice,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:unit=='KG'?'Your proposed price per KG (KES)':'Your proposed price per bag (KES)')),
     const SizedBox(height:8),
-    Container(width:double.infinity,padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:Colors.amber.shade50,borderRadius:BorderRadius.circular(10)),child:const Text('CLIENT-SUBMITTED REQUEST • NOT AN OFFICIAL TAJIR PRICE. The Director must review and approve or negotiate the price before it becomes an official offer.',style:TextStyle(fontSize:12,fontWeight:FontWeight.w600))),
+    Container(width:double.infinity,padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:Colors.amber.shade50,borderRadius:BorderRadius.circular(10)),child:Text(direction=='SELL_TO_TAJIR'?'CLIENT-SUBMITTED OFFER • NOT AN OFFICIAL TAJIR BUYING PRICE. The Director must review and approve or negotiate the proposed amount before it becomes an official offer.':'CLIENT-SUBMITTED REQUEST • NOT AN OFFICIAL TAJIR SELLING PRICE. The Director must review and approve or negotiate the proposed amount before it becomes an official offer.',style:const TextStyle(fontSize:12,fontWeight:FontWeight.w600))),
    ])),
    actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Submit request'))],
   )));
@@ -1525,9 +1525,9 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      'quantity':q,
      'quantity_unit':unit,
      'proposed_unit_price_kes':price,
-     'request_direction':'BUY_FROM_TAJIR',
+     'request_direction':direction,
     });
-    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your custom product request was submitted for Director review. It is not an official TAJIR price.')));
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(direction=='SELL_TO_TAJIR'?'Your product offer was submitted for Director review. It is not an official TAJIR buying price.':'Your custom product request was submitted for Director review. It is not an official TAJIR selling price.')));
     await load();
    }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
   }
@@ -1543,7 +1543,8 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     Expanded(child:Text(widget.mode=='buy'?'TAJIR products available':widget.mode=='sell'?'Your listings':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),
     if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Add listing')),
    ]),
-   if(widget.mode=='buy')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:createCustomProductRequest,icon:const Icon(Icons.add_circle_outline),label:const Text('Request unlisted product'))),
+   if(widget.mode=='buy')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('BUY_FROM_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Request unlisted product'))),
+   if(widget.mode=='sell')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('SELL_TO_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Offer unlisted product to TAJIR'))),
    if(busy)const LinearProgressIndicator(),
    if(error!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(error!,style:const TextStyle(color:Colors.red))),
    if(!busy&&rows.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(widget.mode=='buy'?'No TAJIR stock is currently available. Please check again or contact your branch.':'No marketplace records yet.')),
@@ -1570,7 +1571,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
       return Card(child:ListTile(
        leading:const Icon(Icons.assignment_late_outlined,color:Colors.deepOrange),
        title:Text((r['product_name']??'Custom product').toString()),
-       subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • Director price: KES '+agreed.toString()+'/'+unit)+'\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\nDirector: '+response)),
+       subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\n'+((r['request_direction']??'BUY_FROM_TAJIR')=='SELL_TO_TAJIR'?'Offer to sell to TAJIR':'Request to buy from TAJIR')+'\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • Director agreed: KES '+agreed.toString()+'/'+unit)+'\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\nDirector: '+response)),
        isThreeLine:true,
        trailing:const Icon(Icons.hourglass_top),
       ));
