@@ -243,17 +243,58 @@ jobs:
           done
           exit 1
 
-      - name: Upload TAJIR Android APK
+      - name: Sign TAJIR Android APK
+        if: github.ref == 'refs/heads/main'
+        working-directory: TAJIR_flutter_app
+        env:
+          TAJIR_KEYSTORE_BASE64: ${{ secrets.TAJIR_KEYSTORE_BASE64 }}
+          TAJIR_KEYSTORE_PASSWORD: ${{ secrets.TAJIR_KEYSTORE_PASSWORD }}
+          TAJIR_KEY_ALIAS: ${{ secrets.TAJIR_KEY_ALIAS }}
+          TAJIR_KEY_PASSWORD: ${{ secrets.TAJIR_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in TAJIR_KEYSTORE_BASE64 TAJIR_KEYSTORE_PASSWORD TAJIR_KEY_ALIAS TAJIR_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing GitHub Actions secret: $name. Refusing to publish an unsigned APK."
+              exit 1
+            fi
+          done
+          KEYSTORE="$RUNNER_TEMP/tajir-release-key.jks"
+          printf '%s' "$TAJIR_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "Android apksigner was not found in the installed SDK."
+            exit 1
+          fi
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          SIGNED="build/app/outputs/flutter-apk/TAJIR-Android-v${GITHUB_RUN_NUMBER}-signed.apk"
+          "$APKSIGNER" sign --ks "$KEYSTORE" --ks-key-alias "$TAJIR_KEY_ALIAS" --ks-pass "pass:$TAJIR_KEYSTORE_PASSWORD" --key-pass "pass:$TAJIR_KEY_PASSWORD" --out "$SIGNED" "$APK"
+          "$APKSIGNER" verify --verbose --print-certs "$SIGNED"
+          cp "$SIGNED" "$APK"
+          rm -f "$KEYSTORE"
+
+      - name: Upload unsigned CI APK (pull requests and non-main dispatches)
+        if: github.ref != 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
-          name: TAJIR-Android-APK
+          name: TAJIR-Android-APK-CI-Unsigned
           path: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
-      - name: Publish versioned update release
+      - name: Upload signed TAJIR Android APK
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: TAJIR-Android-APK
+          path: TAJIR_flutter_app/build/app/outputs/flutter-apk/TAJIR-Android-v${{ github.run_number }}-signed.apk
+          if-no-files-found: error
+
+      - name: Publish signed versioned update release
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
           name: TAJIR v${{ github.run_number }}
           generate_release_notes: true
-          files: TAJIR_flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          files: TAJIR_flutter_app/build/app/outputs/flutter-apk/TAJIR-Android-v${{ github.run_number }}-signed.apk
+          overwrite_files: true
