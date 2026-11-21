@@ -2312,15 +2312,37 @@ class _HomeShellState extends State<HomeShell> {
 
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const DirectorPriceManagementPage(), if (director) const DirectorCustomProductRequestsPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined];
+  bool accountant = false;
+  List<Widget> get pages {
+    if (accountant && !director) {
+      return [
+        DashboardPage(onOpenItems: () => selectPage(1), onOpenFinancial: () => selectPage(2)),
+        const StockPage(),
+        const FinancialRecordsPage(),
+      ];
+    }
+    return [
+      DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9)),
+      const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(),
+      if (director || accountant) const FinancialRecordsPage(),
+      if (director) const StaffAccountsPage(),
+      if (director) const DirectorPriceManagementPage(),
+      if (director) const DirectorCustomProductRequestsPage(),
+    ];
+  }
+  List<String> get labels => accountant && !director
+    ? ['Dashboard','Stock','Financial Records']
+    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests'];
+  List<IconData> get icons => accountant && !director
+    ? [Icons.dashboard,Icons.inventory_2,Icons.account_balance]
+    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
       final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
-      if (mounted) setState(() { director = allowed; if (!allowed && index == 6) index = 0; });
+      final finance = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'accountant');
+      if (mounted) setState(() { director = allowed; accountant = finance; index = 0; });
     } catch (_) { if (mounted) setState(() => director = false); }
   }
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
@@ -2347,9 +2369,13 @@ class _HomeShellState extends State<HomeShell> {
         ])),
       ]),
       bottomNavigationBar: wide ? null : NavigationBar(
-        selectedIndex: index < 4 ? index : 4,
-        onDestinationSelected: (v) { if (v == 4) { openMoreMenu(); } else { selectPage(v); } },
-        destinations: const [
+        selectedIndex: accountant && !director ? index : (index < 4 ? index : 4),
+        onDestinationSelected: accountant && !director ? selectPage : (v) { if (v == 4) { openMoreMenu(); } else { selectPage(v); } },
+        destinations: accountant && !director ? const [
+          NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
+          NavigationDestination(icon: Icon(Icons.inventory_2), label: 'Stock'),
+          NavigationDestination(icon: Icon(Icons.account_balance), label: 'Financials'),
+        ] : const [
           NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
           NavigationDestination(icon: Icon(Icons.add_shopping_cart), label: 'Purchases'),
           NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'Sales'),
@@ -2374,7 +2400,7 @@ class DashboardPage extends StatefulWidget {
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
-  String role = 'Loading role…'; List<Map<String,dynamic>> stock = [], branches = [], pendingRequests = []; String? error, selectedBranch; bool director = false;
+  String role = 'Loading role…'; List<Map<String,dynamic>> stock = [], branches = [], pendingRequests = []; String? error, selectedBranch; bool director = false, accountant = false;
   @override void initState() { super.initState(); load(); }
   Future<void> load() async {
     try {
@@ -2385,6 +2411,7 @@ class _DashboardPageState extends State<DashboardPage> {
       final roleData = assigned.isNotEmpty ? assigned.first['app_roles'] : null;
       final roleName = roleData is Map ? (roleData['name'] ?? roleData['code'] ?? 'User').toString() : 'User';
       director = assigned.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='director');
+      accountant = assigned.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='accountant');
       final s = await db.rpc('get_stock_balances');
       final branchRows = await db.from('branches').select('id,code,name').eq('is_active',true).order('name');
       branches=List<Map<String,dynamic>>.from(branchRows);
@@ -2437,7 +2464,7 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
     ),
     const SizedBox(height: 12),
-    TajirImageTile(
+    if(!accountant) TajirImageTile(
       title:'TRACTOR & MACHINERY SERVICES',
       subtitle:'Manage machines, providers, bookings, operators and payments',
       imageUrl:TajirPictures.tractor,
@@ -2445,12 +2472,12 @@ class _DashboardPageState extends State<DashboardPage> {
       large:true,
       onTap:widget.onOpenTractor ?? _noDashboardAction,
     ),
-    if(director) ...[
+    if(director || accountant) ...[
       const SizedBox(height: 18),
       Card(child: ListTile(
         leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.analytics_outlined, color: brandGreen)),
-        title: const Text('Director business overview', style: TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: const Text('Open company-wide sales, purchases, payments, costs and profit reports'),
+        title: Text(director ? 'Director business overview' : 'Accountant financial overview', style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('Open authorised sales, purchases, payments, costs and profit reports'),
         trailing: const Icon(Icons.chevron_right),
         onTap: widget.onOpenFinancial,
       )),
@@ -4651,8 +4678,8 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     try {
       final db = Supabase.instance.client;
       final roles = await db.from('user_role_assignments').select('app_roles(code)').eq('user_id', db.auth.currentUser!.id).eq('is_active', true);
-      final isDirector = roles.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
-      if (!isDirector) throw Exception('This financial report is available to Director accounts only.');
+      final hasFinanceAccess = roles.any((r) => r['app_roles'] is Map && ['director','accountant'].contains((r['app_roles'] as Map)['code']));
+      if (!hasFinanceAccess) throw Exception('This financial report is available to Director and Accountant accounts only.');
       final data = await Future.wait([
         db.from('sales').select('id,sale_number,sale_date,total_amount,sale_items(line_cost)').order('sale_date',ascending:false),
         db.from('purchase_costs').select('id,purchase_id,purchase_item_id,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
@@ -4700,7 +4727,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     final net = gross;
     return RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
       const Text('Financial Records & Profit',style:TextStyle(fontSize:23,fontWeight:FontWeight.bold)),
-      const Text('Director reports • amounts in Kenya shillings'),
+      const Text('Director & Accountant reports • amounts in Kenya shillings'),
       const SizedBox(height:12),
       DropdownButtonFormField<String>(value:period,decoration:const InputDecoration(labelText:'Reporting period',border:OutlineInputBorder()),
         items:const ['Today','This week','This month','This year','All time'].map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),
