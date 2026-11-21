@@ -3189,10 +3189,17 @@ class _PurchasePageState extends State<PurchasePage> {
   );
 }
 
+class _SaleSplitPaymentEntry {
+  String method;
+  final amount = TextEditingController();
+  final reference = TextEditingController();
+  _SaleSplitPaymentEntry({this.method = 'cash'});
+  void dispose() { amount.dispose(); reference.dispose(); }
+}
+
 class SalePage extends StatefulWidget {
   const SalePage({super.key});
-  @override
-  State<SalePage> createState() => _SalePageState();
+  @override State<SalePage> createState() => _SalePageState();
 }
 
 class _SalePageState extends State<SalePage> {
@@ -3208,31 +3215,67 @@ class _SalePageState extends State<SalePage> {
   String product = 'Maize';
   String quantityUnit = 'BAGS';
   String mode = 'collection';
-  String method = 'cash';
+  String paymentMode = 'cash';
   String? productId;
   String? selectedVariantId;
+  String? branchId;
+  double? officialPricePerKg;
   List<Map<String, dynamic>> variants = [];
+  final List<_SaleSplitPaymentEntry> splitPayments = [
+    _SaleSplitPaymentEntry(method: 'cash'),
+    _SaleSplitPaymentEntry(method: 'mpesa'),
+  ];
   bool busy = false;
   bool loadingVariants = false;
+  bool loadingOfficialPrice = false;
   String message = '';
 
-  @override
-  void initState() {
+  @override void initState() {
     super.initState();
     loadProductVariants();
   }
 
-  @override
-  void dispose() {
-    qty.dispose();
-    price.dispose();
-    address.dispose();
-    fee.dispose();
-    customer.dispose();
-    customerPhone.dispose();
-    paid.dispose();
-    reference.dispose();
+  @override void dispose() {
+    qty.dispose(); price.dispose(); address.dispose(); fee.dispose();
+    customer.dispose(); customerPhone.dispose(); paid.dispose(); reference.dispose();
+    for (final entry in splitPayments) { entry.dispose(); }
     super.dispose();
+  }
+
+  void updateDisplayedOfficialPrice() {
+    final value = officialPricePerKg;
+    if (value == null || value <= 0) { price.clear(); return; }
+    final displayed = quantityUnit == 'KG' ? value : value * kgPerBag;
+    price.text = displayed.toStringAsFixed(2);
+  }
+
+  Future<void> loadDirectorSellingPrice() async {
+    final variantId = selectedVariantId;
+    if (variantId == null) return;
+    if (mounted) setState(() { loadingOfficialPrice = true; officialPricePerKg = null; price.clear(); });
+    try {
+      final db = Supabase.instance.client;
+      final branch = await db.from('branches').select('id').eq('code', 'NTULELE').single();
+      branchId = branch['id'] as String;
+      final row = await db.from('branch_product_selling_prices')
+        .select('selling_price_per_kg')
+        .eq('branch_id', branchId!)
+        .eq('product_variant_id', variantId)
+        .maybeSingle();
+      final value = (row?['selling_price_per_kg'] as num?)?.toDouble();
+      if (!mounted) return;
+      setState(() {
+        officialPricePerKg = value;
+        updateDisplayedOfficialPrice();
+        message = value == null || value <= 0
+          ? 'The Director has not set a selling price for this product at Ntulele. Sale entry is blocked until the price is approved.'
+          : '';
+      });
+    } catch (e) {
+      if (mounted) setState(() { officialPricePerKg = null; price.clear(); message = 'Could not load the Director-approved price: ' + friendlyError(e); });
+    } finally {
+      if (mounted) setState(() { loadingOfficialPrice = false; });
+    }
   }
 
   Future<void> loadProductVariants() async {
@@ -3241,32 +3284,19 @@ class _SalePageState extends State<SalePage> {
       variants = [];
       selectedVariantId = null;
       productId = null;
+      officialPricePerKg = null;
+      price.clear();
       message = '';
     });
     try {
       final db = Supabase.instance.client;
-      final category = await db
-          .from('product_categories')
-          .select('id')
-          .eq('code', product.toLowerCase())
-          .single();
-      final products = await db
-          .from('products')
-          .select('id,name')
-          .eq('category_id', category['id'])
-          .eq('is_active', true);
+      final category = await db.from('product_categories').select('id').eq('code', product.toLowerCase()).single();
+      final products = await db.from('products').select('id,name').eq('category_id', category['id']).eq('is_active', true);
       final productRows = List<Map<String, dynamic>>.from(products);
       if (productRows.isEmpty) throw Exception('No active product is configured for ' + product + '.');
-      final row = productRows.firstWhere(
-        (item) => item['name'] == product,
-        orElse: () => productRows.first,
-      );
-      final loaded = await db
-          .from('product_variants')
-          .select('id,variant_name,base_unit,sku')
-          .eq('product_id', row['id'])
-          .eq('is_active', true)
-          .order('variant_name');
+      final row = productRows.firstWhere((item) => item['name'] == product, orElse: () => productRows.first);
+      final loaded = await db.from('product_variants').select('id,variant_name,base_unit,sku')
+        .eq('product_id', row['id']).eq('is_active', true).order('variant_name');
       final loadedRows = List<Map<String, dynamic>>.from(loaded);
       if (!mounted) return;
       setState(() {
@@ -3275,6 +3305,7 @@ class _SalePageState extends State<SalePage> {
         selectedVariantId = loadedRows.isNotEmpty ? loadedRows.first['id'] as String : null;
         if (loadedRows.isEmpty) message = 'No active stock option is configured for ' + product + '.';
       });
+      if (loadedRows.isNotEmpty) await loadDirectorSellingPrice();
     } catch (e) {
       if (mounted) setState(() => message = 'Could not load ' + product + ' options: ' + friendlyError(e));
     } finally {
@@ -3288,14 +3319,8 @@ class _SalePageState extends State<SalePage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(product == 'Beans' ? 'Add bean variety' : 'Add fertilizer type'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          decoration: InputDecoration(
-            labelText: product == 'Beans' ? 'Variety name' : 'Fertilizer type',
-          ),
-        ),
+        content: TextField(controller: controller, autofocus: true, textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(labelText: product == 'Beans' ? 'Variety name' : 'Fertilizer type')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Add')),
@@ -3306,17 +3331,13 @@ class _SalePageState extends State<SalePage> {
     final cleanName = name?.trim() ?? '';
     if (cleanName.isEmpty || productId == null) return;
     try {
-      final inserted = await Supabase.instance.client
-          .from('product_variants')
-          .insert({
-            'product_id': productId,
-            'variant_name': cleanName,
-            'grade_or_formulation': product == 'Fertilizer' ? cleanName : null,
-            'base_unit': 'bag',
-            'is_active': true,
-          })
-          .select('id,variant_name,base_unit,sku')
-          .single();
+      final inserted = await Supabase.instance.client.from('product_variants').insert({
+        'product_id': productId,
+        'variant_name': cleanName,
+        'grade_or_formulation': product == 'Fertilizer' ? cleanName : null,
+        'base_unit': 'bag',
+        'is_active': true,
+      }).select('id,variant_name,base_unit,sku').single();
       if (!mounted) return;
       setState(() {
         variants.add(Map<String, dynamic>.from(inserted));
@@ -3324,34 +3345,97 @@ class _SalePageState extends State<SalePage> {
         selectedVariantId = inserted['id'] as String;
         message = 'Added ' + cleanName + '.';
       });
+      await loadDirectorSellingPrice();
     } catch (e) {
       if (mounted) setState(() => message = 'Could not add this option. Only an authorised director can add product varieties/types. ' + friendlyError(e));
     }
   }
 
+  void addSplitPayment() => setState(() => splitPayments.add(_SaleSplitPaymentEntry(method: 'other')));
+  void removeSplitPayment(int index) {
+    if (splitPayments.length <= 2) return;
+    final removed = splitPayments.removeAt(index);
+    removed.dispose();
+    setState(() {});
+  }
+
   Future<void> save() async {
-    final enteredQuantity = double.tryParse(qty.text);
-    final enteredPrice = double.tryParse(price.text);
-    final q = enteredQuantity == null ? null : (quantityUnit == 'KG' ? enteredQuantity / kgPerBag : enteredQuantity);
-    final p = enteredPrice == null ? null : (quantityUnit == 'KG' ? enteredPrice * kgPerBag : enteredPrice);
-    final amount = double.tryParse(paid.text) ?? 0;
+    final enteredQuantity = double.tryParse(qty.text.trim());
+    final enteredPrice = double.tryParse(price.text.trim());
+    final selected = variants.where((v) => v['id'] == selectedVariantId).firstOrNull ?? <String, dynamic>{};
+    final stockUnit = (selected['base_unit'] ?? 'bag').toString().toLowerCase();
+    double? q;
+    double? p;
+    if (enteredQuantity != null && enteredPrice != null) {
+      if (stockUnit == 'bag') {
+        q = quantityUnit == 'KG' ? enteredQuantity / kgPerBag : enteredQuantity;
+        p = quantityUnit == 'KG' ? enteredPrice * kgPerBag : enteredPrice;
+      } else if (stockUnit == 'kg') {
+        q = quantityUnit == 'BAGS' ? enteredQuantity * kgPerBag : enteredQuantity;
+        p = quantityUnit == 'BAGS' ? enteredPrice / kgPerBag : enteredPrice;
+      }
+    }
     final deliveryFee = double.tryParse(fee.text) ?? 0;
-    if (q == null || p == null || q <= 0 || p < 0 || selectedVariantId == null ||
+    if (q == null || p == null || q <= 0 || p <= 0 || selectedVariantId == null ||
+        officialPricePerKg == null || officialPricePerKg! <= 0 ||
         customer.text.trim().isEmpty ||
         (mode == 'delivery' && address.text.trim().isEmpty)) {
-      setState(() => message = 'Choose a product option and check the customer name, quantity, selling price and delivery address.');
+      setState(() => message = 'Choose a product with a Director-approved price, then check the customer, quantity and delivery details.');
       return;
     }
+    final saleTotal = q * p + deliveryFee;
+    Map<String, dynamic>? payment;
+    List<Map<String, dynamic>>? payments;
+    if (paymentMode == 'split') {
+      final rows = <Map<String, dynamic>>[];
+      final methods = <String>{};
+      var splitTotal = 0.0;
+      for (final entry in splitPayments) {
+        final amount = double.tryParse(entry.amount.text.trim());
+        if (amount == null || amount <= 0) {
+          setState(() => message = 'Enter a positive amount for every split payment row.');
+          return;
+        }
+        final ref = entry.reference.text.trim();
+        if ((entry.method == 'mpesa' || entry.method == 'bank_transfer') && ref.isEmpty) {
+          setState(() => message = 'Add a reference for every M-Pesa or bank transfer split payment.');
+          return;
+        }
+        methods.add(entry.method);
+        splitTotal += amount;
+        rows.add({'amount': amount, 'method': entry.method, 'reference': ref});
+      }
+      if (rows.length < 2 || methods.length < 2) {
+        setState(() => message = 'Split payment must contain at least two different payment methods.');
+        return;
+      }
+      if (splitTotal > saleTotal) {
+        setState(() => message = 'Split payments cannot exceed the sale total of KES ' + saleTotal.toStringAsFixed(2) + '.');
+        return;
+      }
+      payments = rows;
+    } else if (paymentMode != 'credit') {
+      final amount = double.tryParse(paid.text.trim()) ?? 0;
+      if (amount <= 0 || amount > saleTotal) {
+        setState(() => message = 'Enter a payment amount greater than zero and not exceeding KES ' + saleTotal.toStringAsFixed(2) + '.');
+        return;
+      }
+      final ref = reference.text.trim();
+      if ((paymentMode == 'mpesa' || paymentMode == 'bank_transfer') && ref.isEmpty) {
+        setState(() => message = 'Enter the M-Pesa or bank transfer reference.');
+        return;
+      }
+      payment = {'amount': amount, 'method': paymentMode, 'reference': ref};
+    }
+
     setState(() { busy = true; message = ''; });
     try {
       final db = Supabase.instance.client;
-      final branch = await db.from('branches').select('id').eq('code', 'NTULELE').single();
+      final branch = branchId == null
+        ? await db.from('branches').select('id').eq('code', 'NTULELE').single()
+        : {'id': branchId};
       String? customerId;
-      final matches = await db
-          .from('customers')
-          .select('id')
-          .ilike('full_name', customer.text.trim())
-          .limit(1);
+      final matches = await db.from('customers').select('id').ilike('full_name', customer.text.trim()).limit(1);
       if (matches.isNotEmpty) customerId = matches.first['id'] as String;
       if (customerId == null && customerPhone.text.trim().isEmpty) {
         throw Exception('Enter the customer phone number for a new customer.');
@@ -3365,107 +3449,150 @@ class _SalePageState extends State<SalePage> {
         'fulfilment_mode': mode,
         'delivery_address': address.text,
         'delivery_fee': deliveryFee,
-        'items': [
-          {
-            'product_variant_id': selectedVariantId,
-            'quantity': q,
-            'unit_price': p,
-          }
-        ],
+        'payment_mode': paymentMode,
+        'items': [{'product_variant_id': selectedVariantId, 'quantity': q, 'unit_price': p}],
       };
-      if (amount > 0) payload['payment'] = {'amount': amount, 'method': method, 'reference': reference.text};
+      if (payment != null) payload['payment'] = payment;
+      if (payments != null) payload['payments'] = payments;
       final result = await db.rpc('record_sale', params: {'p_payload': payload});
-      setState(() => message = 'Sale saved. Reference: ' + result['sale_id'].toString() + '. Balance: KES ' + result['balance'].toString());
+      if (!mounted) return;
+      setState(() => message = 'Sale saved. Reference: ' + result['sale_id'].toString() +
+        '. Payment: ' + paymentMode.replaceAll('_', ' ') +
+        '. Verified balance due: KES ' + (result['balance'] ?? 0).toString());
       qty.clear();
-      price.clear();
       paid.clear();
       reference.clear();
+      for (final entry in splitPayments) { entry.dispose(); }
+      splitPayments
+        ..clear()
+        ..add(_SaleSplitPaymentEntry(method: 'cash'))
+        ..add(_SaleSplitPaymentEntry(method: 'mpesa'));
     } catch (e) {
-      setState(() => message = 'Could not save sale: ' + friendlyError(e));
+      if (mounted) setState(() => message = 'Could not save sale: ' + friendlyError(e));
     }
     if (mounted) setState(() => busy = false);
   }
 
-  @override
-  Widget build(BuildContext context) => FormPage(
-    title: 'Record sale / customer order',
-    children: [
-      DropdownButtonFormField<String>(
-        value: product,
-        items: const ['Maize', 'Beans', 'Fertilizer']
-            .map((x) => DropdownMenuItem(value: x, child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(productIconFor(x), size: 20, color: brandGreen), const SizedBox(width: 10), Text(x)])))
-            .toList(),
-        onChanged: (v) {
-          if (v == null) return;
-          setState(() => product = v);
-          loadProductVariants();
-        },
-        decoration: const InputDecoration(labelText: 'Product'),
-      ),
-      if (loadingVariants) const LinearProgressIndicator(),
-      DropdownButtonFormField<String>(
-        value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
-        items: variants.map((v) => DropdownMenuItem<String>(
-          value: v['id'] as String,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(productIconFor(product), size: 20, color: brandGreen), const SizedBox(width: 10), Flexible(child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'))]),
-        )).toList(),
-        onChanged: (v) => setState(() => selectedVariantId = v),
-        decoration: InputDecoration(
-          labelText: product == 'Maize' ? 'Maize product ID' : (product == 'Beans' ? 'Bean variety and ID' : 'Fertilizer type and ID'),
+  @override Widget build(BuildContext context) {
+    final splitTotal = splitPayments.fold<double>(0, (sum, entry) => sum + (double.tryParse(entry.amount.text.trim()) ?? 0));
+    return FormPage(
+      title: 'Record sale / customer order',
+      children: [
+        DropdownButtonFormField<String>(
+          value: product,
+          items: const ['Maize', 'Beans', 'Fertilizer'].map((x) => DropdownMenuItem(value: x,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(productIconFor(x), size: 20, color: brandGreen), const SizedBox(width: 10), Text(x)]))).toList(),
+          onChanged: (v) { if (v == null) return; setState(() => product = v); loadProductVariants(); },
+          decoration: const InputDecoration(labelText: 'Product'),
         ),
-      ),
-      if (product != 'Maize')
-        TextButton.icon(
-          onPressed: loadingVariants ? null : addVariant,
-          icon: const Icon(Icons.add),
-          label: Text(product == 'Beans' ? 'Add bean variety' : 'Add fertilizer type'),
+        if (loadingVariants) const LinearProgressIndicator(),
+        DropdownButtonFormField<String>(
+          value: variants.any((v) => v['id'] == selectedVariantId) ? selectedVariantId : null,
+          items: variants.map((v) => DropdownMenuItem<String>(value: v['id'] as String,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(productIconFor(product), size: 20, color: brandGreen), const SizedBox(width: 10), Flexible(child: Text('${v['sku'] ?? 'NO-ID'} • ${v['variant_name']}'))]))).toList(),
+          onChanged: (v) { setState(() => selectedVariantId = v); loadDirectorSellingPrice(); },
+          decoration: InputDecoration(labelText: product == 'Maize' ? 'Maize product ID' : (product == 'Beans' ? 'Bean variety and ID' : 'Fertilizer type and ID')),
         ),
-      DropdownButtonFormField<String>(
-        value: quantityUnit,
-        items: const [DropdownMenuItem(value: 'BAGS', child: Text('Bags (1 bag = 90 KG)')), DropdownMenuItem(value: 'KG', child: Text('Kilograms (KG)'))],
-        onChanged: (v) => setState(() => quantityUnit = v ?? 'BAGS'),
-        decoration: const InputDecoration(labelText: 'Quantity and price unit'),
-      ),
-      field(qty, 'Quantity (${quantityUnit == 'KG' ? 'KG' : 'bags'})', number: true, onChanged: () => setState(() {})),
-      field(price, 'Selling price per ${quantityUnit == 'KG' ? 'KG' : 'bag'} (KES)', number: true, onChanged: () => setState(() {})),
-      if (qty.text.trim().isNotEmpty && price.text.trim().isNotEmpty) Text('Stored as: ${(double.tryParse(qty.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(qty.text.trim()) / kgPerBag : double.parse(qty.text.trim()))).toStringAsFixed(3)} bags • ${(double.tryParse(price.text.trim()) == null ? 0 : (quantityUnit == 'KG' ? double.parse(price.text.trim()) * kgPerBag : double.parse(price.text.trim()))).toStringAsFixed(2)} KES per bag'),
-      liveKgPriceSummary(quantityText: qty.text, unitPriceText: price.text, quantityUnit: quantityUnit),
-      field(customer, 'Customer name'),
-      field(customerPhone, 'Customer phone (required for a new customer)'),
-      DropdownButtonFormField<String>(
-        value: mode,
-        items: const [
-          DropdownMenuItem(value: 'collection', child: Text('Collect at Ntulele')),
-          DropdownMenuItem(value: 'delivery', child: Text('Deliver to customer')),
+        if (product != 'Maize')
+          TextButton.icon(onPressed: loadingVariants ? null : addVariant, icon: const Icon(Icons.add),
+            label: Text(product == 'Beans' ? 'Add bean variety' : 'Add fertilizer type')),
+        DropdownButtonFormField<String>(
+          value: quantityUnit,
+          items: const [
+            DropdownMenuItem(value: 'BAGS', child: Text('Bags (1 bag = 90 KG)')),
+            DropdownMenuItem(value: 'KG', child: Text('Kilograms (KG)')),
+          ],
+          onChanged: (v) => setState(() { quantityUnit = v ?? 'BAGS'; updateDisplayedOfficialPrice(); }),
+          decoration: const InputDecoration(labelText: 'Quantity and price unit'),
+        ),
+        field(qty, 'Quantity (${quantityUnit == 'KG' ? 'KG' : 'bags'})', number: true, onChanged: () => setState(() {})),
+        TextField(
+          controller: price,
+          readOnly: true,
+          decoration: InputDecoration(
+            labelText: 'Director-approved selling price per ${quantityUnit == 'KG' ? 'KG' : 'bag'} (KES)',
+            border: const OutlineInputBorder(),
+            suffixIcon: loadingOfficialPrice ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))) : const Icon(Icons.lock_outline),
+          ),
+        ),
+        if (officialPricePerKg == null && !loadingOfficialPrice)
+          const Text('A Director must approve the selling price before this sale can be recorded.', style: TextStyle(color: Colors.red, fontSize: 12)),
+        if (qty.text.trim().isNotEmpty && price.text.trim().isNotEmpty)
+          Text('Director price • Stored unit price: KES ' + (double.tryParse(price.text.trim()) ?? 0).toStringAsFixed(2)),
+        liveKgPriceSummary(quantityText: qty.text, unitPriceText: price.text, quantityUnit: quantityUnit),
+        field(customer, 'Customer name'),
+        field(customerPhone, 'Customer phone (required for a new customer)'),
+        DropdownButtonFormField<String>(
+          value: mode,
+          items: const [
+            DropdownMenuItem(value: 'collection', child: Text('Collect at Ntulele')),
+            DropdownMenuItem(value: 'delivery', child: Text('Deliver to customer')),
+          ],
+          onChanged: (v) => setState(() => mode = v ?? 'collection'),
+          decoration: const InputDecoration(labelText: 'Fulfilment'),
+        ),
+        if (mode == 'delivery') field(address, 'Delivery address'),
+        if (mode == 'delivery') field(fee, 'Delivery fee (KES)', number: true),
+        const Divider(),
+        const Text('Payment option', style: TextStyle(fontWeight: FontWeight.bold)),
+        DropdownButtonFormField<String>(
+          value: paymentMode,
+          items: const [
+            DropdownMenuItem(value: 'cash', child: Text('Cash')),
+            DropdownMenuItem(value: 'mpesa', child: Text('M-Pesa')),
+            DropdownMenuItem(value: 'bank_transfer', child: Text('Bank transfer')),
+            DropdownMenuItem(value: 'credit', child: Text('Credit • Pay later')),
+            DropdownMenuItem(value: 'split', child: Text('Split payment • Two or more methods')),
+            DropdownMenuItem(value: 'other', child: Text('Other / manual payment')),
+          ],
+          onChanged: (v) => setState(() => paymentMode = v ?? 'cash'),
+          decoration: const InputDecoration(labelText: 'Choose how the customer is paying'),
+        ),
+        if (paymentMode == 'credit')
+          const Card(child: Padding(padding: EdgeInsets.all(12), child: Text('Credit sale: no payment is collected now. The full amount remains outstanding in the customer account.'))),
+        if (paymentMode == 'split') ...[
+          const Text('Enter at least two different payment methods. Cash is verified immediately; M-Pesa, bank and other/manual entries remain pending verification.'),
+          ...splitPayments.asMap().entries.map((entry) {
+            final index = entry.key;
+            final row = entry.value;
+            return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(children: [
+              Row(children: [
+                Expanded(child: DropdownButtonFormField<String>(
+                  value: row.method,
+                  items: const [
+                    DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                    DropdownMenuItem(value: 'mpesa', child: Text('M-Pesa')),
+                    DropdownMenuItem(value: 'bank_transfer', child: Text('Bank transfer')),
+                    DropdownMenuItem(value: 'other', child: Text('Other / manual')),
+                  ],
+                  onChanged: (v) => setState(() => row.method = v ?? 'cash'),
+                  decoration: InputDecoration(labelText: 'Payment method ${index + 1}'),
+                )),
+                IconButton(onPressed: splitPayments.length <= 2 ? null : () => removeSplitPayment(index),
+                  icon: const Icon(Icons.delete_outline, color: Colors.red), tooltip: 'Remove payment method'),
+              ]),
+              TextField(controller: row.amount, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(labelText: 'Amount (KES)', border: OutlineInputBorder())),
+              if (row.method != 'cash') TextField(controller: row.reference,
+                decoration: const InputDecoration(labelText: 'Reference / manual receipt note', border: OutlineInputBorder())),
+            ])));
+          }),
+          Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: addSplitPayment,
+            icon: const Icon(Icons.add), label: const Text('Add another payment method'))),
+          Text('Split payment total: KES ' + splitTotal.toStringAsFixed(2), style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
-        onChanged: (v) => setState(() => mode = v ?? 'collection'),
-        decoration: const InputDecoration(labelText: 'Fulfilment'),
-      ),
-      if (mode == 'delivery') field(address, 'Delivery address'),
-      if (mode == 'delivery') field(fee, 'Delivery fee (KES)', number: true),
-      const Divider(),
-      const Text('Payment (optional)', style: TextStyle(fontWeight: FontWeight.bold)),
-      field(paid, 'Amount received (KES)', number: true),
-      DropdownButtonFormField<String>(
-        value: method,
-        items: const [
-          DropdownMenuItem(value: 'mpesa', child: Text('M-Pesa')),
-          DropdownMenuItem(value: 'cash', child: Text('Cash')),
-          DropdownMenuItem(value: 'bank_transfer', child: Text('Bank transfer')),
-          DropdownMenuItem(value: 'other', child: Text('Other')),
+        if (paymentMode != 'credit' && paymentMode != 'split') ...[
+          field(paid, 'Amount received (KES)', number: true),
+          if (paymentMode != 'cash') field(reference, paymentMode == 'other' ? 'Receipt / manual payment note' : 'Payment reference'),
         ],
-        onChanged: (v) => setState(() => method = v ?? 'cash'),
-        decoration: const InputDecoration(labelText: 'Payment method'),
-      ),
-      field(reference, 'Payment reference'),
-      actionButton('Save sale', busy || loadingVariants, save),
-      if (message.isNotEmpty) Text(message),
-      const Text(
-        'Maize has no variety. Beans and fertilizer use their own saved variety/type options.',
-        style: TextStyle(fontSize: 12, color: Colors.black54),
-      ),
-    ],
-  );
+        actionButton('Save sale', busy || loadingVariants || loadingOfficialPrice, save),
+        if (message.isNotEmpty) Text(message),
+        const Text('Maize has no variety. Beans and fertilizer use their own saved variety/type options.',
+          style: TextStyle(fontSize: 12, color: Colors.black54)),
+      ],
+    );
+  }
 }
 
 class DirectorPriceManagementPage extends StatefulWidget {
