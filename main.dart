@@ -2636,9 +2636,9 @@ class _HomeShellState extends State<HomeShell> {
 
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const DirectorProductPricesPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Product Prices'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const DirectorProductPricesPage(), if (director) const DirectorCustomProductRequestsPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Product Prices', if (director) 'Client Requests'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change, if (director) Icons.playlist_add_check];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -2841,6 +2841,53 @@ class _DashboardPageState extends State<DashboardPage> {
 }
 
 
+class DirectorCustomProductRequestsPage extends StatefulWidget {
+ const DirectorCustomProductRequestsPage({super.key});
+ @override State<DirectorCustomProductRequestsPage> createState()=>_DirectorCustomProductRequestsPageState();
+}
+class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProductRequestsPage>{
+ bool loading=true,saving=false;String? error;List<Map<String,dynamic>> requests=[];
+ final Map<String,TextEditingController> prices={},notes={};
+ @override void initState(){super.initState();load();}
+ @override void dispose(){for(final c in prices.values){c.dispose();}for(final c in notes.values){c.dispose();}super.dispose();}
+ Future<void> load()async{
+  setState(()=>loading=true);
+  try{
+   final rows=await Supabase.instance.client.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,request_direction,status,director_response,agreed_unit_price_kes,created_at,customer_id,customers(full_name,phone_number)').order('created_at',ascending:false);
+   requests=List<Map<String,dynamic>>.from(rows);
+   for(final r in requests){final id=r['id'].toString();prices.putIfAbsent(id,()=>TextEditingController(text:(r['agreed_unit_price_kes']??r['proposed_unit_price_kes']).toString()));notes.putIfAbsent(id,()=>TextEditingController(text:(r['director_response']??'').toString()));}
+   if(mounted)setState(()=>error=null);
+  }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
+  if(mounted)setState(()=>loading=false);
+ }
+ Future<void> review(Map<String,dynamic> r,String status)async{
+  if(saving)return;final id=r['id'].toString();final raw=prices[id]!.text.trim();final note=notes[id]!.text.trim();
+  double? agreed;if(status!='rejected'){agreed=double.tryParse(raw);if(agreed==null||agreed<=0){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid agreed unit price in KES.')));return;}}
+  setState(()=>saving=true);
+  try{
+   await Supabase.instance.client.from('customer_custom_product_requests').update({'status':status,'director_response':note.isEmpty?null:note,'agreed_unit_price_kes':agreed,'reviewed_by':Supabase.instance.client.auth.currentUser!.id,'reviewed_at':DateTime.now().toUtc().toIso8601String()}).eq('id',id);
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Review saved. This agreed request price does not change official catalogue prices.')));
+   await load();
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+  if(mounted)setState(()=>saving=false);
+ }
+ @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(12),children:[
+  const Text('Client-submitted product requests',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+  const Text('Review unlisted products and proposed prices. Approval records an agreed request price only; it does not change the official TAJIR catalogue price.'),
+  if(loading)const LinearProgressIndicator(),if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
+  if(!loading&&requests.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('No custom product requests yet.')),
+  ...requests.map((r){final id=r['id'].toString();final customer=(r['customers'] as Map?)?.cast<String,dynamic>()??{};return Card(margin:const EdgeInsets.only(top:10),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+   Text(r['product_name'].toString(),style:const TextStyle(fontSize:17,fontWeight:FontWeight.bold)),
+   Text('${r['request_direction']=='SELL_TO_TAJIR'?'Customer offers to sell to TAJIR':'Customer wants to buy from TAJIR'} • ${r['quantity']} ${r['quantity_unit']}'),
+   Text('Client proposed: KES ${r['proposed_unit_price_kes']} / ${r['quantity_unit']} • Status: ${r['status']}'),
+   if((r['description']??'').toString().isNotEmpty)Text('Details: ${r['description']}'),
+   if(customer.isNotEmpty)Text('Customer: ${customer['full_name']??'Customer'} • ${customer['phone_number']??''}'),
+   TextField(controller:prices[id],keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Agreed / negotiated unit price (KES)')),
+   TextField(controller:notes[id],maxLines:2,decoration:const InputDecoration(labelText:'Director response / negotiation notes')),
+   Wrap(spacing:8,children:[OutlinedButton(onPressed:saving?null:()=>review(r,'negotiation'),child:const Text('Negotiate')),FilledButton(onPressed:saving?null:()=>review(r,'approved'),child:const Text('Approve')),TextButton(onPressed:saving?null:()=>review(r,'rejected'),child:const Text('Reject'))])
+  ])));})
+ ]));
+}
 class DirectorProductPricesPage extends StatefulWidget {
  const DirectorProductPricesPage({super.key});
  @override State<DirectorProductPricesPage> createState()=>_DirectorProductPricesPageState();
