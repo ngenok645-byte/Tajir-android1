@@ -2312,9 +2312,9 @@ class _HomeShellState extends State<HomeShell> {
 
   int index = 0;
   bool director = false;
-  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const DirectorPriceManagementPage()];
-  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices'];
-  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined];
+  List<Widget> get pages => [DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9)), const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(), if (director) const FinancialRecordsPage(), if (director) const StaffAccountsPage(), if (director) const DirectorPriceManagementPage(), if (director) const DirectorCustomProductRequestsPage()];
+  List<String> get labels => ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests'];
+  List<IconData> get icons => [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -2331,6 +2331,7 @@ class _HomeShellState extends State<HomeShell> {
       if (director) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       if (director) ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
+      if (director) ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Custom Requests'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
       const SizedBox(height: 8),
     ])));
   }
@@ -2368,7 +2369,8 @@ class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenFinancial;
   final VoidCallback? onOpenStaff;
   final VoidCallback? onOpenPrices;
-  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices});
+  final VoidCallback? onOpenCustomRequests;
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices, this.onOpenCustomRequests});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -2471,6 +2473,16 @@ class _DashboardPageState extends State<DashboardPage> {
         subtitle: const Text('Set separate TAJIR selling prices and TAJIR buying prices per KG for each branch'),
         trailing: const Icon(Icons.chevron_right),
         onTap: widget.onOpenPrices,
+      )),
+    ],
+    if(director) ...[
+      const SizedBox(height: 8),
+      Card(child: ListTile(
+        leading: const CircleAvatar(backgroundColor: Color(0xFFFFF3E0), child: Icon(Icons.fact_check_outlined, color: Colors.deepOrange)),
+        title: const Text('Customer Custom Requests', style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('Review unlisted product requests and offers, set the agreed price, or decline'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: widget.onOpenCustomRequests,
       )),
     ],
     const SizedBox(height: 18),
@@ -3436,6 +3448,141 @@ class _DirectorPriceManagementPageState extends State<DirectorPriceManagementPag
               onPressed: savingVariant == id || loading ? null : () => savePrice(variant),
               icon: Icon(savingVariant == id ? Icons.hourglass_top : Icons.save),
               label: Text(savingVariant == id ? 'Saving…' : 'Save official prices'),
+            )),
+          ]),
+        ));
+      }),
+    ]),
+  );
+}
+
+class DirectorCustomProductRequestsPage extends StatefulWidget {
+  const DirectorCustomProductRequestsPage({super.key});
+  @override State<DirectorCustomProductRequestsPage> createState() => _DirectorCustomProductRequestsPageState();
+}
+
+class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProductRequestsPage> {
+  final db = Supabase.instance.client;
+  List<Map<String, dynamic>> rows = [];
+  bool loading = true;
+  String? busyId;
+  String message = '';
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; message = ''; });
+    try {
+      final result = await db.from('customer_custom_product_requests')
+        .select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,request_direction,status,director_response,customer_confirmed_at,created_at,customers(full_name,phone)')
+        .order('created_at', ascending: false);
+      if (mounted) setState(() {
+        rows = List<Map<String, dynamic>>.from(result);
+        loading = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() { loading = false; message = 'Could not load customer requests: ' + friendlyError(e); });
+    }
+  }
+
+  Future<void> review(Map<String, dynamic> row) async {
+    final price = TextEditingController(text: row['agreed_unit_price_kes']?.toString() ?? '');
+    final response = TextEditingController(text: (row['director_response'] ?? '').toString());
+    String status = (row['status'] == 'pending' ? 'under_review' : row['status']).toString();
+    final result = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) => AlertDialog(
+        title: const Text('Review customer-submitted request'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text((row['product_name'] ?? 'Product').toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text('Proposed by customer: KES \${row['proposed_unit_price_kes']} per \${row['quantity_unit']}'),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            value: status,
+            decoration: const InputDecoration(labelText: 'Decision'),
+            items: const [
+              DropdownMenuItem(value: 'under_review', child: Text('Under review')),
+              DropdownMenuItem(value: 'approved', child: Text('Approve')),
+              DropdownMenuItem(value: 'negotiation', child: Text('Negotiate')),
+              DropdownMenuItem(value: 'rejected', child: Text('Reject')),
+            ],
+            onChanged: (v) => setDialogState(() => status = v ?? 'under_review'),
+          ),
+          TextField(
+            controller: price,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(labelText: status == 'SELL_TO_TAJIR' ? 'Agreed TAJIR buying price (KES)' : 'Agreed official price (KES) per \${row['quantity_unit']}'),
+          ),
+          TextField(controller: response, maxLines: 3, decoration: const InputDecoration(labelText: 'Director response / conditions')),
+          const SizedBox(height: 6),
+          const Text('For BUY_FROM_TAJIR, this is TAJIR’s selling price. For SELL_TO_TAJIR, this is the price TAJIR agrees to pay the customer.', style: TextStyle(fontSize: 12, color: Colors.black54)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save decision')),
+        ],
+      ),
+    ));
+    if (result == true) {
+      final agreed = double.tryParse(price.text.trim());
+      if ((status == 'approved' || status == 'negotiation') && (agreed == null || agreed <= 0)) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a positive agreed price before approving or negotiating.')));
+      } else {
+        setState(() { busyId = row['id'].toString(); });
+        try {
+          await db.from('customer_custom_product_requests').update({
+            'status': status,
+            'agreed_unit_price_kes': (status == 'approved' || status == 'negotiation') ? agreed : null,
+            'director_response': response.text.trim().isEmpty ? null : response.text.trim(),
+          }).eq('id', row['id']);
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Director decision saved and recorded.')));
+          await load();
+        } catch (e) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+        } finally {
+          if (mounted) setState(() { busyId = null; });
+        }
+      }
+    }
+    price.dispose();
+    response.dispose();
+  }
+
+  @override Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: load,
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      const Text('Customer custom product requests', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 6),
+      const Text('These are customer-submitted requests/offers, not official TAJIR catalogue prices. Review the proposed price and enter the agreed TAJIR price separately.'),
+      if (loading) const LinearProgressIndicator(),
+      if (message.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(message, style: const TextStyle(color: Colors.red))),
+      if (!loading && rows.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 18), child: Text('No customer custom requests have been submitted.')),
+      ...rows.map((row) {
+        final customer = (row['customers'] as Map?)?.cast<String, dynamic>() ?? {};
+        final direction = (row['request_direction'] ?? 'BUY_FROM_TAJIR').toString();
+        final status = (row['status'] ?? 'pending').toString();
+        final confirmed = row['customer_confirmed_at'] != null;
+        final canReview = !confirmed && status != 'rejected' && status != 'approved';
+        final title = direction == 'SELL_TO_TAJIR' ? 'Customer offers to sell to TAJIR' : 'Customer requests to buy from TAJIR';
+        return Card(margin: const EdgeInsets.symmetric(vertical: 7), child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              const Icon(Icons.assignment_outlined, color: Colors.deepOrange),
+              const SizedBox(width: 8),
+              Expanded(child: Text((row['product_name'] ?? 'Product').toString(), style: const TextStyle(fontWeight: FontWeight.bold))),
+              Chip(label: Text(status.replaceAll('_', ' '))),
+            ]),
+            Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            Text('Customer: \${customer['full_name'] ?? 'Customer'} • \${customer['phone'] ?? 'No phone'}'),
+            Text('Quantity: \${row['quantity']} \${row['quantity_unit']} • Proposed: KES \${row['proposed_unit_price_kes']} / \${row['quantity_unit']}'),
+            if (row['agreed_unit_price_kes'] != null) Text('Agreed official price: KES \${row['agreed_unit_price_kes']} / \${row['quantity_unit']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            if ((row['description'] ?? '').toString().isNotEmpty) Text('Details: \${row['description']}'),
+            if ((row['director_response'] ?? '').toString().isNotEmpty) Text('Director response: \${row['director_response']}'),
+            if (confirmed) const Text('Customer confirmed the approved offer.', style: TextStyle(color: brandGreen, fontWeight: FontWeight.bold)),
+            if (canReview) Align(alignment: Alignment.centerRight, child: FilledButton.icon(
+              onPressed: busyId == row['id'].toString() ? null : () => review(row),
+              icon: Icon(busyId == row['id'].toString() ? Icons.hourglass_top : Icons.rate_review_outlined),
+              label: const Text('Review request'),
             )),
           ]),
         ));
