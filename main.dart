@@ -2404,7 +2404,7 @@ class DashboardPage extends StatefulWidget {
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
-  String role = 'Loading role…'; List<Map<String,dynamic>> stock = [], branches = [], pendingRequests = []; String? error, selectedBranch; bool director = false, accountant = false;
+  String role = 'Loading role…'; List<Map<String,dynamic>> stock = [], branches = [], pendingRequests = []; String? error, selectedBranch; bool director = false, accountant = false, branchManager = false;
   @override void initState() { super.initState(); load(); }
   Future<void> load() async {
     try {
@@ -2416,6 +2416,7 @@ class _DashboardPageState extends State<DashboardPage> {
       final roleName = roleData is Map ? (roleData['name'] ?? roleData['code'] ?? 'User').toString() : 'User';
       director = assigned.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='director');
       accountant = assigned.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='accountant');
+      branchManager = assigned.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='branch_manager');
       final s = await db.rpc('get_stock_balances');
       final branchRows = await db.from('branches').select('id,code,name').eq('is_active',true).order('name');
       branches=List<Map<String,dynamic>>.from(branchRows);
@@ -2468,7 +2469,7 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
     ),
     const SizedBox(height: 12),
-    if(!accountant) TajirImageTile(
+    if(!accountant || branchManager) TajirImageTile(
       title:'TRACTOR & MACHINERY SERVICES',
       subtitle:'Manage machines, providers, bookings, operators and payments',
       imageUrl:TajirPictures.tractor,
@@ -2528,7 +2529,7 @@ class _DashboardPageState extends State<DashboardPage> {
     ]),
     const SizedBox(height: 12),
     if(branches.isNotEmpty) DropdownButtonFormField<String>(value:selectedBranch,decoration:const InputDecoration(labelText:'Dashboard branch',border:OutlineInputBorder()),items:branches.map((b)=>DropdownMenuItem(value:b['id'].toString(),child:Text(b['name'].toString()+' ('+b['code'].toString()+')'))).toList(),onChanged:(v)=>setState(()=>selectedBranch=v)),
-    if(!accountant) OutlinedButton.icon(onPressed:()=>showDialog<void>(context:context,builder:(_)=>const Dialog(child:SizedBox(width:520,height:560,child:BranchRequestPanel()))),icon:const Icon(Icons.add_location_alt),label:const Text('Request a new branch')),
+    if(!accountant || branchManager) OutlinedButton.icon(onPressed:()=>showDialog<void>(context:context,builder:(_)=>const Dialog(child:SizedBox(width:520,height:560,child:BranchRequestPanel()))),icon:const Icon(Icons.add_location_alt),label:const Text('Request a new branch')),
     if(director) ...[
       Text('Branch requests awaiting approval ('+pendingRequests.length.toString()+')',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
       if(pendingRequests.isEmpty)const Text('No pending branch requests.'),
