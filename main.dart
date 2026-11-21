@@ -38,7 +38,8 @@ Future<Map<String, dynamic>?> checkTajirUpdate() async {
     final assets = payload['assets'];
     if (assets is! List) return null;
     for (final asset in assets) {
-      if (asset is Map && (asset['name'] ?? '').toString().toLowerCase().endsWith('.apk')) {
+      final assetName = asset is Map ? (asset['name'] ?? '').toString().toLowerCase() : '';
+      if (asset is Map && assetName.endsWith('.apk') && assetName.contains('signed')) {
         final url = (asset['browser_download_url'] ?? '').toString();
         if (url.startsWith('https://')) return {'version': tag, 'url': url};
       }
