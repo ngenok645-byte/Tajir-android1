@@ -3366,7 +3366,7 @@ class _DirectorPriceManagementPageState extends State<DirectorPriceManagementPag
       DropdownButtonFormField<String>(
         value: branchId,
         decoration: const InputDecoration(labelText: 'Branch', border: OutlineInputBorder()),
-        items: branches.map((b) => DropdownMenuItem<String>(value: b['id'].toString(), child: Text('\${b['name']} (\${b['code']})'))).toList(),
+        items: branches.map((b) => DropdownMenuItem<String>(value: b['id'].toString(), child: Text('${b['name']} (${b['code']})'))).toList(),
         onChanged: loading ? null : (v) async {
           setState(() { branchId = v; loading = true; });
           await loadBranchPrices();
@@ -3407,7 +3407,7 @@ class _DirectorPriceManagementPageState extends State<DirectorPriceManagementPag
             ),
             if (customer != null && customer > 0) Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text('Customer pays KES \${(customer * kgPerBag).toStringAsFixed(2)} per 90 KG bag'),
+              child: Text('Customer pays KES ${(customer * kgPerBag).toStringAsFixed(2)} per 90 KG bag'),
             ),
             const SizedBox(height: 10),
             TextField(
@@ -3418,7 +3418,7 @@ class _DirectorPriceManagementPageState extends State<DirectorPriceManagementPag
             ),
             if (supplier != null && supplier > 0) Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text('TAJIR pays KES \${(supplier * kgPerBag).toStringAsFixed(2)} per 90 KG bag'),
+              child: Text('TAJIR pays KES ${(supplier * kgPerBag).toStringAsFixed(2)} per 90 KG bag'),
             ),
             const SizedBox(height: 10),
             Align(alignment: Alignment.centerRight, child: FilledButton.icon(
