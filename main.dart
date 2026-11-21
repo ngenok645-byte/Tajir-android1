@@ -2853,7 +2853,7 @@ class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProduc
  Future<void> load()async{
   setState(()=>loading=true);
   try{
-   final rows=await Supabase.instance.client.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,request_direction,status,director_response,agreed_unit_price_kes,created_at,customer_id,customers(full_name,phone_number)').order('created_at',ascending:false);
+   final rows=await Supabase.instance.client.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,request_direction,status,director_response,agreed_unit_price_kes,created_at,customer_id,customers(full_name,phone)').order('created_at',ascending:false);
    requests=List<Map<String,dynamic>>.from(rows);
    for(final r in requests){final id=r['id'].toString();prices.putIfAbsent(id,()=>TextEditingController(text:(r['agreed_unit_price_kes']??r['proposed_unit_price_kes']).toString()));notes.putIfAbsent(id,()=>TextEditingController(text:(r['director_response']??'').toString()));}
    if(mounted)setState(()=>error=null);
