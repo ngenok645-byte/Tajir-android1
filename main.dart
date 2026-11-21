@@ -3458,7 +3458,9 @@ class _SalePageState extends State<SalePage> {
       if (!mounted) return;
       setState(() => message = 'Sale saved. Reference: ' + result['sale_id'].toString() +
         '. Payment: ' + paymentMode.replaceAll('_', ' ') +
-        '. Verified balance due: KES ' + (result['balance'] ?? 0).toString());
+        '. Sale total: KES ' + saleTotal.toStringAsFixed(2) +
+        '. Verified balance due: KES ' + (result['balance'] ?? 0).toString() +
+        '. Pending verification: KES ' + (result['pending_payment_amount'] ?? 0).toString());
       qty.clear();
       paid.clear();
       reference.clear();
