@@ -2853,6 +2853,102 @@ class BrandMark extends StatelessWidget {
   ]);
 }
 
+
+class DirectorMasterOversightPage extends StatefulWidget {
+  const DirectorMasterOversightPage({super.key});
+  @override State<DirectorMasterOversightPage> createState() => _DirectorMasterOversightPageState();
+}
+class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPage> {
+  final db=Supabase.instance.client;
+  bool loading=true;
+  String? error;
+  List<Map<String,dynamic>> accounts=[], audit=[];
+  final Map<String,int> activity={};
+  static const roles=<Map<String,String>>[
+    {'code':'director','name':'Director'},{'code':'buyer','name':'Buyer'},
+    {'code':'seller','name':'Seller'},{'code':'worker','name':'Worker'},
+    {'code':'tractor_owner','name':'Tractor Owner'},{'code':'driver','name':'Driver'},
+    {'code':'mechanic','name':'Mechanic'},{'code':'auto_spares_owner','name':'Auto-spares Owner'},
+  ];
+  static const tables=<String,List<String>>{
+    'director':['sales','purchases','customer_payments'],
+    'buyer':['sales_orders','marketplace_listing_offers'],
+    'seller':['marketplace_listings'],'worker':['staff_tasks','staff_activity_reports'],
+    'tractor_owner':['tractor_service_jobs'],'driver':['deliveries'],
+    'mechanic':['tractor_repair_jobs','repair_part_requests'],
+    'auto_spares_owner':['auto_spares_inventory'],
+  };
+  @override void initState(){super.initState();load();}
+  Future<void> load() async {
+    if(mounted)setState(()=>loading=true);
+    try{
+      final p=await db.from('profiles').select('id,display_name,phone,status,created_at,user_role_assignments(is_active,app_roles(code,name))').order('created_at',ascending:false).limit(500);
+      final a=await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').order('created_at',ascending:false).limit(25);
+      accounts=List<Map<String,dynamic>>.from(p); audit=List<Map<String,dynamic>>.from(a); activity.clear();
+      for(final t in tables.values.expand((v)=>v).toSet()){
+        try{final rows=await db.from(t).select('id').limit(500);activity[t]=rows.length;}catch(_){activity[t]=-1;}
+      }
+      if(mounted)setState(()=>loading=false);
+    }catch(e){if(mounted)setState(()=>{loading=false,error=friendlyError(e)});}
+  }
+  List<String> roleCodes(Map<String,dynamic> a){
+    final raw=a['user_role_assignments']; if(raw is! List)return [];
+    return raw.where((r)=>r is Map&&r['is_active']==true).map((r){final v=r['app_roles'];return v is Map?(v['code']??'').toString():'';}).where((v)=>v.isNotEmpty).toList();
+  }
+  int roleCount(String c)=>accounts.where((a)=>roleCodes(a).contains(c)).length;
+  int volume(String c)=>(tables[c]??[]).fold<int>(0,(n,t)=>n+(activity[t]??0));
+  IconData roleIcon(String c){switch(c){case 'director':return Icons.admin_panel_settings;case 'buyer':return Icons.shopping_cart;case 'seller':return Icons.storefront;case 'worker':return Icons.groups;case 'tractor_owner':return Icons.agriculture;case 'driver':return Icons.local_shipping;case 'mechanic':return Icons.handyman;default:return Icons.settings;}}
+  Future<void> inspectAccount(Map<String,dynamic> a) async {
+    final uid=db.auth.currentUser?.id;if(uid==null)return;
+    final id=a['id'].toString();final name=(a['display_name']??'TAJIR account').toString();
+    try{
+      await db.from('audit_logs').insert({'actor_user_id':uid,'action':'director_account_viewed','entity_schema':'public','entity_table':'profiles','entity_id':id,'reason':'Director opened read-only account overview: '+name,'after_data':{'view_mode':'read_only'}});
+      final events=await db.from('audit_logs').select('id,action,entity_table,entity_id,reason,created_at').eq('actor_user_id',id).order('created_at',ascending:false).limit(15);
+      if(!mounted)return;
+      final status=(a['status']??'unknown').toString();final assigned=roleCodes(a);
+      await showDialog<void>(context:context,builder:(ctx)=>AlertDialog(
+        title:Text(name),content:SizedBox(width:520,child:SingleChildScrollView(child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
+          const Chip(avatar:Icon(Icons.visibility_outlined,size:18),label:Text('Read-only inspection')),
+          Text('Phone: '+(a['phone']??'Not provided').toString()),
+          Text('Status: '+status.replaceAll('_',' ')),
+          Text('Assigned roles: '+(assigned.isEmpty?'None':assigned.join(', '))),
+          const SizedBox(height:12),const Text('Recent recorded activity',style:TextStyle(fontWeight:FontWeight.bold)),
+          if(events.isEmpty)const Text('No activity is recorded for this account yet.'),
+          ...List<Map<String,dynamic>>.from(events).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.history,size:18),title:Text((e['action']??'Activity').toString().replaceAll('_',' ')),subtitle:Text((e['entity_table']??'Account').toString()+' • '+(e['created_at']??'').toString()))),
+          const SizedBox(height:8),const Text('PINs remain private. This view does not impersonate the user or change their credentials.',style:TextStyle(fontSize:12,color:Colors.black54)),
+        ]))),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Close'))]));
+      await load();
+    }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not open audited account view: '+friendlyError(e))));}
+  }
+  Widget metric(String label,String value,IconData icon)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[Icon(icon,color:brandGreen,size:28),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(value,style:const TextStyle(fontSize:21,fontWeight:FontWeight.bold)),Text(label,style:const TextStyle(fontSize:12,color:Colors.black54))]))])));
+  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+    Row(children:[const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Director Master Oversight',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),Text('Company-wide, read-only supervision across TAJIR accounts and operations.') ])),IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh))]),
+    if(loading)const LinearProgressIndicator(),
+    if(error!=null)Text('Could not load oversight data: '+error!,style:const TextStyle(color:Colors.red)),
+    if(!loading&&error==null)...[
+      GridView.count(crossAxisCount:MediaQuery.of(context).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:2.2,children:[
+        metric('Profiles',accounts.length.toString(),Icons.people_alt),
+        metric('Active',accounts.where((a)=>a['status']=='active').length.toString(),Icons.verified_user),
+        metric('Pending',accounts.where((a)=>a['status']=='pending').length.toString(),Icons.pending_actions),
+        metric('Suspended / disabled',accounts.where((a)=>a['status']=='suspended'||a['status']=='disabled').length.toString(),Icons.block),
+      ]),
+      const SizedBox(height:12),const Text('Department performance',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+      const Text('Assigned accounts and recent operational records (up to 500 rows per activity table).'),
+      GridView.count(crossAxisCount:MediaQuery.of(context).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:1.7,children:roles.map((r)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[
+        Row(children:[Icon(roleIcon(r['code']!),color:brandGreen),const SizedBox(width:7),Expanded(child:Text(r['name']!,style:const TextStyle(fontWeight:FontWeight.bold),maxLines:1,overflow:TextOverflow.ellipsis))]),
+        const SizedBox(height:8),Text(roleCount(r['code']!).toString()+' accounts',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+        Text((volume(r['code']!)<0?'Unavailable':volume(r['code']).toString())+' recent records',style:const TextStyle(fontSize:11,color:Colors.black54)),
+      ])))).toList()),
+      const SizedBox(height:12),const Text('Account directory',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+      const Text('Tap an account to inspect its status, assigned roles and recorded activity. This does not sign in as that user.'),
+      ...accounts.map((a){final assigned=roleCodes(a);return Card(child:ListTile(leading:CircleAvatar(child:Icon(assigned.isEmpty?Icons.person_outline:roleIcon(assigned.first))),title:Text((a['display_name']??'Unnamed account').toString()),subtitle:Text((assigned.isEmpty?'No active role':assigned.join(', '))+' • '+(a['status']??'unknown').toString()),trailing:const Icon(Icons.visibility_outlined),onTap:()=>inspectAccount(a)));}),
+      const SizedBox(height:12),const Text('Recent audit trail',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+      if(audit.isEmpty)const Text('No audit events recorded yet.'),
+      ...audit.map((e)=>ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.history,color:brandGreen),title:Text((e['action']??'Activity').toString().replaceAll('_',' ')),subtitle:Text((e['entity_table']??'Record').toString()+' • '+(e['entity_id']??'').toString()+'\n'+(e['reason']??'').toString()),isThreeLine:true,trailing:Text((e['created_at']??'').toString().replaceFirst('T','\n').split('.').first,style:const TextStyle(fontSize:10)))),
+    ],
+  ]));
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
@@ -2908,14 +3004,15 @@ class _HomeShellState extends State<HomeShell> {
       if (director) const DirectorCustomProductRequestsPage(),
       if (director) const DirectorMarketplacePricesPage(),
       if (director) const DirectorTractorRatesPage(),
+      if (director) const DirectorMasterOversightPage(),
     ];
   }
   List<String> get labels => accountant && !director && !branchManager
     ? ['Dashboard','Stock','Financial Records']
-    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices', if (director) 'Tractor Rates'];
+    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices', if (director) 'Tractor Rates', if (director) 'Director Oversight'];
   List<IconData> get icons => accountant && !director && !branchManager
     ? [Icons.dashboard,Icons.inventory_2,Icons.account_balance]
-    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture];
+    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture, if (director) Icons.admin_panel_settings];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -2936,6 +3033,7 @@ class _HomeShellState extends State<HomeShell> {
       if (director) ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       if (director) ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Custom Requests'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
       if (director) ListTile(leading: const Icon(Icons.storefront_outlined), title: const Text('Marketplace Prices'), selected: index == 10, onTap: () { Navigator.pop(sheetContext); selectPage(10); }),
+      if (director) ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('Director Oversight'), selected: index == 12, onTap: () { Navigator.pop(sheetContext); selectPage(12); }),
       const SizedBox(height: 8),
     ])));
   }
