@@ -2078,7 +2078,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
         ? const Text('Declined')
         : r['customer_confirmed_at']!=null || r['customer_response']=='accepted'
          ? const Icon(Icons.verified,color:brandGreen)
-         : r['status']=='approved'
+         : (r['status']=='approved' || r['status']=='negotiation')
           ? PopupMenuButton<String>(tooltip:'Respond to Director offer',onSelected:(v){if(v=='accept')confirmCustomRequest(r);if(v=='decline')declineCustomRequest(r);},itemBuilder:(_)=>const [
              PopupMenuItem(value:'accept',child:Text('Accept offer')),
              PopupMenuItem(value:'decline',child:Text('Decline offer')),
@@ -4519,7 +4519,7 @@ class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProduc
     if (mounted) setState(() { loading = true; message = ''; });
     try {
       final result = await db.from('customer_custom_product_requests')
-        .select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,request_direction,status,director_response,customer_confirmed_at,created_at,customers(full_name,phone)')
+        .select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,request_direction,status,director_response,customer_confirmed_at,customer_response,customer_responded_at,created_at,customers(full_name,phone)')
         .order('created_at', ascending: false);
       if (mounted) setState(() {
         rows = List<Map<String, dynamic>>.from(result);
@@ -4623,7 +4623,8 @@ class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProduc
             if (row['agreed_unit_price_kes'] != null) Text('Agreed official price: KES ${row['agreed_unit_price_kes']} / ${row['quantity_unit']}', style: const TextStyle(fontWeight: FontWeight.bold)),
             if ((row['description'] ?? '').toString().isNotEmpty) Text('Details: ${row['description']}'),
             if ((row['director_response'] ?? '').toString().isNotEmpty) Text('Director response: ${row['director_response']}'),
-            if (confirmed) const Text('Customer confirmed the approved offer.', style: TextStyle(color: brandGreen, fontWeight: FontWeight.bold)),
+            if (confirmed || row['customer_response'] == 'accepted') const Text('Customer accepted the agreed offer.', style: TextStyle(color: brandGreen, fontWeight: FontWeight.bold)),
+            if (row['customer_response'] == 'declined') const Text('Customer declined the offer.', style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold)),
             if (canReview) Align(alignment: Alignment.centerRight, child: FilledButton.icon(
               onPressed: busyId == row['id'].toString() ? null : () => review(row),
               icon: Icon(busyId == row['id'].toString() ? Icons.hourglass_top : Icons.rate_review_outlined),
