@@ -785,14 +785,16 @@ class AuthChoicePage extends StatelessWidget {
                 const SizedBox(height: 20),
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final columns = constraints.maxWidth >= 430 ? 2 : 1;
+                    // Keep account choices in a real responsive grid on phones
+                    // as well as tablets; never collapse the sign-in choices into a list.
+                    final columns = constraints.maxWidth >= 520 ? 3 : 2;
                     const spacing = 10.0;
                     final cardWidth = (constraints.maxWidth -
                         (columns - 1) * spacing) / columns;
                     final accounts = <Widget>[
                       SizedBox(
                         width: cardWidth,
-                        height: 218,
+                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.person_outline,
@@ -805,7 +807,7 @@ class AuthChoicePage extends StatelessWidget {
                       ),
                       SizedBox(
                         width: cardWidth,
-                        height: 218,
+                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.agriculture,
@@ -818,7 +820,7 @@ class AuthChoicePage extends StatelessWidget {
                       ),
                       SizedBox(
                         width: cardWidth,
-                        height: 218,
+                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.local_shipping_outlined,
@@ -831,7 +833,7 @@ class AuthChoicePage extends StatelessWidget {
                       ),
                       SizedBox(
                         width: cardWidth,
-                        height: 218,
+                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.handyman_outlined,
@@ -844,7 +846,7 @@ class AuthChoicePage extends StatelessWidget {
                       ),
                       SizedBox(
                         width: cardWidth,
-                        height: 218,
+                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.settings_outlined,
@@ -857,7 +859,7 @@ class AuthChoicePage extends StatelessWidget {
                       ),
                       SizedBox(
                         width: cardWidth,
-                        height: 218,
+                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.badge_outlined,
@@ -868,65 +870,32 @@ class AuthChoicePage extends StatelessWidget {
                           onJoin: () => _explainApproval(context, 'Worker'),
                         ),
                       ),
+                      SizedBox(
+                        width: cardWidth,
+                        height: 232,
+                        child: _accountCard(
+                          context,
+                          icon: Icons.admin_panel_settings_outlined,
+                          title: 'Director',
+                          roleColor: brandGreen,
+                          subtitle: 'Secure sign-in for authorised TAJIR Directors only.',
+                          onLogin: () => _openLogin(context),
+                          onJoin: () => _explainApproval(context, 'Director'),
+                        ),
+                      ),
                     ];
-                    return Wrap(
-                      spacing: spacing,
-                      runSpacing: spacing,
+                    return GridView.count(
+                      crossAxisCount: columns,
+                      crossAxisSpacing: spacing,
+                      mainAxisSpacing: spacing,
+                      childAspectRatio: cardWidth / 232,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
                       children: accounts,
                     );
                   },
                 ),
                 const SizedBox(height: 12),
-                Card(
-                  color: brandGreen.withOpacity(.08),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: brandGreen.withOpacity(.25)),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 68,
-                          height: 68,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [brandGreen.withOpacity(.22), brandGreen.withOpacity(.07)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const Icon(Icons.admin_panel_settings_outlined,
-                              size: 40, color: brandGreen),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Director',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 16)),
-                              SizedBox(height: 3),
-                              Text(
-                                'Secure sign-in for authorised Directors only.',
-                                style: TextStyle(
-                                    fontSize: 12, color: Colors.black54),
-                              ),
-                            ],
-                          ),
-                        ),
-                        FilledButton(
-                          onPressed: () => _openLogin(context),
-                          child: const Text('Sign in'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
                 const SizedBox(height: 10),
                 const Text(
                   'Service-provider and staff access is approved by the Director. '
