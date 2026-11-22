@@ -2041,8 +2041,9 @@ class _TajirLandMeasurePageState extends State<TajirLandMeasurePage>{
    if(synced){record['sync_status']='synced';list[list.length-1]=record;await prefs.setStringList(key,list.map((v)=>jsonEncode(v)).toList());}
    if(!mounted)return;
    final summary=measurementType=='area'?'Area: ${acres.toStringAsFixed(3)} acres\\n${(areaM2/10000).toStringAsFixed(4)} hectares\\n${areaM2.toStringAsFixed(1)} m²\\nBoundary perimeter: ${perimeter.toStringAsFixed(1)} m':'Route distance: ${distance.toStringAsFixed(1)} m (${(distance/1000).toStringAsFixed(3)} km)';
+   final maxAccuracy=(record['max_accuracy_m'] as num).toDouble().toStringAsFixed(1);
    setState(() { saving=false;message=synced?'Saved on this phone and synced to TAJIR.':'Saved offline. It will sync when internet returns.'; });
-   await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text(measurementType=='area'?'Area measurement saved':'Distance measurement saved'),content:Text('$summary\\nGPS points: ${points.length}\\nMaximum recorded GPS error: ${record['max_accuracy_m'].toStringAsFixed(1)} m\\n${synced?'Synced':'Pending sync'}'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Close')),if(measurementType=='area')FilledButton(onPressed:(){Navigator.pop(c);Navigator.pop(context,acres);},child:const Text('Use this area'))]));
+   await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text(measurementType=='area'?'Area measurement saved':'Distance measurement saved'),content:Text('$summary\\nGPS points: ${points.length}\\nMaximum recorded GPS error: $maxAccuracy m\\n${synced?'Synced':'Pending sync'}'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Close')),if(measurementType=='area')FilledButton(onPressed:(){Navigator.pop(c);Navigator.pop(context,acres);},child:const Text('Use this area'))]));
   }catch(e){if(mounted)setState(() { saving=false;message='Could not save: ${friendlyError(e)}'; });}
  }
  @override void dispose(){tracking?.cancel();connectivitySub?.cancel();super.dispose();}
