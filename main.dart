@@ -3478,6 +3478,8 @@ class HomeShell extends StatefulWidget {
   @override State<HomeShell> createState() => _HomeShellState();
 }
 class _HomeShellState extends State<HomeShell> {
+  StreamSubscription<List<ConnectivityResult>>? connectivitySubscription;
+  bool offlineMode = false;
   bool checkingUpdate = false;
   Map<String, dynamic>? availableUpdate;
 
@@ -3537,7 +3539,25 @@ class _HomeShellState extends State<HomeShell> {
   List<IconData> get icons => accountant && !director && !branchManager
     ? [Icons.dashboard,Icons.inventory_2,Icons.account_balance]
     : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant || branchManager) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture, if (director) Icons.admin_panel_settings];
-  @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
+  @override void initState() {
+    super.initState();
+    loadAccess();
+    _refreshConnectivity();
+    connectivitySubscription = Connectivity().onConnectivityChanged.listen((states) {
+      if (mounted) setState(() => offlineMode = !states.any((v) => v != ConnectivityResult.none));
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates());
+  }
+  Future<void> _refreshConnectivity() async {
+    try {
+      final states = await Connectivity().checkConnectivity();
+      if (mounted) setState(() => offlineMode = !states.any((v) => v != ConnectivityResult.none));
+    } catch (_) {}
+  }
+  @override void dispose() {
+    connectivitySubscription?.cancel();
+    super.dispose();
+  }
   Future<void> loadAccess() async {
     try {
       final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
@@ -3652,6 +3672,17 @@ class _HomeShellState extends State<HomeShell> {
         ],
       ),
       body: Column(children: [
+        if (offlineMode)
+          Container(
+            width: double.infinity,
+            color: Colors.orange.shade100,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            child: const Row(children: [
+              Icon(Icons.wifi_off, size: 18, color: Colors.deepOrange),
+              SizedBox(width: 8),
+              Expanded(child: Text('Offline mode: saved catalogue and approved prices may be viewed. New transactions and server updates need internet.', style: TextStyle(fontSize: 12))),
+            ]),
+          ),
         const TajirDirectorContacts(),
         Expanded(child: Row(children: [
           if (wide) NavigationRail(selectedIndex: index, onDestinationSelected: selectPage, labelType: NavigationRailLabelType.all, destinations: List.generate(labels.length, (i) => NavigationRailDestination(icon: Icon(icons[i]), label: Text(labels[i])))),
