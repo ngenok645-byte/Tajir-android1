@@ -260,7 +260,17 @@ jobs:
             fi
           done
           KEYSTORE="$RUNNER_TEMP/tajir-release-key.jks"
-          printf '%s' "$TAJIR_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          # Remove copied whitespace/formatting before decoding the Base64 keystore.
+          printf '%s' "$TAJIR_KEYSTORE_BASE64" | tr -cd 'A-Za-z0-9+/=' | base64 --decode > "$KEYSTORE"
+          if [ ! -s "$KEYSTORE" ]; then
+            echo "Keystore decode produced an empty file; check TAJIR_KEYSTORE_BASE64."
+            exit 1
+          fi
+          if ! keytool -list -keystore "$KEYSTORE" -storepass "$TAJIR_KEYSTORE_PASSWORD" >/dev/null 2>&1; then
+            echo "Decoded keystore is invalid or TAJIR_KEYSTORE_PASSWORD does not match."
+            rm -f "$KEYSTORE"
+            exit 1
+          fi
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           if [ -z "$APKSIGNER" ]; then
             echo "Android apksigner was not found in the installed SDK."
