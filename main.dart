@@ -3528,7 +3528,7 @@ class _HomeShellState extends State<HomeShell> {
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
   void openMoreMenu() {
     showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-      ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
+      if (!director) ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director || accountant || branchManager) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
@@ -3627,12 +3627,33 @@ class _HomeShellState extends State<HomeShell> {
         ])),
       ]),
       bottomNavigationBar: wide ? null : NavigationBar(
-        selectedIndex: accountant && !director && !branchManager ? index : (index < 4 ? index : 4),
-        onDestinationSelected: accountant && !director && !branchManager ? selectPage : (v) { if (v == 4) { openMoreMenu(); } else { selectPage(v); } },
+        selectedIndex: accountant && !director && !branchManager
+            ? index
+            : director
+                ? (index == 0 ? 0 : index == 1 ? 1 : index == 4 ? 2 : index == 2 ? 3 : index == 3 ? 4 : 5)
+                : (index < 4 ? index : 4),
+        onDestinationSelected: accountant && !director && !branchManager
+            ? selectPage
+            : director
+                ? (v) {
+                    if (v == 5) {
+                      openMoreMenu();
+                    } else {
+                      selectPage(const [0, 1, 4, 2, 3][v]);
+                    }
+                  }
+                : (v) { if (v == 4) { openMoreMenu(); } else { selectPage(v); } },
         destinations: accountant && !director && !branchManager ? const [
           NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
           NavigationDestination(icon: Icon(Icons.inventory_2), label: 'Stock'),
           NavigationDestination(icon: Icon(Icons.account_balance), label: 'Financials'),
+        ] : director ? const [
+          NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
+          NavigationDestination(icon: Icon(Icons.add_shopping_cart), label: 'Purchases'),
+          NavigationDestination(icon: Icon(Icons.people), label: 'Customers'),
+          NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'Sales'),
+          NavigationDestination(icon: Icon(Icons.inventory_2), label: 'Stock'),
+          NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
         ] : const [
           NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
           NavigationDestination(icon: Icon(Icons.add_shopping_cart), label: 'Purchases'),
