@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:math' as math;
 import 'dart:async';
 
@@ -1988,7 +1989,11 @@ class TajirLandMeasurePage extends StatefulWidget {
 class _TajirLandMeasurePageState extends State<TajirLandMeasurePage>{
  final List<Position> points=[];
  StreamSubscription<Position>? tracking;
+ StreamSubscription<List<ConnectivityResult>>? connectivitySub;
  bool measuring=false,saving=false;
+ @override void initState(){super.initState();syncPending();connectivitySub=Connectivity().onConnectivityChanged.listen((states){if(states.any((v)=>v!=ConnectivityResult.none))syncPending();});}
+ Future<void> syncPending()async{try{final user=Supabase.instance.client.auth.currentUser;if(user==null)return;final prefs=await SharedPreferences.getInstance();final key='tajir_land_measurements_${user.id}';final rows=(prefs.getStringList(key)??<String>[]).map((v)=>jsonDecode(v) as Map<String,dynamic>).toList();var changed=false;for(var i=0;i<rows.length;i++){if(rows[i]['sync_status']=='synced')continue;try{await Supabase.instance.client.from('land_measurements').upsert(rows[i]);rows[i]['sync_status']='synced';changed=true;}catch(_){}}if(changed)await prefs.setStringList(key,rows.map((v)=>jsonEncode(v)).toList());}catch(_){}}
+
  String message='Tap Start, then walk around the full farm boundary.';
  double get perimeter{double v=0;for(var i=1;i<points.length;i++){v+=Geolocator.distanceBetween(points[i-1].latitude,points[i-1].longitude,points[i].latitude,points[i].longitude);}if(points.length>2)v+=Geolocator.distanceBetween(points.last.latitude,points.last.longitude,points.first.latitude,points.first.longitude);return v;}
  double get areaM2{if(points.length<3)return 0;const r=6378137.0;final lat=points.map((p)=>p.latitude).reduce((a,b)=>a+b)/points.length*math.pi/180;final xy=points.map((p)=>(x:r*p.longitude*math.pi/180*math.cos(lat),y:r*p.latitude*math.pi/180)).toList();double sum=0;for(var i=0;i<xy.length;i++){final a=xy[i],b=xy[(i+1)%xy.length];sum+=a.x*b.y-b.x*a.y;}return sum.abs()/2;}
@@ -2018,7 +2023,7 @@ class _TajirLandMeasurePageState extends State<TajirLandMeasurePage>{
    await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:const Text('Land measurement saved'),content:Text('${acres.toStringAsFixed(3)} acres\n${(areaM2/10000).toStringAsFixed(4)} hectares\n${areaM2.toStringAsFixed(1)} m²\nPerimeter: ${perimeter.toStringAsFixed(1)} m\nGPS points: ${points.length}\n${synced?'Synced':'Pending sync'}'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Close')),FilledButton(onPressed:(){Navigator.pop(c);Navigator.pop(context,acres);},child:const Text('Use this area'))]));
   }catch(e){if(mounted)setState(() { saving=false; message='Could not save: ${friendlyError(e)}'; });}
  }
- @override void dispose(){tracking?.cancel();super.dispose();}
+ @override void dispose(){tracking?.cancel();connectivitySub?.cancel();super.dispose();}
  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(16),children:[
   const Text('TAJIR Land Measure',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
   const Text('Walk around the farm boundary with GPS enabled. Keep the phone outdoors for better accuracy.'),
@@ -2451,6 +2456,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
     }
     switch (widget.roleCode) {
       case 'tractor_owner':
+        out.add(Padding(padding:const EdgeInsets.only(bottom:10),child:Align(alignment:Alignment.centerLeft,child:FilledButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const Scaffold(appBar:AppBar(title:Text('TAJIR Land Measure')),body:TajirLandMeasurePage()))),icon:const Icon(Icons.square_foot),label:const Text('Measure farm land')))));
         out.add(sectionTitle('Registered tractor assets', primary.length));
         out.add(Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
