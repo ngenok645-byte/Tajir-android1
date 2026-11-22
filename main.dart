@@ -1864,7 +1864,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
     ):null,
     title:Text(onSection?sectionTitle(selectedSection!):'TAJIR - '+c!['full_name'].toString()),
     actions:[
-     TextButton.icon(onPressed:checkCustomerUpdates,icon:const Icon(Icons.system_update),label:const Text('Update')),
+     IconButton(tooltip:'Update TAJIR',onPressed:checkCustomerUpdates,icon:const Icon(Icons.system_update_alt)),
      IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
      IconButton(tooltip:'Refresh',onPressed:onSection?()=>setState((){}):load,icon:const Icon(Icons.refresh)),
      IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
@@ -3543,7 +3543,7 @@ class _HomeShellState extends State<HomeShell> {
       ];
     }
     return [
-      DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9), onOpenMarketplacePrices: () => selectPage(10), onOpenTractorRates: () => selectPage(11)),
+      DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9), onOpenMarketplacePrices: () => selectPage(10), onOpenTractorRates: () => selectPage(11), onOpenOversight: () => selectPage(12)),
       const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(),
       if (director || accountant || branchManager) const FinancialRecordsPage(),
       if (director) const StaffAccountsPage(),
@@ -3761,7 +3761,8 @@ class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenCustomRequests;
   final VoidCallback? onOpenMarketplacePrices;
   final VoidCallback? onOpenTractorRates;
-  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices, this.onOpenCustomRequests, this.onOpenMarketplacePrices, this.onOpenTractorRates});
+  final VoidCallback? onOpenOversight;
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices, this.onOpenCustomRequests, this.onOpenMarketplacePrices, this.onOpenTractorRates, this.onOpenOversight});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -3848,6 +3849,16 @@ class _DashboardPageState extends State<DashboardPage> {
         subtitle: const Text('Open authorised sales, purchases, payments, costs and profit reports'),
         trailing: const Icon(Icons.chevron_right),
         onTap: widget.onOpenFinancial,
+      )),
+    ],
+    if(director) ...[
+      const SizedBox(height: 8),
+      Card(child: ListTile(
+        leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.admin_panel_settings, color: brandGreen)),
+        title: const Text('Director Master Account Directory', style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('Open the registered-account directory and inspect account roles, status and recorded activity in read-only mode'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: widget.onOpenOversight,
       )),
     ],
     if(director) ...[
