@@ -4011,16 +4011,6 @@ class _DashboardPageState extends State<DashboardPage> {
       large:true,
       onTap:widget.onOpenTractor ?? _noDashboardAction,
     ),
-    if(!accountant || branchManager || director) ...[
-      const SizedBox(height:12),
-      Card(child:ListTile(
-        leading:const CircleAvatar(backgroundColor:Color(0xFFEAF4EC),child:Icon(Icons.people_outline,color:brandGreen)),
-        title:const Text('CUSTOMERS',style:TextStyle(fontWeight:FontWeight.bold)),
-        subtitle:const Text('Open customer records, contacts and buying or selling activity'),
-        trailing:const Icon(Icons.chevron_right,color:brandGreen),
-        onTap:widget.onOpenCustomers ?? _noDashboardAction,
-      )),
-    ],
     if(director || accountant) ...[
       const SizedBox(height: 18),
       Card(child: ListTile(
