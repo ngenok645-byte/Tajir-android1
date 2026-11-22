@@ -2079,66 +2079,79 @@ class _LandBoundaryPainter extends CustomPainter{
 
 class CustomerTractorPage extends StatefulWidget{@override State<CustomerTractorPage> createState()=>_CustomerTractorPageState();}
 class _CustomerTractorPageState extends State<CustomerTractorPage>{
- List<Map<String,dynamic>> tractors=[];bool busy=true,saving=false;String? tractor;String service='ploughing';final location=TextEditingController(),acres=TextEditingController();DateTime date=DateTime.now().add(const Duration(days:1));
+ List<Map<String,dynamic>> tractors=[];bool busy=true,saving=false,quoting=false;
+ String? tractor;String service='ploughing',transportUnit='per_trip';
+ Map<String,dynamic>? quote;String? quoteError;int quoteRequest=0;
+ final location=TextEditingController(),county=TextEditingController(),region=TextEditingController(),village=TextEditingController(),quantity=TextEditingController();
+ DateTime date=DateTime.now().add(const Duration(days:1));
+ bool get isTransport=>service=='transport';
+ String get unitLabel=>isTransport?({'per_trip':'trips','per_km':'kilometres','per_tonne':'tonnes'}[transportUnit]??'trips'):'acres';
  @override void initState(){super.initState();load();}
- @override void dispose(){location.dispose();acres.dispose();super.dispose();}
+ @override void dispose(){location.dispose();county.dispose();region.dispose();village.dispose();quantity.dispose();super.dispose();}
  Future<void> load()async{
   try{final r=await Supabase.instance.client.rpc('customer_list_tractor_services');tractors=List<Map<String,dynamic>>.from(r);tractor=tractors.isEmpty?null:tractors.first['tractor_id'].toString();}
   catch(_){tractors=[];tractor=null;}
   if(mounted)setState(()=>busy=false);
  }
+ Future<void> refreshQuote()async{
+  final request=++quoteRequest;final q=double.tryParse(quantity.text.trim());
+  if(q==null||q<=0||location.text.trim().length<3){if(mounted)setState(()=>quote=null);return;}
+  setState(()=>quoting=true);
+  try{
+   final r=await Supabase.instance.client.rpc('customer_quote_tractor_service',params:{
+    'p_service_type':service,'p_county':county.text.trim(),'p_region':region.text.trim(),
+    'p_village':village.text.trim(),'p_quantity':q,'p_pricing_unit':isTransport?transportUnit:null
+   });
+   if(!mounted||request!=quoteRequest)return;
+   final row=(r as List).first;
+   setState(()=>quote=Map<String,dynamic>.from(row)..['quantity']=q);
+  }catch(e){if(!mounted||request!=quoteRequest)return;setState(()=>quote=null..quoteError=friendlyError(e));}
+  if(mounted&&request==quoteRequest)setState(()=>quoting=false);
+ }
  Future<void> book()async{
-  if(location.text.trim().length<3){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter your farm location.')));return;}
-  final area=acres.text.trim().isEmpty?null:double.tryParse(acres.text.trim());
-  if(acres.text.trim().isNotEmpty&&(area==null||area<=0)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid area in acres.')));return;}
+  if(location.text.trim().length<3||county.text.trim().isEmpty||region.text.trim().isEmpty||village.text.trim().isEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter the farm location: County, Region and Village.')));return;}
+  final q=double.tryParse(quantity.text.trim());
+  if(q==null||q<=0){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Enter a valid quantity in $unitLabel.')));return;}
+  if(quote==null){await refreshQuote();if(quote==null){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(quoteError??'A valid Director-approved rate is required before booking.')));return;}}
   setState(()=>saving=true);
   try{
-   final r=await Supabase.instance.client.rpc('customer_book_tractor_service',params:{
-    'p_tractor_id':tractor,
-    'p_service_type':service,
-    'p_service_location':location.text.trim(),
-    'p_area_acres':area,
-    'p_booked_for':date.toUtc().toIso8601String(),
-    'p_notes':null
+   final r=await Supabase.instance.client.rpc('customer_book_tractor_service_priced',params:{
+    'p_tractor_id':tractor,'p_service_type':service,'p_service_location':location.text.trim(),
+    'p_county':county.text.trim(),'p_region':region.text.trim(),'p_village':village.text.trim(),
+    'p_quantity':q,'p_pricing_unit':isTransport?transportUnit:null,
+    'p_booked_for':date.toUtc().toIso8601String(),'p_notes':null
    });
-   final job=(r as List).first['job_number'].toString();
-   if(mounted){
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(tractor==null?'Request sent to the TAJIR Director. Assignment reference: '+job:'Booking request submitted. Reference: '+job)));
-    location.clear();acres.clear();
-   }
+   final row=(r as List).first;final job=row['job_number'].toString();
+   if(mounted){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Booking submitted: $job. Total: KES ${row['total_charge']}')));location.clear();quantity.clear();setState(()=>quote=null);}
   }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
   if(mounted)setState(()=>saving=false);
  }
  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(18),children:[
   const Text('Book tractor service',style:TextStyle(fontSize:21,fontWeight:FontWeight.bold)),
   if(busy)const LinearProgressIndicator(),
-  if(tractors.isNotEmpty)DropdownButtonFormField<String>(
-   value:tractor,
-   items:tractors.map((t)=>DropdownMenuItem(value:t['tractor_id'].toString(),child:Text(t['selection_label'].toString()))).toList(),
-   onChanged:(v)=>setState(()=>tractor=v),
-   decoration:const InputDecoration(labelText:'Preferred available tractor (optional)')
-  ),
-  if(!busy&&tractors.isEmpty)Container(
-   padding:const EdgeInsets.all(12),
-   margin:const EdgeInsets.only(bottom:8),
-   decoration:BoxDecoration(color:brandGreen.withOpacity(.08),borderRadius:BorderRadius.circular(12)),
-   child:const Row(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    Icon(Icons.support_agent,color:brandGreen),
-    SizedBox(width:10),
-    Expanded(child:Text('You can still place your booking. Your request will be sent to the TAJIR Director, who will arrange and assign a tractor for you.'))
-   ])
-  ),
-  DropdownButtonFormField<String>(
-   value:service,
-   items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],
-   onChanged:(v)=>setState(()=>service=v??'ploughing'),
-   decoration:const InputDecoration(labelText:'Service')
-  ),
-  TextField(controller:location,decoration:const InputDecoration(labelText:'Farm location')),
-  TextField(controller:acres,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Declared / estimated acres')),
-  OutlinedButton.icon(onPressed:()=>Navigator.push<double>(context,MaterialPageRoute(builder:(_)=>const TajirLandMeasurePage())).then((value){if(value!=null&&mounted)setState(()=>acres.text=value.toStringAsFixed(3));}),icon:const Icon(Icons.gps_fixed),label:const Text('Measure land with GPS')),
+  if(tractors.isNotEmpty)DropdownButtonFormField<String>(value:tractor,items:tractors.map((t)=>DropdownMenuItem(value:t['tractor_id'].toString(),child:Text(t['selection_label'].toString()))).toList(),onChanged:(v)=>setState(()=>tractor=v),decoration:const InputDecoration(labelText:'Preferred available tractor (optional)')),
+  if(!busy&&tractors.isEmpty)Container(padding:const EdgeInsets.all(12),margin:const EdgeInsets.only(bottom:8),decoration:BoxDecoration(color:brandGreen.withOpacity(.08),borderRadius:BorderRadius.circular(12)),child:const Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(Icons.support_agent,color:brandGreen),SizedBox(width:10),Expanded(child:Text('You can still place your booking. Your request will be sent to the TAJIR Director, who will arrange and assign a tractor for you.'))])),
+  DropdownButtonFormField<String>(value:service,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v){setState(()=>service=v??'ploughing');refreshQuote();},decoration:const InputDecoration(labelText:'Service')),
+  if(isTransport)DropdownButtonFormField<String>(value:transportUnit,items:const [DropdownMenuItem(value:'per_trip',child:Text('Charge per trip')),DropdownMenuItem(value:'per_km',child:Text('Charge per kilometre')),DropdownMenuItem(value:'per_tonne',child:Text('Charge per tonne'))],onChanged:(v){setState(()=>transportUnit=v??'per_trip');refreshQuote();},decoration:const InputDecoration(labelText:'Transport pricing basis')),
+  const Text('Farm location',style:TextStyle(fontWeight:FontWeight.w600)),
+  TextField(controller:county,decoration:const InputDecoration(labelText:'County',hintText:'Select or enter county'),onChanged:(_)=>refreshQuote()),
+  TextField(controller:region,decoration:const InputDecoration(labelText:'Region',hintText:'Select or enter region'),onChanged:(_)=>refreshQuote()),
+  TextField(controller:village,decoration:const InputDecoration(labelText:'Village',hintText:'Select or enter village'),onChanged:(_)=>refreshQuote()),
+  TextField(controller:location,decoration:const InputDecoration(labelText:'Specific farm location / directions')),
+  TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:isTransport?'Transport quantity ($unitLabel)':'Land size (acres)'),onChanged:(_)=>refreshQuote()),
+  if(!isTransport)OutlinedButton.icon(onPressed:()=>Navigator.push<double>(context,MaterialPageRoute(builder:(_)=>const TajirLandMeasurePage())).then((value){if(value!=null&&mounted){quantity.text=value.toStringAsFixed(3);refreshQuote();}}),icon:const Icon(Icons.gps_fixed),label:const Text('Measure land with GPS')),
+  if(quoting)const LinearProgressIndicator(),
+  if(quote!=null)Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+   const Text('Automatic service calculation',style:TextStyle(fontWeight:FontWeight.bold)),
+   Text('Rate: KES ${quote!['unit_rate']} per ${unitLabel.substring(0,unitLabel.length-1)}'),
+   Text('Quantity: ${quote!['quantity']} $unitLabel'),
+   const Divider(),
+   Text('Estimated total: KES ${quote!['total_charge']}',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold,color:brandGreen)),
+   const Text('Rate selected from the most specific matching location set by the TAJIR Director.',style:TextStyle(fontSize:12)),
+  ]))),
+  if(quoteError!=null&&quantity.text.isNotEmpty)Text(quoteError!,style:const TextStyle(color:Colors.red)),
   ListTile(title:Text('Booking date: '+date.toLocal().toString().split(' ')[0]),trailing:TextButton(onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)setState(()=>date=d);},child:const Text('Choose'))),
-  FilledButton(onPressed:busy||saving?null:book,child:Text(saving?'Sending request…':'Submit booking request'))
+  FilledButton(onPressed:busy||saving||quoting?null:book,child:Text(saving?'Sending request…':'Submit booking request'))
  ]);
 }
 class CustomerTractorBookingsPage extends StatefulWidget{@override State<CustomerTractorBookingsPage> createState()=>_CustomerTractorBookingsPageState();}
