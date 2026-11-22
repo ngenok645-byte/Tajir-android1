@@ -5322,13 +5322,28 @@ class _StockPageState extends State<StockPage>{
           acceptedControllers.remove(id)?.dispose();
         }
       }
+      final stockRows = List<dynamic>.from(results[0] as List);
+      await saveTajirOfflineData('stock_snapshot', {
+        'products': stockRows,
+        'pending': pendingRows,
+        'saved_at': DateTime.now().toUtc().toIso8601String(),
+      });
       setState((){
-        products=List<dynamic>.from(results[0] as List);
+        products=stockRows;
         pending=pendingRows;
         message='';
       });
     }catch(e){
-      if(mounted)setState(()=>message='Could not load stock or pending approvals. Sign in with an active Director or Branch Manager account. Please try again or contact your administrator.');
+      final cached = await readTajirOfflineData('stock_snapshot');
+      if (mounted && cached != null && cached['products'] is List) {
+        setState(() {
+          products = List<dynamic>.from(cached['products'] as List);
+          pending = List<dynamic>.from(cached['pending'] as List? ?? const []);
+          message = 'Offline mode: showing the last saved stock snapshot. Stock approvals and changes require internet.';
+        });
+      } else if(mounted) {
+        setState(()=>message='Could not load stock or pending approvals. Sign in with an active Director or Branch Manager account. Please try again or contact your administrator.');
+      }
     }finally{
       if(mounted)setState(()=>loading=false);
     }
@@ -5451,11 +5466,24 @@ class _CustomersPageState extends State<CustomersPage> {
       final r=await Supabase.instance.client.from('customers')
         .select('id,profile_id,customer_type,full_name,phone,email,default_branch_id,active,marketplace_can_buy,marketplace_can_sell,approved_at,approved_by,created_at,deleted_at,permanently_deleted_at')
         .order('full_name');
+      final customerRows = List<Map<String,dynamic>>.from(r);
+      await saveTajirOfflineData('customer_directory', {
+        'rows': customerRows,
+        'saved_at': DateTime.now().toUtc().toIso8601String(),
+      });
       if(!mounted)return;
-      setState(()=>rows=List<Map<String,dynamic>>.from(r));
+      setState(()=>rows=customerRows);
     } catch(e) {
+      final cached = await readTajirOfflineData('customer_directory');
       if(!mounted)return;
-      setState(()=>message='Could not load customers. Customer access is limited to authorized director accounts. Details: ${friendlyError(e)}');
+      if (cached != null && cached['rows'] is List) {
+        setState(() {
+          rows = List<Map<String,dynamic>>.from((cached['rows'] as List).map((v) => Map<String,dynamic>.from(v as Map)));
+          message = 'Offline mode: showing the last saved customer directory. Customer changes require internet.';
+        });
+      } else {
+        setState(()=>message='Could not load customers. Customer access is limited to authorized director accounts. Details: ${friendlyError(e)}');
+      }
     }
     if(mounted)setState(()=>busy=false);
   }
