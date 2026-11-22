@@ -3352,6 +3352,7 @@ class _HomeShellState extends State<HomeShell> {
       if (director) ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       if (director) ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Custom Requests'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
       if (director) ListTile(leading: const Icon(Icons.storefront_outlined), title: const Text('Marketplace Prices'), selected: index == 10, onTap: () { Navigator.pop(sheetContext); selectPage(10); }),
+      if (director) ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Service Rates'), selected: index == 11, onTap: () { Navigator.pop(sheetContext); selectPage(11); }),
       if (director) ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('Director Oversight'), selected: index == 12, onTap: () { Navigator.pop(sheetContext); selectPage(12); }),
       const SizedBox(height: 8),
     ])));
