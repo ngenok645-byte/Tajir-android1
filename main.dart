@@ -5908,6 +5908,12 @@ class _CustomersPageState extends State<CustomersPage> {
           .select('id,expense_number,expense_date,category,description,amount,status,product_serials')
           .overlaps('product_serials',productSerials.toList())
           .order('expense_date',ascending:false));
+      final relatedPurchaseCosts=productSerials.isEmpty
+        ? <Map<String,dynamic>>[]
+        : List<Map<String,dynamic>>.from(await db.from('purchase_costs')
+          .select('id,purchase_id,cost_type,amount,description,incurred_at,product_serial,purchase:purchases(purchase_number)')
+          .inFilter('product_serial',productSerials.toList())
+          .order('incurred_at',ascending:false));
       final roleRows=await db.from('user_role_assignments').select('app_roles(code)').eq('user_id',db.auth.currentUser!.id).eq('is_active',true);
       final canVerifyPayments=roleRows.any((r)=>r['app_roles'] is Map && ['director','accountant'].contains((r['app_roles'] as Map)['code']));
       final totalSales=sales.fold<double>(0,(s,r)=>s+((r['total_amount'] as num?)?.toDouble()??0));
@@ -5993,11 +5999,18 @@ class _CustomersPageState extends State<CustomersPage> {
           }),
           const Divider(),
           const Text('Related product expenses',style:TextStyle(fontWeight:FontWeight.bold)),
-          if(relatedExpenses.isEmpty)const Text('No expenses are linked to this customer’s sold product batches yet.'),
+          if(relatedPurchaseCosts.isEmpty && relatedExpenses.isEmpty)const Text('No purchase or operating expenses are linked to this customer’s product serials yet.'),
+          ...relatedPurchaseCosts.map((expense)=>ListTile(
+            contentPadding:EdgeInsets.zero,
+            leading:const Icon(Icons.inventory_2_outlined),
+            title:Text('${expense['cost_type']??'Purchase cost'} • KES ${((expense['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'),
+            subtitle:Text('${expense['incurred_at']??''} • Purchase: ${((expense['purchase'] as Map?)?['purchase_number']??'—')}\n${expense['description']??''}\nProduct serial: ${expense['product_serial']??'Not linked'}'),
+            isThreeLine:true,
+          )),
           ...relatedExpenses.map((expense)=>ListTile(
             contentPadding:EdgeInsets.zero,
             leading:const Icon(Icons.receipt_long_outlined),
-            title:Text('${expense['expense_number']??expense['category']??'Product expense'} • KES ${((expense['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'),
+            title:Text('${expense['expense_number']??expense['category']??'Operating expense'} • KES ${((expense['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'),
             subtitle:Text('${expense['expense_date']??''} • ${expense['status']??'recorded'}\n${expense['description']??''}\nSerial(s): ${expense['product_serials'] is List?(expense['product_serials'] as List).join(', '):'Not linked'}'),
             isThreeLine:true,
           )),
