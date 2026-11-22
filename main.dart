@@ -694,17 +694,22 @@ class AuthChoicePage extends StatelessWidget {
   }) {
     return Card(
       clipBehavior: Clip.antiAlias,
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      elevation: 1,
+      shadowColor: roleColor.withOpacity(.14),
+      color: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: roleColor.withOpacity(.18)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(11),
+        padding: const EdgeInsets.all(10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Lightweight, locally rendered role artwork: no remote image loading
             // or network dependency on the sign-in screen.
             Container(
-              height: 76,
+              height: 62,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [roleColor.withOpacity(.16), roleColor.withOpacity(.045)],
@@ -719,38 +724,56 @@ class AuthChoicePage extends StatelessWidget {
                   Positioned(right: 16, top: -17,
                     child: Icon(icon, size: 92, color: roleColor.withOpacity(.08))),
                   Container(
-                    width: 56, height: 56,
+                    width: 48, height: 48,
                     decoration: BoxDecoration(
                       color: roleColor.withOpacity(.13),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(icon, size: 34, color: roleColor),
+                    child: Icon(icon, size: 29, color: roleColor),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 9),
+            const SizedBox(height: 7),
             Text(
               title,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 5),
             Expanded(
               child: Text(
                 subtitle,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
+                style: const TextStyle(fontSize: 11, height: 1.2, color: Colors.black54),
               ),
             ),
-            const SizedBox(height: 10),
-            FilledButton(
-              onPressed: onLogin,
-              child: const Text('Sign in'),
+            const SizedBox(height: 7),
+            SizedBox(
+              height: 34,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: onLogin,
+                child: const Text('Sign in', style: TextStyle(fontSize: 12)),
+              ),
             ),
-            OutlinedButton(
-              onPressed: onJoin,
-              child: const Text('Join TAJIR'),
+            SizedBox(
+              height: 32,
+              child: TextButton(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: onJoin,
+                child: const Text('Join TAJIR', style: TextStyle(fontSize: 11)),
+              ),
             ),
           ],
         ),
@@ -782,7 +805,18 @@ class AuthChoicePage extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.black54),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 22),
+                const Text(
+                  'CHOOSE YOUR WORKSPACE',
+                  textAlign: TextAlign.left,
+                  style: TextStyle(
+                    fontSize: 11,
+                    letterSpacing: 1.2,
+                    fontWeight: FontWeight.w800,
+                    color: brandGreen,
+                  ),
+                ),
+                const SizedBox(height: 10),
                 LayoutBuilder(
                   builder: (context, constraints) {
                     // Keep account choices in a real responsive grid on phones
@@ -794,7 +828,7 @@ class AuthChoicePage extends StatelessWidget {
                     final accounts = <Widget>[
                       SizedBox(
                         width: cardWidth,
-                        height: 232,
+                        height: 218,
                         child: _accountCard(
                           context,
                           icon: Icons.person_outline,
@@ -888,18 +922,17 @@ class AuthChoicePage extends StatelessWidget {
                       crossAxisCount: columns,
                       crossAxisSpacing: spacing,
                       mainAxisSpacing: spacing,
-                      childAspectRatio: cardWidth / 232,
+                      childAspectRatio: cardWidth / 218,
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       children: accounts,
                     );
                   },
                 ),
-                const SizedBox(height: 12),
-                const SizedBox(height: 10),
+                const SizedBox(height: 14),
                 const Text(
-                  'Service-provider and staff access is approved by the Director. '
-                  'Choosing a category does not grant permissions by itself.',
+                  'Staff and service-provider accounts require Director approval. '
+                  'Selecting a workspace does not grant account permissions.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: Colors.black54),
                 ),
