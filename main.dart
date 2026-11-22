@@ -211,23 +211,35 @@ class TajirCallButton extends StatelessWidget {
 }
 
 
-class TajirDirectorContacts extends StatelessWidget {
+class TajirDirectorContacts extends StatefulWidget {
   const TajirDirectorContacts({super.key});
-
   static const List<Map<String, String>> directors = [
     {'name': 'Mercy', 'phone': '0713971207'},
     {'name': 'Edwin (Edu)', 'phone': '0700020140'},
   ];
+  @override State<TajirDirectorContacts> createState() => _TajirDirectorContactsState();
+}
 
-  Future<void> callDirector(BuildContext context, String phone) async {
+class _TajirDirectorContactsState extends State<TajirDirectorContacts> {
+  List<Map<String,dynamic>> linkedContacts = [];
+  bool loadingContacts = true;
+  @override void initState() { super.initState(); loadLinkedContacts(); }
+  Future<void> loadLinkedContacts() async {
     try {
-      await callTajirPhone(phone);
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e))),
-        );
-      }
+      final result = await Supabase.instance.client.rpc('tajir_get_linked_contact_profiles');
+      if (mounted) setState(() => linkedContacts = List<Map<String,dynamic>>.from(result));
+    } catch (_) {
+      // Keep the dashboard usable if linked contacts cannot be loaded.
+    } finally {
+      if (mounted) setState(() => loadingContacts = false);
+    }
+  }
+  Future<void> callDirector(BuildContext context, String phone) async {
+    try { await callTajirPhone(phone); }
+    catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
     }
   }
 
@@ -241,14 +253,12 @@ class TajirDirectorContacts extends StatelessWidget {
           SizedBox(width: 8),
           Expanded(child: Text('TAJIR Directors contact list', style: TextStyle(fontWeight: FontWeight.bold))),
         ]),
-        ...directors.map((director) {
+        ...TajirDirectorContacts.directors.map((director) {
           final name = director['name']!;
           final phone = director['phone']!;
           return ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: Text(name),
-            subtitle: Text('TAJIR Director • $phone'),
+            dense: true, contentPadding: EdgeInsets.zero,
+            title: Text(name), subtitle: Text('TAJIR Director • $phone'),
             trailing: IconButton(
               tooltip: 'Call $name',
               onPressed: () => callDirector(context, phone),
@@ -256,6 +266,23 @@ class TajirDirectorContacts extends StatelessWidget {
             ),
           );
         }),
+        const Divider(),
+        const Row(children: [
+          Icon(Icons.link, color: brandGreen),
+          SizedBox(width: 8),
+          Expanded(child: Text('People linked to your tasks', style: TextStyle(fontWeight: FontWeight.bold))),
+        ]),
+        const Text('Contacts are shown only when you share a booking, delivery, order, repair or parts request.', style: TextStyle(fontSize: 12, color: Colors.black54)),
+        if (loadingContacts) const LinearProgressIndicator(),
+        if (!loadingContacts && linkedContacts.isEmpty)
+          const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('No linked contacts yet.', style: TextStyle(fontSize: 12))),
+        ...linkedContacts.map((contact) => ListTile(
+          dense: true, contentPadding: EdgeInsets.zero,
+          leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+          title: Text((contact['display_name'] ?? 'TAJIR account').toString()),
+          subtitle: Text((contact['relationship'] ?? 'Linked task').toString() + ' • ' + (contact['reference'] ?? '').toString()),
+          trailing: TajirCallButton(profileId: contact['profile_id'].toString(), label: 'Call'),
+        )),
         const SizedBox(height: 6),
         SizedBox(
           width: double.infinity,
@@ -270,7 +297,6 @@ class TajirDirectorContacts extends StatelessWidget {
   );
 }
 
- 
 /// Turns technical backend/network failures into clear messages for everyday users.
 /// Never display raw HTTP/database error codes in the app.
 String friendlyError(Object error) {
