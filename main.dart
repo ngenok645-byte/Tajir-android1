@@ -256,6 +256,15 @@ class TajirDirectorContacts extends StatelessWidget {
             ),
           );
         }),
+        const SizedBox(height: 6),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () => promptForTajirUpdate(context, showCurrent: true),
+            icon: const Icon(Icons.system_update),
+            label: const Text('Check for TAJIR app updates'),
+          ),
+        ),
       ]),
     ),
   );
