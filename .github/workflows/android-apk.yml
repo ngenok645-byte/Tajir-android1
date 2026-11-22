@@ -261,7 +261,18 @@ jobs:
           done
           KEYSTORE="$RUNNER_TEMP/tajir-release-key.jks"
           # Remove copied whitespace/formatting before decoding the Base64 keystore.
-          printf '%s' "$TAJIR_KEYSTORE_BASE64" | tr -cd 'A-Za-z0-9+/=' | base64 --decode > "$KEYSTORE"
+          python - <<'PY'
+          import base64, os, re
+          raw = os.environ["TAJIR_KEYSTORE_BASE64"]
+          cleaned = re.sub(r"[^A-Za-z0-9_+/-]", "", raw).replace("-", "+").replace("_", "/")
+          cleaned += "=" * ((4 - len(cleaned) % 4) % 4)
+          data = base64.b64decode(cleaned)
+          if not data:
+              raise SystemExit("TAJIR_KEYSTORE_BASE64 decoded to an empty file")
+          with open(os.environ["RUNNER_TEMP"] + "/tajir-release-key.jks", "wb") as out:
+              out.write(data)
+          print("Keystore Base64 decoded; validating keystore next.")
+          PY
           if [ ! -s "$KEYSTORE" ]; then
             echo "Keystore decode produced an empty file; check TAJIR_KEYSTORE_BASE64."
             exit 1
