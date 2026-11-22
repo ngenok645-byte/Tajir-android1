@@ -6144,10 +6144,10 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       for(final payment in cr){final method=(payment['method']??'other').toString();verifiedMethods[method]=(verifiedMethods[method]??0)+numVal(payment['amount']);}
       final pendingMethods=<String,double>{};
       for(final payment in pendingCr){final method=(payment['method']??'other').toString();pendingMethods[method]=(pendingMethods[method]??0)+numVal(payment['amount']);}
-      final allSupplierPayments = List<Map<String,dynamic>>.from(data[4]).where((r)=>within(r['payment_date'])).toList();
-      final spr = allSupplierPayments.where((r)=>r['status']=='verified').toList();
+      final allSupplierPayments = List<Map<String,dynamic>>.from(data[4]);
+      final spr = allSupplierPayments.where((r)=>within(r['payment_date'])&&r['status']=='verified').toList();
       final pendingSpr = allSupplierPayments.where((r)=>r['status']=='pending').toList();
-      final supplierPurchases = List<Map<String,dynamic>>.from(data[5]).where((r)=>within(r['purchase_date'])).toList();
+      final supplierPurchases = List<Map<String,dynamic>>.from(data[5]);
       final supplierRecords = List<Map<String,dynamic>>.from(data[6]);
       double rev=0,cogs=0,buy=0;
       for(final row in sr) {
@@ -6537,7 +6537,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         OutlinedButton.icon(onPressed:loading?null:recordCustomerPayment,icon:const Icon(Icons.payments_outlined),label:const Text('Record customer payment')),
         OutlinedButton.icon(onPressed:loading?null:recordSupplierPayment,icon:const Icon(Icons.store_mall_directory_outlined),label:const Text('Record supplier payment')),
       ]),
-      const Text('Director, Accountant & authorised Branch Manager reports • amounts in Kenya shillings'),
+      const Text('Director and Accountant reports • amounts in Kenya shillings'),
       const SizedBox(height:12),
       DropdownButtonFormField<String>(value:period,decoration:const InputDecoration(labelText:'Reporting period',border:OutlineInputBorder()),
         items:const ['Today','This week','This month','This year','All time'].map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),
