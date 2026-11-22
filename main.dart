@@ -111,6 +111,7 @@ Future<void> showTajirReceipt(
   required String method,
   required String status,
   String reference = '',
+  bool showSettlement = true,
   List<String> details = const [],
 }) async {
   final fmt = (double value) => 'KSh ' + value.toStringAsFixed(2);
@@ -126,8 +127,8 @@ Future<void> showTajirReceipt(
     ...details,
     'Transaction amount: ${fmt(amount)}',
     if (invoiceTotal != null) 'Invoice / service total: ${fmt(invoiceTotal)}',
-    'Verified amount paid: ${fmt(confirmedPaid)}',
-    'Outstanding balance: ${fmt(outstanding)}',
+    if (showSettlement) 'Verified amount paid: ${fmt(confirmedPaid)}',
+    if (showSettlement) 'Outstanding balance: ${fmt(outstanding)}',
     'Payment method: ${labelCase(method)}',
     'Payment status: ${labelCase(status)}',
     if (reference.trim().isNotEmpty) 'Reference: $reference',
@@ -170,8 +171,8 @@ Future<void> showTajirReceipt(
                 const Divider(height: 20),
                 _TajirReceiptAmountRow(label: 'Transaction amount', value: fmt(amount)),
                 if (invoiceTotal != null) _TajirReceiptAmountRow(label: 'Invoice / service total', value: fmt(invoiceTotal)),
-                _TajirReceiptAmountRow(label: 'Verified amount paid', value: fmt(confirmedPaid)),
-                _TajirReceiptAmountRow(label: 'Outstanding balance', value: fmt(outstanding), emphasize: true),
+                if (showSettlement) _TajirReceiptAmountRow(label: 'Verified amount paid', value: fmt(confirmedPaid)),
+                if (showSettlement) _TajirReceiptAmountRow(label: 'Outstanding balance', value: fmt(outstanding), emphasize: true),
                 const Divider(height: 20),
                 Text('Payment method: ${labelCase(method)}'),
                 Text('Payment status: ${labelCase(status)}',
@@ -7108,7 +7109,25 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   Widget paymentAuditSection(String title, List<Map<String,dynamic>> rows, {required String dateField, required String nameField, required String referenceField}) => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Divider(height:24),Text(title,style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
     if(rows.isEmpty) const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No records for this period.')),
-    ...rows.take(40).map((r)=>ListTile(dense:true,title:Text((r[nameField]??title).toString()),subtitle:Text((r[dateField]??'').toString()+' • '+(r['method']??'').toString()+' • '+(r['status']??'').toString()+'\nRecorded by: '+_paymentPerson(r['recorder'])+' • Verified by: '+_paymentPerson(r['verifier'])+'\nReference: '+(r[referenceField]??'Not supplied').toString()),trailing:Text(cash(numVal(r['amount']))))),
+    ...rows.take(40).map((r){
+      final supplier=(r['supplier'] as Map?)?.cast<String,dynamic>()??{};
+      final customer=(r['customer'] as Map?)?.cast<String,dynamic>()??{};
+      final isSupplier=title.toLowerCase().contains('supplier');
+      final amount=numVal(r['amount']);
+      return ListTile(dense:true,title:Text((r[nameField]??title).toString()),
+        subtitle:Text((r[dateField]??'').toString()+' • '+(r['method']??'').toString()+' • '+(r['status']??'').toString()+'\nRecorded by: '+_paymentPerson(r['recorder'])+' • Verified by: '+_paymentPerson(r['verifier'])+'\nReference: '+(r[referenceField]??'Not supplied').toString()),
+        trailing:Text(cash(amount)),
+        onTap:()=>showTajirReceipt(context,
+          receiptNumber:(r[nameField]??'Payment').toString(),receiptType:isSupplier?'Supplier payment receipt':'Customer payment receipt',
+          partyLabel:isSupplier?'Supplier':'Customer',
+          partyName:(isSupplier?supplier['business_name']:customer['full_name'])?.toString()??(isSupplier?'Supplier':'Customer'),
+          date:(r[dateField]??'').toString(),amount:amount,totalPaid:r['status']=='verified'?amount:0,
+          balance:r['status']=='verified'?0:amount,method:(r['method']??'—').toString(),
+          status:(r['status']??'pending').toString(),reference:(r[referenceField]??'').toString(),
+          details:['Invoice: '+((r['purchase'] as Map?)?['purchase_number']??'—').toString()],
+        ),
+      );
+    }),
   ]);
 
   Widget paymentBreakdowns() => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
@@ -7127,7 +7146,32 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   Widget section(String title,List<Map<String,dynamic>> rows,String dateField,String amountField,String nameField,{String? extraField}) => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Divider(height:24),Text(title,style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
     if(rows.isEmpty) const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No records for this period.')),
-    ...rows.take(40).map((r)=>ListTile(dense:true,title:Text((r[nameField]??title).toString()),subtitle:Text((r[dateField]??'').toString()+(extraField==null?'':' • '+(r[extraField]??'').toString())),trailing:Text(cash(numVal(r[amountField]))))),
+    ...rows.take(40).map((r){
+      final isSale=title.toLowerCase().contains('sales');
+      final isPurchase=title.toLowerCase().contains('purchase');
+      final customer=(r['customer'] as Map?)?.cast<String,dynamic>()??{};
+      final amount=numVal(r[amountField]);
+      final items=(r[isPurchase?'purchase_items':'sale_items'] as List?)??const [];
+      final itemDetails=items.take(8).map((item){
+        final row=(item as Map).cast<String,dynamic>();
+        final quantity=numVal(row['quantity_accepted']??row['quantity']);
+        final unitPrice=numVal(row['buying_price_per_unit']??row['line_cost']);
+        return 'Item: Qty '+quantity.toStringAsFixed(2)+' • Unit price KSh '+unitPrice.toStringAsFixed(2);
+      }).toList();
+      return ListTile(dense:true,title:Text((r[nameField]??title).toString()),
+        subtitle:Text((r[dateField]??'').toString()+(extraField==null?'':' • '+(r[extraField]??'').toString())),
+        trailing:Text(cash(amount)),
+        onTap:()=>showTajirReceipt(context,
+          receiptNumber:(r[nameField]??'Transaction').toString(),
+          receiptType:isSale?'Sales receipt':isPurchase?'Purchase receipt':'Expense voucher',
+          partyLabel:isSale?'Customer':isPurchase?'Supplier':'Record',
+          partyName:isSale?(customer['full_name']??'Customer').toString():isPurchase?(r['supplier_name']??'Supplier').toString():(r[nameField]??title).toString(),
+          date:(r[dateField]??'').toString(),amount:amount,method:(r['payment_mode']??'—').toString(),
+          status:(r['status']??'recorded').toString(),showSettlement:false,
+          details:[...itemDetails,if(extraField!=null)'Type: '+(r[extraField]??'—').toString()],
+        ),
+      );
+    }),
   ]);
   @override Widget build(BuildContext context) {
     final gross = revenue-costOfGoods;
