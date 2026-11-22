@@ -3,6 +3,10 @@ import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:math' as math;
+import 'dart:async';
 
 const double kgPerBag = 90.0;
 
@@ -1976,6 +1980,69 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   ])
  );
 }
+
+class TajirLandMeasurePage extends StatefulWidget {
+ const TajirLandMeasurePage({super.key});
+ @override State<TajirLandMeasurePage> createState()=>_TajirLandMeasurePageState();
+}
+class _TajirLandMeasurePageState extends State<TajirLandMeasurePage>{
+ final List<Position> points=[];
+ StreamSubscription<Position>? tracking;
+ bool measuring=false,saving=false;
+ String message='Tap Start, then walk around the full farm boundary.';
+ double get perimeter{double v=0;for(var i=1;i<points.length;i++){v+=Geolocator.distanceBetween(points[i-1].latitude,points[i-1].longitude,points[i].latitude,points[i].longitude);}if(points.length>2)v+=Geolocator.distanceBetween(points.last.latitude,points.last.longitude,points.first.latitude,points.first.longitude);return v;}
+ double get areaM2{if(points.length<3)return 0;const r=6378137.0;final lat=points.map((p)=>p.latitude).reduce((a,b)=>a+b)/points.length*math.pi/180;final xy=points.map((p)=>(x:r*p.longitude*math.pi/180*math.cos(lat),y:r*p.latitude*math.pi/180)).toList();double sum=0;for(var i=0;i<xy.length;i++){final a=xy[i],b=xy[(i+1)%xy.length];sum+=a.x*b.y-b.x*a.y;}return sum.abs()/2;}
+ double get acres=>areaM2/4046.8564224;
+ Future<void> start()async{
+  var p=await Geolocator.checkPermission();if(p==LocationPermission.denied)p=await Geolocator.requestPermission();
+  if(p==LocationPermission.denied||p==LocationPermission.deniedForever){setState(()=>message='Location permission is required. Enable it in Android settings.');return;}
+  if(!await Geolocator.isLocationServiceEnabled()){setState(()=>message='Turn on phone GPS/location services.');return;}
+  setState(()=>{points.clear(),measuring=true,message='Recording boundary. Walk slowly around the field edge.'});
+  tracking=Geolocator.getPositionStream(locationSettings:const LocationSettings(accuracy:LocationAccuracy.bestForNavigation,distanceFilter:3)).listen((p){if(mounted)setState(()=>points.add(p));},onError:(e){if(mounted)setState(()=>message='GPS tracking stopped: $e');});
+ }
+ Future<void> finish()async{
+  await tracking?.cancel();tracking=null;
+  if(points.length<3){setState(()=>{measuring=false,message='At least three GPS points are needed. Walk around more of the boundary.'});return;}
+  setState(()=>{measuring=false,saving=true});
+  try{
+   final user=Supabase.instance.client.auth.currentUser;if(user==null)throw Exception('Sign in before saving.');
+   final id='\${user.id}_\${DateTime.now().microsecondsSinceEpoch}';
+   final coords=points.map((p)=>{'lat':p.latitude,'lng':p.longitude,'accuracy_m':p.accuracy,'time':p.timestamp.toUtc().toIso8601String()}).toList();
+   final record={'id':id,'user_id':user.id,'area_m2':areaM2,'area_acres':acres,'perimeter_m':perimeter,'points':coords,'point_count':points.length,'max_accuracy_m':points.map((p)=>p.accuracy).reduce(math.max),'measured_at':DateTime.now().toUtc().toIso8601String(),'sync_status':'pending'};
+   final prefs=await SharedPreferences.getInstance(),key='tajir_land_measurements_\${user.id}';
+   final list=(prefs.getStringList(key)??<String>[]).map((v)=>jsonDecode(v) as Map<String,dynamic>).toList()..add(record);
+   await prefs.setStringList(key,list.map((v)=>jsonEncode(v)).toList());
+   var synced=false;try{await Supabase.instance.client.from('land_measurements').upsert(record);synced=true;}catch(_){}
+   if(synced){record['sync_status']='synced';list[list.length-1]=record;await prefs.setStringList(key,list.map((v)=>jsonEncode(v)).toList());}
+   if(!mounted)return;setState(()=>{saving=false,message=synced?'Saved on this phone and synced to TAJIR.':'Saved offline. It will sync when internet returns.'});
+   await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:const Text('Land measurement saved'),content:Text('\${acres.toStringAsFixed(3)} acres\\n\${(areaM2/10000).toStringAsFixed(4)} hectares\\n\${areaM2.toStringAsFixed(1)} m²\\nPerimeter: \${perimeter.toStringAsFixed(1)} m\\nGPS points: \${points.length}\\n\${synced?'Synced':'Pending sync'}'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Close')),FilledButton(onPressed:(){Navigator.pop(c);Navigator.pop(context,acres);},child:const Text('Use this area'))]));
+  }catch(e){if(mounted)setState(()=>{saving=false,message='Could not save: \${friendlyError(e)}'});}
+ }
+ @override void dispose(){tracking?.cancel();super.dispose();}
+ @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(16),children:[
+  const Text('TAJIR Land Measure',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
+  const Text('Walk around the farm boundary with GPS enabled. Keep the phone outdoors for better accuracy.'),
+  Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+   Text('\${acres.toStringAsFixed(3)} acres',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+   Text('\${(areaM2/10000).toStringAsFixed(4)} hectares • \${areaM2.toStringAsFixed(1)} m²'),
+   Text('Perimeter: \${perimeter.toStringAsFixed(1)} metres'),
+   Text('GPS points: \${points.length}'),
+   if(points.isNotEmpty)Text('Latest GPS accuracy: \${points.last.accuracy.toStringAsFixed(1)} m'),
+  ]))),
+  Container(height:170,decoration:BoxDecoration(color:brandGreen.withOpacity(.07),borderRadius:BorderRadius.circular(12)),child:CustomPaint(painter:_LandBoundaryPainter(points),child:Center(child:points.isEmpty?const Icon(Icons.landscape_outlined,size:56):Text('\${points.length} boundary points')))),
+  Text(message,style:const TextStyle(color:brandGreen)),
+  if(!measuring)FilledButton.icon(onPressed:saving?null:start,icon:const Icon(Icons.play_arrow),label:const Text('Start GPS measurement')),
+  if(measuring)FilledButton.icon(onPressed:finish,icon:const Icon(Icons.stop),label:const Text('Finish and save')),
+  if(saving)const Center(child:CircularProgressIndicator()),
+  const Text('GPS results are operational estimates, not certified legal surveys. Tree cover, buildings and poor satellite signal can affect accuracy.',style:TextStyle(fontSize:12,color:Colors.black54)),
+ ]);
+}
+class _LandBoundaryPainter extends CustomPainter{
+ final List<Position> points;_LandBoundaryPainter(this.points);
+ @override void paint(Canvas c,Size s){if(points.isEmpty)return;final minA=points.map((p)=>p.latitude).reduce(math.min),maxA=points.map((p)=>p.latitude).reduce(math.max),minB=points.map((p)=>p.longitude).reduce(math.min),maxB=points.map((p)=>p.longitude).reduce(math.max);final dx=(maxB-minB).abs()<1e-9?1e-9:maxB-minB,dy=(maxA-minA).abs()<1e-9?1e-9:maxA-minA;final path=Path();for(var i=0;i<points.length;i++){final x=10+(points[i].longitude-minB)/dx*(s.width-20),y=s.height-10-(points[i].latitude-minA)/dy*(s.height-20);if(i==0)path.moveTo(x,y);else path.lineTo(x,y);}final fill=Paint()..color=brandGreen.withOpacity(.12);final line=Paint()..color=brandGreen..strokeWidth=3..style=PaintingStyle.stroke;if(points.length>2)c.drawPath(Path.from(path)..close(),fill);c.drawPath(path,line);}
+ @override bool shouldRepaint(covariant _LandBoundaryPainter old)=>old.points!=points;
+}
+
 class CustomerTractorPage extends StatefulWidget{@override State<CustomerTractorPage> createState()=>_CustomerTractorPageState();}
 class _CustomerTractorPageState extends State<CustomerTractorPage>{
  List<Map<String,dynamic>> tractors=[];bool busy=true,saving=false;String? tractor;String service='ploughing';final location=TextEditingController(),acres=TextEditingController();DateTime date=DateTime.now().add(const Duration(days:1));
@@ -2034,7 +2101,8 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
    decoration:const InputDecoration(labelText:'Service')
   ),
   TextField(controller:location,decoration:const InputDecoration(labelText:'Farm location')),
-  TextField(controller:acres,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Acres')),
+  TextField(controller:acres,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Declared / estimated acres')),
+  OutlinedButton.icon(onPressed:()=>Navigator.push<double>(context,MaterialPageRoute(builder:(_)=>const TajirLandMeasurePage())).then((value){if(value!=null&&mounted)setState(()=>acres.text=value.toStringAsFixed(3));}),icon:const Icon(Icons.gps_fixed),label:const Text('Measure land with GPS')),
   ListTile(title:Text('Booking date: '+date.toLocal().toString().split(' ')[0]),trailing:TextButton(onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)setState(()=>date=d);},child:const Text('Choose'))),
   FilledButton(onPressed:busy||saving?null:book,child:Text(saving?'Sending request…':'Submit booking request'))
  ]);
@@ -2403,6 +2471,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         }
         break;
       case 'driver':
+        out.add(Padding(padding:const EdgeInsets.only(bottom:10),child:Align(alignment:Alignment.centerLeft,child:FilledButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const Scaffold(appBar:AppBar(title:Text('TAJIR Land Measure')),body:TajirLandMeasurePage()))),icon:const Icon(Icons.square_foot),label:const Text('Measure farm land')))));
         out.add(sectionTitle('My assigned tractor jobs', primary.length));
         if (primary.isEmpty) out.add(const Text('No jobs are currently assigned to you.'));
         for (final r in primary) {
