@@ -873,6 +873,7 @@ class _TajirSessionGuardState extends State<TajirSessionGuard> with WidgetsBindi
   Timer? _idleTimer;
   DateTime _lastActivity = DateTime.now();
   StreamSubscription<AuthState>? _authSubscription;
+  bool _signOutInProgress = false;
 
   @override void initState() {
     super.initState();
@@ -913,8 +914,28 @@ class _TajirSessionGuardState extends State<TajirSessionGuard> with WidgetsBindi
     await Supabase.instance.client.auth.signOut();
   }
 
+  Future<void> _signOutForAppExit() async {
+    if (_signOutInProgress || !tajirBackendConfigured ||
+        Supabase.instance.client.auth.currentSession == null) return;
+    _signOutInProgress = true;
+    _idleTimer?.cancel();
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (_) {
+      // Do not expose lifecycle cleanup errors; AuthGate will still enforce
+      // the server session state when the app is opened again.
+    } finally {
+      _signOutInProgress = false;
+    }
+  }
+
   @override void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+    // Leaving TAJIR for another app, the home screen, or the app switcher
+    // ends the local session. A fresh sign-in is required on the next launch.
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _signOutForAppExit();
     } else if (state == AppLifecycleState.resumed) {
       if (tajirBackendConfigured && Supabase.instance.client.auth.currentSession != null) {
         if (DateTime.now().difference(_lastActivity) >= _idleLimit) {
@@ -1433,6 +1454,11 @@ class _LoginPageState extends State<LoginPage> {
           email: tajirLoginEmail(normalized),
           password: staffAuthPassword(pin.text),
         );
+        // AuthGate reacts to the new session. Close the pushed login route so
+        // the authenticated Director/Staff workspace is visible immediately.
+        if (mounted) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
       }
     } on AuthException catch (e) {
       if (mounted) setState(() => error = friendlyError(e));
