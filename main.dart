@@ -3150,7 +3150,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
   Future<void> load() async {
     if(mounted)setState(()=>loading=true);
     try{
-      final p=await db.from('profiles').select('id,display_name,phone,status,created_at,user_role_assignments(is_active,app_roles(code,name))').order('created_at',ascending:false).limit(500);
+      final p=await db.from('profiles').select('id,display_name,phone,status,created_at,user_role_assignments(is_active,app_roles(code,name)),customers(active,marketplace_can_buy,marketplace_can_sell)').order('created_at',ascending:false).limit(500);
       final a=await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').order('created_at',ascending:false).limit(25);
       final overview=await db.rpc('tajir_director_master_oversight_summary');
       summary=Map<String,dynamic>.from(overview as Map);
@@ -3165,8 +3165,24 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     }catch(e){if(mounted)setState(() { loading=false; error=friendlyError(e); });}
   }
   List<String> roleCodes(Map<String,dynamic> a){
-    final raw=a['user_role_assignments']; if(raw is! List)return [];
-    return raw.where((r)=>r is Map&&r['is_active']==true).map((r){final v=r['app_roles'];return v is Map?(v['code']??'').toString():'';}).where((v)=>v.isNotEmpty).toList();
+    final roles=<String>[];
+    final raw=a['user_role_assignments'];
+    if(raw is List){
+      roles.addAll(raw.where((r)=>r is Map&&r['is_active']==true)
+        .map((r){final v=r['app_roles'];return v is Map?(v['code']??'').toString():'';})
+        .where((v)=>v.isNotEmpty));
+    }
+    final customer=a['customers'];
+    if(customer is Map&&customer['active']==true){
+      if(customer['marketplace_can_buy']==true)roles.add('buyer');
+      if(customer['marketplace_can_sell']==true)roles.add('seller');
+    }else if(customer is List){
+      for(final c in customer.whereType<Map>()){
+        if(c['active']==true&&c['marketplace_can_buy']==true)roles.add('buyer');
+        if(c['active']==true&&c['marketplace_can_sell']==true)roles.add('seller');
+      }
+    }
+    return roles.toSet().toList();
   }
   int roleCount(String c){
     final departments=summary['department_accounts'];
