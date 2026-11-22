@@ -76,7 +76,7 @@ Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = fals
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: const Text('TAJIR update available'),
-      content: Text('A newer version (${found['version']}) is ready. Update to get the latest improvements and fixes.'),
+      content: Text('A newer version (${found['version']}) is ready. TAJIR will download it and open Android\'s installer. Choose Update to replace the existing app; you should not need to uninstall or clear your data.'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Later')),
         FilledButton.icon(
@@ -84,6 +84,11 @@ Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = fals
             Navigator.pop(dialogContext);
             try {
               await openTajirUpdate(found['url'].toString());
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('TAJIR update download started. Android will ask you to install it when the download finishes.')),
+                );
+              }
             } catch (_) {
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
