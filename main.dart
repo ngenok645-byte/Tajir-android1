@@ -9,6 +9,44 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:math' as math;
 import 'dart:async';
 
+
+const String tajirSupabaseUrl = String.fromEnvironment('SUPABASE_URL');
+const String tajirSupabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+
+bool get tajirBackendConfigured =>
+    tajirSupabaseUrl.isNotEmpty && tajirSupabaseAnonKey.isNotEmpty;
+
+String friendlyError(Object? error) {
+  if (error is AuthException) {
+    return error.message.isNotEmpty ? error.message : 'Authentication failed.';
+  }
+  if (error is PostgrestException) {
+    return error.message.isNotEmpty ? error.message : 'The request could not be completed.';
+  }
+  if (error is SocketException) {
+    return 'Network connection unavailable. Check your internet and try again.';
+  }
+  if (error is TimeoutException) {
+    return 'The request timed out. Please try again.';
+  }
+  final message = error?.toString().trim() ?? '';
+  return message.isEmpty ? 'Something went wrong. Please try again.' :
+      message.replaceFirst(RegExp(r'^(Exception|Error):\\s*'), '');
+}
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (tajirBackendConfigured) {
+    await Supabase.initialize(
+      url: tajirSupabaseUrl,
+      anonKey: tajirSupabaseAnonKey,
+    );
+    runApp(const TajirApp());
+  } else {
+    runApp(const SetupRequiredApp());
+  }
+}
+
 const double kgPerBag = 90.0;
 
 IconData productIconFor(String value) {
@@ -58,7 +96,7 @@ Future<Map<String, dynamic>?> checkTajirUpdate() async {
 }
 
 Future<void> openTajirUpdate(String url) async {
-  await tajirUpdateChannel.invokeMethod<void>('openUrl', {'url': url});
+  await tajirUpdateChannel.invokeMethod<void>('downloadAndInstall', {'url': url});
 }
 
 Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = false}) async {
@@ -76,7 +114,7 @@ Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = fals
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: const Text('TAJIR update available'),
-      content: Text('A newer version (${found['version']}) is ready. Update to get the latest improvements and fixes.'),
+      content: Text('A newer version (${found['version']}) is ready. TAJIR will download it and open Android\'s installer. Choose Update to replace the existing app; you should not need to uninstall or clear your data.'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Later')),
         FilledButton.icon(
@@ -84,16 +122,21 @@ Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = fals
             Navigator.pop(dialogContext);
             try {
               await openTajirUpdate(found['url'].toString());
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('TAJIR update download started. Android will ask you to install it when the download finishes.')),
+                );
+              }
             } catch (_) {
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Could not open the update link. Please try again.')),
+                  const SnackBar(content: Text('Could not start the update. Check your internet connection and try again.')),
                 );
               }
             }
           },
           icon: const Icon(Icons.download),
-          label: const Text('Download update'),
+          label: const Text('Download and install'),
         ),
       ],
     ),
@@ -177,21 +220,25 @@ Future<void> addMyTajirNationalId(BuildContext context) async {
 class TajirCallButton extends StatelessWidget {
   final String profileId;
   final String label;
-  const TajirCallButton({super.key, required this.profileId, this.label = 'Call'});
+  final String? linkedPhone;
+  const TajirCallButton({super.key, required this.profileId, this.label = 'Call', this.linkedPhone});
 
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
       onPressed: profileId.trim().isEmpty ? null : () async {
         try {
-          // Always resolve the number from the selected user's registered profile.
-          // Never dial a stale customer/provider contact field.
-          final row = await Supabase.instance.client
-              .from('profiles')
-              .select('phone')
-              .eq('id', profileId)
-              .maybeSingle();
-          final registeredPhone = row?['phone']?.toString().trim() ?? '';
+          // A server-authorised task relationship may supply the registered number.
+          // Otherwise only the caller's own profile is queried under normal RLS.
+          var registeredPhone = linkedPhone?.trim() ?? '';
+          if (registeredPhone.isEmpty) {
+            final row = await Supabase.instance.client
+                .from('profiles')
+                .select('phone')
+                .eq('id', profileId)
+                .maybeSingle();
+            registeredPhone = row?['phone']?.toString().trim() ?? '';
+          }
           if (registeredPhone.isEmpty) {
             throw const FormatException('This account has no registered phone number.');
           }
@@ -211,159 +258,389 @@ class TajirCallButton extends StatelessWidget {
 }
 
 
-class TajirDirectorContacts extends StatelessWidget {
-  const TajirDirectorContacts({super.key});
 
-  static const List<Map<String, String>> directors = [
-    {'name': 'Mercy', 'phone': '0713971207'},
-    {'name': 'Edwin (Edu)', 'phone': '0700020140'},
-  ];
+class TajirNotificationCenter extends StatelessWidget {
+  const TajirNotificationCenter({super.key});
 
-  Future<void> callDirector(BuildContext context, String phone) async {
-    try {
-      await callTajirPhone(phone);
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e))),
+  Future<void> _markRead(String id, String userId) async {
+    await Supabase.instance.client.from('notifications')
+      .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+      .eq('id', id)
+      .eq('recipient_user_id', userId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return const SizedBox.shrink();
+    final stream = Supabase.instance.client.from('notifications')
+      .stream(primaryKey: ['id'])
+      .eq('recipient_user_id', userId)
+      .order('created_at', ascending: false);
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        final rows = snapshot.data ?? const <Map<String, dynamic>>[];
+        final unread = rows.where((r) => r['read_at'] == null).length;
+        return ExpansionTile(
+          initiallyExpanded: false,
+          leading: Stack(clipBehavior: Clip.none, children: [
+            const Icon(Icons.notifications_active_outlined, color: brandGreen),
+            if (unread > 0) Positioned(right: -7, top: -7, child: CircleAvatar(
+              radius: 9, backgroundColor: Colors.red,
+              child: Text(unread > 9 ? '9+' : '$unread', style: const TextStyle(color: Colors.white, fontSize: 9)),
+            )),
+          ]),
+          title: const Text('Notifications', style: TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(snapshot.hasError ? 'Notifications temporarily unavailable' : '$unread unread • ${rows.length} total'),
+          children: [
+            if (snapshot.connectionState == ConnectionState.waiting && rows.isEmpty)
+              const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
+            if (snapshot.hasError)
+              const Padding(padding: EdgeInsets.all(12), child: Text('Could not load notifications. Please check your connection.')),
+            if (!snapshot.hasError && rows.isEmpty)
+              const Padding(padding: EdgeInsets.all(12), child: Text('You have no notifications yet.')),
+            ...rows.take(8).map((row) {
+              final id = (row['id'] ?? '').toString();
+              final isUnread = row['read_at'] == null;
+              return ListTile(
+                dense: true,
+                leading: Icon(isUnread ? Icons.mark_email_unread_outlined : Icons.drafts_outlined,
+                  color: isUnread ? brandGreen : Colors.grey),
+                title: Text((row['title'] ?? 'TAJIR update').toString(),
+                  style: TextStyle(fontWeight: isUnread ? FontWeight.bold : FontWeight.normal)),
+                subtitle: Text((row['body'] ?? '').toString()),
+                trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if ((row['sender_user_id'] ?? '').toString().isNotEmpty &&
+                      (row['sender_user_id'] ?? '').toString() != userId)
+                    IconButton(
+                      tooltip: 'Reply to sender',
+                      icon: const Icon(Icons.reply, color: brandGreen),
+                      onPressed: id.isEmpty ? null : () {
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => TajirNotificationConversationPage(
+                            notificationId: id,
+                            otherUserId: row['sender_user_id'].toString(),
+                            conversationTitle: (row['title'] ?? 'TAJIR conversation').toString(),
+                          ),
+                        ));
+                      },
+                    ),
+                  if (isUnread) IconButton(
+                    tooltip: 'Mark as read',
+                    icon: const Icon(Icons.done),
+                    onPressed: id.isEmpty ? null : () async {
+                      try { await _markRead(id, userId); }
+                      catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+                    },
+                  ),
+                ],
+              ),
+              );
+            }),
+          ],
         );
-      }
+      },
+    );
+  }
+}
+
+
+class TajirNotificationConversationPage extends StatefulWidget {
+  final String notificationId;
+  final String otherUserId;
+  final String conversationTitle;
+  const TajirNotificationConversationPage({
+    super.key,
+    required this.notificationId,
+    required this.otherUserId,
+    required this.conversationTitle,
+  });
+
+  @override
+  State<TajirNotificationConversationPage> createState() => _TajirNotificationConversationPageState();
+}
+
+class _TajirNotificationConversationPageState extends State<TajirNotificationConversationPage> {
+  final TextEditingController replyController = TextEditingController();
+  bool sending = false;
+
+  Future<void> sendReply() async {
+    final message = replyController.text.trim();
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (message.isEmpty || userId == null || sending) return;
+    setState(() => sending = true);
+    try {
+      await Supabase.instance.client.from('notification_replies').insert({
+        'notification_id': widget.notificationId,
+        'sender_user_id': userId,
+        'recipient_user_id': widget.otherUserId,
+        'message': message,
+      });
+      replyController.clear();
+      if (mounted) FocusScope.of(context).unfocus();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not send reply: ${friendlyError(e)}')),
+      );
+    } finally {
+      if (mounted) setState(() => sending = false);
     }
   }
 
-  @override Widget build(BuildContext context) => Card(
-    margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Row(children: [
-          Icon(Icons.support_agent, color: brandGreen),
-          SizedBox(width: 8),
-          Expanded(child: Text('TAJIR Directors contact list', style: TextStyle(fontWeight: FontWeight.bold))),
-        ]),
-        ...directors.map((director) {
-          final name = director['name']!;
-          final phone = director['phone']!;
-          return ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: Text(name),
-            subtitle: Text('TAJIR Director • $phone'),
-            trailing: IconButton(
-              tooltip: 'Call $name',
-              onPressed: () => callDirector(context, phone),
-              icon: const Icon(Icons.call, color: brandGreen),
+  @override
+  void dispose() {
+    replyController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return const Scaffold(body: Center(child: Text('Please sign in again.')));
+    final stream = Supabase.instance.client.from('notification_replies')
+      .stream(primaryKey: ['id'])
+      .eq('notification_id', widget.notificationId)
+      .order('created_at', ascending: true);
+    return Scaffold(
+      appBar: AppBar(title: Text('Reply', maxLines: 1, overflow: TextOverflow.ellipsis)),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(widget.conversationTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ),
+        Expanded(child: StreamBuilder<List<Map<String, dynamic>>>(
+          stream: stream,
+          builder: (context, snapshot) {
+            final rows = snapshot.data ?? const <Map<String, dynamic>>[];
+            if (snapshot.hasError) return const Center(child: Text('Could not load this conversation.'));
+            if (snapshot.connectionState == ConnectionState.waiting && rows.isEmpty) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (rows.isEmpty) return const Center(child: Text('No replies yet. Start the conversation below.'));
+            return ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: rows.length,
+              itemBuilder: (context, index) {
+                final row = rows[index];
+                final mine = row['sender_user_id']?.toString() == userId;
+                return Align(
+                  alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 320),
+                    margin: const EdgeInsets.symmetric(vertical: 5),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: mine ? brandGreen.withValues(alpha: 0.12) : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(mine ? 'You' : 'Other participant',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      const SizedBox(height: 4),
+                      Text((row['message'] ?? '').toString()),
+                      const SizedBox(height: 4),
+                      Text((row['created_at'] ?? '').toString(),
+                        style: const TextStyle(fontSize: 10, color: Colors.black54)),
+                    ]),
+                  ),
+                );
+              },
+            );
+          },
+        )),
+        SafeArea(top: false, child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: Row(children: [
+            Expanded(child: TextField(
+              controller: replyController,
+              minLines: 1,
+              maxLines: 4,
+              maxLength: 3000,
+              decoration: const InputDecoration(
+                hintText: 'Write a reply...',
+                border: OutlineInputBorder(),
+                counterText: '',
+              ),
+              onSubmitted: (_) => sendReply(),
+            )),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              onPressed: sending ? null : sendReply,
+              icon: sending
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.send),
+              tooltip: 'Send reply',
             ),
-          );
-        }),
+          ]),
+        )),
       ]),
+    );
+  }
+}
+
+class TajirDirectorContacts extends StatelessWidget {
+  const TajirDirectorContacts({super.key});
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.centerLeft,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+      child: OutlinedButton.icon(
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const TajirContactsPage()),
+        ),
+        icon: const Icon(Icons.contacts_outlined),
+        label: const Text('Search contacts'),
+      ),
     ),
   );
 }
 
- 
-/// Turns technical backend/network failures into clear messages for everyday users.
-/// Never display raw HTTP/database error codes in the app.
-String friendlyError(Object error) {
-  final raw = error.toString().replaceFirst(
-    RegExp(r'^(Exception|FormatException|AuthException|PostgrestException|FunctionException):\s*'),
-    '',
-  ).trim();
-  final value = raw.toLowerCase();
-
-  // Lockout and throttling messages must be checked before generic PIN errors.
-  // The server's lockout message contains "incorrect PIN", but it is not a bad-PIN
-  // response; preserve the retry guidance instead of misleading every user.
-  if (RegExp(r'\b429\b').hasMatch(value) ||
-      value.contains('too many incorrect pin attempts') ||
-      value.contains('too many attempts') ||
-      value.contains('try again in') ||
-      value.contains('temporarily locked')) {
-    final waitMatch = RegExp(r'try again in ([^.]+)').firstMatch(raw);
-    return waitMatch != null
-        ? 'Your account is temporarily locked. Please try again in ${waitMatch.group(1)}.'
-        : 'Your account is temporarily locked after several attempts. Please wait before trying again.';
-  }
-
-  // Only show Wrong PIN for an actual credential mismatch.
-  if (value.contains('wrong pin') || value.contains('incorrect pin') ||
-      value.contains('invalid pin') || value.contains('pin does not match')) {
-    return 'Wrong PIN. Please check your PIN and try again.';
-  }
-  if (value.contains('invalid login credentials') || value.contains('invalid credentials')) {
-    return 'The phone number or PIN is incorrect. Please check and try again.';
-  }
-  if (value.contains('phone') && (value.contains('already registered') ||
-      value.contains('already exists') || value.contains('duplicate'))) {
-    return 'This phone number is already registered. Please sign in or use another number.';
-  }
-  if (value.contains('phone') && (value.contains('not found') ||
-      value.contains('not registered') || value.contains('no account'))) {
-    return 'We could not find an account with this phone number. Check the number or register first.';
-  }
-  if (value.contains('pin') && (value.contains('four') || value.contains('4 digit') ||
-      value.contains('4-digit') || value.contains('length'))) {
-    return 'Your PIN must contain exactly four digits.';
-  }
-  if (value.contains('pin') && value.contains('match')) {
-    return 'The PINs do not match. Enter the same PIN in both boxes.';
-  }
-  if (value.contains('session') && (value.contains('expired') || value.contains('missing'))) {
-    return 'Your session has expired. Please sign in again.';
-  }
-  if (RegExp(r'\b401\b').hasMatch(value) || value.contains('unauthorized') || value.contains('jwt')) {
-    return 'Your session has expired. Please sign in again and try once more.';
-  }
-  if (RegExp(r'\b403\b').hasMatch(value) || value.contains('permission denied') || value.contains('not allowed')) {
-    return 'You do not have permission to do this. Please contact the Director if you need access.';
-  }
-  if (RegExp(r'\b404\b').hasMatch(value) || value.contains('not found')) {
-    return 'We could not find that record. Refresh the page and try again.';
-  }
-  if (RegExp(r'\b409\b').hasMatch(value) || value.contains('duplicate') || value.contains('already exists') || value.contains('conflict')) {
-    return 'This information is already registered or has changed. Refresh and check the details.';
-  }
-  if (RegExp(r'\b429\b').hasMatch(value) || value.contains('too many requests') || value.contains('rate limit')) {
-    return 'Too many attempts were made. Please wait a little and try again.';
-  }
-  if (RegExp(r'\b400\b').hasMatch(value) || value.contains('bad request')) {
-    return 'Some details are missing or incorrect. Check the information and try again.';
-  }
-  if (RegExp(r'\b(500|502|503|504)\b').hasMatch(value) || value.contains('server error')) {
-    return 'The service is temporarily unavailable. Please try again in a few minutes.';
-  }
-  if (value.contains('socketexception') || value.contains('failed host lookup') ||
-      value.contains('network is unreachable') || value.contains('connection refused')) {
-    return 'There is a connection problem. Check your internet and try again.';
-  }
-  if (value.contains('timed out') || value.contains('timeout')) {
-    return 'The request took too long. Check your connection and try again.';
-  }
-  if (raw.isEmpty || RegExp(r'\b(code|status)\s*[:=]?\s*\d{3}\b', caseSensitive: false).hasMatch(raw)) {
-    return 'Something went wrong. Please try again. If the problem continues, contact the Director.';
-  }
-  return raw;
+class TajirContactsPage extends StatefulWidget {
+  const TajirContactsPage({super.key});
+  static const List<Map<String, String>> directors = [
+    {'name': 'Mercy', 'phone': '0713971207'},
+    {'name': 'Edwin (Edu)', 'phone': '0700020140'},
+  ];
+  @override State<TajirContactsPage> createState() => _TajirContactsPageState();
 }
 
-const tajirBackendConfigured = String.fromEnvironment('SUPABASE_URL') != '' && String.fromEnvironment('SUPABASE_ANON_KEY') != '';
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  const previewMode = bool.fromEnvironment('TAJIR_PREVIEW');
-  const url = String.fromEnvironment('SUPABASE_URL');
-  const anon = String.fromEnvironment('SUPABASE_ANON_KEY');
-  if (previewMode && (url.isEmpty || anon.isEmpty)) {
-    runApp(const TajirApp());
-    return;
+class _TajirContactsPageState extends State<TajirContactsPage> {
+  final searchController = TextEditingController();
+  List<Map<String,dynamic>> linkedContacts = [];
+  bool loadingContacts = true;
+  @override void initState() { super.initState(); loadLinkedContacts(); }
+  @override void dispose() { searchController.dispose(); super.dispose(); }
+  Future<void> loadLinkedContacts() async {
+    try {
+      final db = Supabase.instance.client;
+      final uid = db.auth.currentUser?.id;
+      if (uid == null) return;
+      final roles = await db.from('user_role_assignments').select('app_roles(code)').eq('user_id', uid).eq('is_active', true);
+      final isDirector = roles.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
+      final base = await db.rpc('tajir_get_linked_contact_profiles');
+      final rows = <Map<String,dynamic>>[];
+      rows.addAll(List<Map<String,dynamic>>.from(base));
+      if (isDirector) {
+        final management = await db.rpc('tajir_get_director_contact_profiles');
+        rows.addAll(List<Map<String,dynamic>>.from(management));
+      }
+      final unique = <String,Map<String,dynamic>>{};
+      for (final row in rows) {
+        final id = (row['profile_id'] ?? '').toString();
+        if (id.isNotEmpty) unique[id] = row;
+      }
+      if (mounted) setState(() => linkedContacts = unique.values.toList());
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load linked contacts. Pull down to retry.')),
+      );
+    } finally {
+      if (mounted) setState(() => loadingContacts = false);
+    }
   }
-  if (url.isEmpty || anon.isEmpty) {
-    runApp(const SetupRequiredApp());
-    return;
+  void openContact(Map<String,dynamic> contact) {
+    final name = (contact['display_name'] ?? 'TAJIR account').toString();
+    showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(name),
+      content: Text([
+        (contact['relationship'] ?? 'Linked TAJIR contact').toString(),
+        if ((contact['reference'] ?? '').toString().isNotEmpty) 'Reference: ${contact['reference']}',
+        if ((contact['phone'] ?? '').toString().isNotEmpty) 'Phone: ${contact['phone']}',
+      ].join('\n')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        FilledButton.icon(
+          onPressed: () async {
+            Navigator.pop(ctx);
+            try {
+              await callTajirPhone((contact['phone'] ?? '').toString());
+            } catch (e) {
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+            }
+          },
+          icon: const Icon(Icons.call), label: const Text('Call'),
+        ),
+      ],
+    ));
   }
-  await Supabase.initialize(url: url, anonKey: anon);
-  runApp(const TajirApp());
+  @override Widget build(BuildContext context) {
+    final query = searchController.text.trim().toLowerCase();
+    final linked = linkedContacts.where((c) {
+      final haystack = '${c['display_name'] ?? ''} ${c['relationship'] ?? ''} ${c['reference'] ?? ''} ${c['phone'] ?? ''}'.toLowerCase();
+      return query.isEmpty || haystack.contains(query);
+    }).toList();
+    final directors = TajirContactsPage.directors.where((d) =>
+      query.isEmpty || '${d['name']} ${d['phone']}'.toLowerCase().contains(query)).toList();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Contacts')),
+      body: RefreshIndicator(
+        onRefresh: loadLinkedContacts,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text('Find the client, driver, or TAJIR contact connected to your work. Open a contact to view details and call.', style: TextStyle(color: Colors.black54)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: searchController,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: 'Search by name, task or phone',
+                suffixIcon: searchController.text.isEmpty ? null : IconButton(
+                  onPressed: () { searchController.clear(); setState(() {}); },
+                  icon: const Icon(Icons.clear),
+                ),
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('People linked to your tasks', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+            if (loadingContacts) const LinearProgressIndicator(),
+            if (!loadingContacts && linked.isEmpty) Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(query.isEmpty ? 'No linked contacts yet. Contacts appear when you share a booking, delivery, order, repair or parts request.' : 'No matching linked contacts.'),
+            ),
+            ...linked.map((contact) => Card(
+              child: ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+                title: Text((contact['display_name'] ?? 'TAJIR account').toString()),
+                subtitle: Text((contact['relationship'] ?? 'Linked task').toString() + ((contact['reference'] ?? '').toString().isEmpty ? '' : ' • ${contact['reference']}')),
+                trailing: IconButton(
+                  tooltip: 'Call '+(contact['display_name'] ?? 'contact').toString(),
+                  onPressed: (contact['phone'] ?? '').toString().trim().isEmpty ? null : () async {
+                    try { await callTajirPhone(contact['phone'].toString()); }
+                    catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+                  },
+                  icon: const Icon(Icons.call, color: brandGreen),
+                ),
+                onTap: () => openContact(contact),
+              ),
+            )),
+            const Divider(height: 28),
+            const Text('TAJIR support contacts', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+            ...directors.map((d) => Card(child: ListTile(
+              leading: const CircleAvatar(child: Icon(Icons.support_agent)),
+              title: Text(d['name']!),
+              subtitle: const Text('TAJIR Director'),
+              trailing: IconButton(
+                tooltip: 'Call ${d['name']}',
+                onPressed: () async {
+                  try { await callTajirPhone(d['phone']!); }
+                  catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+                },
+                icon: const Icon(Icons.call, color: brandGreen),
+              ),
+            ))),
+          ],
+        ),
+      ),
+    );
+  }
 }
-
 class SetupRequiredApp extends StatelessWidget {
   const SetupRequiredApp({super.key});
   @override
@@ -397,10 +674,90 @@ class _TajirAppState extends State<TajirApp> {
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'TAJIR', debugShowCheckedModeBanner: false, theme: appTheme,
+    builder: (context, child) => TajirSessionGuard(child: child ?? const SizedBox.shrink()),
     home: const AuthGate(),
   );
 }
 
+
+class TajirSessionGuard extends StatefulWidget {
+  final Widget child;
+  const TajirSessionGuard({super.key, required this.child});
+  @override State<TajirSessionGuard> createState() => _TajirSessionGuardState();
+}
+
+class _TajirSessionGuardState extends State<TajirSessionGuard> with WidgetsBindingObserver {
+  static const Duration _idleLimit = Duration(minutes: 15);
+  Timer? _idleTimer;
+  DateTime _lastActivity = DateTime.now();
+  StreamSubscription<AuthState>? _authSubscription;
+
+  @override void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    if (tajirBackendConfigured) {
+      final auth = Supabase.instance.client.auth;
+      if (auth.currentSession != null) _armTimer();
+      _authSubscription = auth.onAuthStateChange.listen((state) {
+        if (state.session == null) {
+          _idleTimer?.cancel();
+        } else {
+          _lastActivity = DateTime.now();
+          _armTimer();
+        }
+      });
+    }
+  }
+
+  void _recordActivity() {
+    if (!tajirBackendConfigured || Supabase.instance.client.auth.currentSession == null) return;
+    _lastActivity = DateTime.now();
+    _armTimer();
+  }
+
+  void _armTimer() {
+    _idleTimer?.cancel();
+    if (!tajirBackendConfigured || Supabase.instance.client.auth.currentSession == null) return;
+    _idleTimer = Timer(_idleLimit, _expireSession);
+  }
+
+  Future<void> _expireSession() async {
+    if (!tajirBackendConfigured || Supabase.instance.client.auth.currentSession == null) return;
+    if (DateTime.now().difference(_lastActivity) < _idleLimit) {
+      _armTimer();
+      return;
+    }
+    _idleTimer?.cancel();
+    await Supabase.instance.client.auth.signOut();
+  }
+
+  @override void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+    } else if (state == AppLifecycleState.resumed) {
+      if (tajirBackendConfigured && Supabase.instance.client.auth.currentSession != null) {
+        if (DateTime.now().difference(_lastActivity) >= _idleLimit) {
+          _expireSession();
+        } else {
+          _armTimer();
+        }
+      }
+    }
+  }
+
+  @override Widget build(BuildContext context) => Listener(
+    behavior: HitTestBehavior.translucent,
+    onPointerDown: (_) => _recordActivity(),
+    onPointerSignal: (_) => _recordActivity(),
+    child: widget.child,
+  );
+
+  @override void dispose() {
+    _idleTimer?.cancel();
+    _authSubscription?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+}
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -483,17 +840,22 @@ class AuthChoicePage extends StatelessWidget {
   }) {
     return Card(
       clipBehavior: Clip.antiAlias,
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      elevation: 1,
+      shadowColor: roleColor.withOpacity(.14),
+      color: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: roleColor.withOpacity(.18)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(11),
+        padding: const EdgeInsets.all(10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Lightweight, locally rendered role artwork: no remote image loading
             // or network dependency on the sign-in screen.
             Container(
-              height: 76,
+              height: 62,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [roleColor.withOpacity(.16), roleColor.withOpacity(.045)],
@@ -508,38 +870,56 @@ class AuthChoicePage extends StatelessWidget {
                   Positioned(right: 16, top: -17,
                     child: Icon(icon, size: 92, color: roleColor.withOpacity(.08))),
                   Container(
-                    width: 56, height: 56,
+                    width: 48, height: 48,
                     decoration: BoxDecoration(
                       color: roleColor.withOpacity(.13),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(icon, size: 34, color: roleColor),
+                    child: Icon(icon, size: 29, color: roleColor),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 9),
+            const SizedBox(height: 7),
             Text(
               title,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 5),
             Expanded(
               child: Text(
                 subtitle,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
+                style: const TextStyle(fontSize: 11, height: 1.2, color: Colors.black54),
               ),
             ),
-            const SizedBox(height: 10),
-            FilledButton(
-              onPressed: onLogin,
-              child: const Text('Sign in'),
+            const SizedBox(height: 7),
+            SizedBox(
+              height: 34,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: onLogin,
+                child: const Text('Sign in', style: TextStyle(fontSize: 12)),
+              ),
             ),
-            OutlinedButton(
-              onPressed: onJoin,
-              child: const Text('Join TAJIR'),
+            SizedBox(
+              height: 32,
+              child: TextButton(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: onJoin,
+                child: const Text('Join TAJIR', style: TextStyle(fontSize: 11)),
+              ),
             ),
           ],
         ),
@@ -571,10 +951,23 @@ class AuthChoicePage extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.black54),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 22),
+                const Text(
+                  'CHOOSE YOUR WORKSPACE',
+                  textAlign: TextAlign.left,
+                  style: TextStyle(
+                    fontSize: 11,
+                    letterSpacing: 1.2,
+                    fontWeight: FontWeight.w800,
+                    color: brandGreen,
+                  ),
+                ),
+                const SizedBox(height: 10),
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final columns = constraints.maxWidth >= 430 ? 2 : 1;
+                    // Keep account choices in a real responsive grid on phones
+                    // as well as tablets; never collapse the sign-in choices into a list.
+                    final columns = constraints.maxWidth >= 520 ? 3 : 2;
                     const spacing = 10.0;
                     final cardWidth = (constraints.maxWidth -
                         (columns - 1) * spacing) / columns;
@@ -594,7 +987,7 @@ class AuthChoicePage extends StatelessWidget {
                       ),
                       SizedBox(
                         width: cardWidth,
-                        height: 218,
+                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.agriculture,
@@ -607,7 +1000,7 @@ class AuthChoicePage extends StatelessWidget {
                       ),
                       SizedBox(
                         width: cardWidth,
-                        height: 218,
+                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.local_shipping_outlined,
@@ -620,7 +1013,7 @@ class AuthChoicePage extends StatelessWidget {
                       ),
                       SizedBox(
                         width: cardWidth,
-                        height: 218,
+                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.handyman_outlined,
@@ -633,7 +1026,7 @@ class AuthChoicePage extends StatelessWidget {
                       ),
                       SizedBox(
                         width: cardWidth,
-                        height: 218,
+                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.settings_outlined,
@@ -646,7 +1039,7 @@ class AuthChoicePage extends StatelessWidget {
                       ),
                       SizedBox(
                         width: cardWidth,
-                        height: 218,
+                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.badge_outlined,
@@ -657,69 +1050,35 @@ class AuthChoicePage extends StatelessWidget {
                           onJoin: () => _explainApproval(context, 'Worker'),
                         ),
                       ),
+                      SizedBox(
+                        width: cardWidth,
+                        height: 232,
+                        child: _accountCard(
+                          context,
+                          icon: Icons.admin_panel_settings_outlined,
+                          title: 'Director',
+                          roleColor: brandGreen,
+                          subtitle: 'Secure sign-in for authorised TAJIR Directors only.',
+                          onLogin: () => _openLogin(context),
+                          onJoin: () => _explainApproval(context, 'Director'),
+                        ),
+                      ),
                     ];
-                    return Wrap(
-                      spacing: spacing,
-                      runSpacing: spacing,
+                    return GridView.count(
+                      crossAxisCount: columns,
+                      crossAxisSpacing: spacing,
+                      mainAxisSpacing: spacing,
+                      childAspectRatio: cardWidth / 218,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
                       children: accounts,
                     );
                   },
                 ),
-                const SizedBox(height: 12),
-                Card(
-                  color: brandGreen.withOpacity(.08),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: brandGreen.withOpacity(.25)),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 68,
-                          height: 68,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [brandGreen.withOpacity(.22), brandGreen.withOpacity(.07)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const Icon(Icons.admin_panel_settings_outlined,
-                              size: 40, color: brandGreen),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Director',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 16)),
-                              SizedBox(height: 3),
-                              Text(
-                                'Secure sign-in for authorised Directors only.',
-                                style: TextStyle(
-                                    fontSize: 12, color: Colors.black54),
-                              ),
-                            ],
-                          ),
-                        ),
-                        FilledButton(
-                          onPressed: () => _openLogin(context),
-                          child: const Text('Sign in'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 14),
                 const Text(
-                  'Service-provider and staff access is approved by the Director. '
-                  'Choosing a category does not grant permissions by itself.',
+                  'Staff and service-provider accounts require Director approval. '
+                  'Selecting a workspace does not grant account permissions.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: Colors.black54),
                 ),
@@ -1237,7 +1596,7 @@ class _BranchRequestPanelState extends State<BranchRequestPanel> {
   Future<void> load() async {
     if(mounted)setState(()=>loading=true);
     try {
-      final r=await Future.wait([
+      final r=await Future.wait<dynamic>([
         db.from('branches').select('id,code,name').eq('is_active',true).order('name'),
         db.from('branch_requests').select('id,proposed_name,address,status,rejection_reason').order('created_at',ascending:false).limit(30),
       ]);
@@ -1507,7 +1866,7 @@ class _RepairMarketplacePageState extends State<RepairMarketplacePage> with Sing
  Future<void> load() async {
   setState(()=>busy=true);
   try {
-   final results=await Future.wait([
+   final results=await Future.wait<dynamic>([
     db.from('mechanic_profiles').select('id,business_name,phone,location,services').eq('status','approved').order('business_name'),
     db.from('auto_spares_inventory').select('id,shop_id,part_name,part_reference,description,quantity,unit,price_kes,auto_spares_profiles(shop_name,phone,location)').eq('status','active').gt('quantity',0).order('part_name')
    ]);
@@ -1628,7 +1987,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    }else{
     final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
     final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').order('created_at',ascending:false);
-    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,status,created_at').order('created_at',ascending:false);
+    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').order('created_at',ascending:false);
     r=[
      ...List<Map<String,dynamic>>.from(marketplaceRows),
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
@@ -1740,6 +2099,13 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   try{
    await Supabase.instance.client.rpc('customer_confirm_custom_product_request',params:{'p_request_id':row['id']});
    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('You confirmed the Director-approved offer. TAJIR can now proceed with the request.')));
+   await load();
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+ }
+ Future<void> declineCustomRequest(Map<String,dynamic> row)async{
+  try{
+   await Supabase.instance.client.rpc('customer_decline_custom_product_counteroffer',params:{'p_request_id':row['id']});
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('You declined the Director counteroffer. The Director has been notified.')));
    await load();
   }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
  }
@@ -1936,11 +2302,16 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
        title:Text((r['product_name']??'Custom product').toString()),
        subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\n'+((r['request_direction']??'BUY_FROM_TAJIR')=='SELL_TO_TAJIR'?'Offer to sell to TAJIR':'Request to buy from TAJIR')+'\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • Director agreed: KES '+agreed.toString()+'/'+unit)+'\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\nDirector: '+response)),
        isThreeLine:true,
-       trailing:r['customer_confirmed_at']!=null
-        ? const Icon(Icons.verified,color:brandGreen)
-        : r['status']=='approved'
-         ? FilledButton.tonal(onPressed:()=>confirmCustomRequest(r),child:const Text('Confirm offer'))
-         : const Icon(Icons.hourglass_top),
+       trailing:r['customer_response']=='declined'
+        ? const Text('Declined')
+        : r['customer_confirmed_at']!=null || r['customer_response']=='accepted'
+         ? const Icon(Icons.verified,color:brandGreen)
+         : (r['status']=='approved' || r['status']=='negotiation')
+          ? PopupMenuButton<String>(tooltip:'Respond to Director offer',onSelected:(v){if(v=='accept')confirmCustomRequest(r);if(v=='decline')declineCustomRequest(r);},itemBuilder:(_)=>const [
+             PopupMenuItem(value:'accept',child:Text('Accept offer')),
+             PopupMenuItem(value:'decline',child:Text('Decline offer')),
+            ])
+          : const Icon(Icons.hourglass_top),
       ));
      }
      if(r['_is_tajir_request']==true){
@@ -2126,7 +2497,9 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
  final location=TextEditingController(),county=TextEditingController(),region=TextEditingController(),village=TextEditingController(),quantity=TextEditingController();
  DateTime date=DateTime.now().add(const Duration(days:1));
  bool get isTransport=>service=='transport';
- String get unitLabel=>isTransport?({'per_trip':'trips','per_km':'kilometres','per_tonne':'tonnes'}[transportUnit]??'trips'):'acres';
+ bool get hasVariablePricingUnit=>service=='transport'||service=='other';
+ bool get usesLandArea=>!isTransport&&(!hasVariablePricingUnit||transportUnit=='per_acre');
+ String get unitLabel=>hasVariablePricingUnit?({'per_acre':'acres','per_trip':'trips','per_km':'kilometres','per_tonne':'tonnes'}[transportUnit]??'trips'):'acres';
  @override void initState(){super.initState();load();}
  @override void dispose(){location.dispose();county.dispose();region.dispose();village.dispose();quantity.dispose();super.dispose();}
  Future<void> load()async{
@@ -2136,12 +2509,12 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
  }
  Future<void> refreshQuote()async{
   final request=++quoteRequest;final q=double.tryParse(quantity.text.trim());
-  if(q==null||q<=0||location.text.trim().length<3){if(mounted)setState(()=>quote=null);return;}
+  if(q==null||q<=0||location.text.trim().length<3){if(mounted)setState((){quote=null;quoting=false;quoteError=null;});return;}
   setState(()=>quoting=true);
   try{
    final r=await Supabase.instance.client.rpc('customer_quote_tractor_service',params:{
     'p_service_type':service,'p_county':county.text.trim(),'p_region':region.text.trim(),
-    'p_village':village.text.trim(),'p_quantity':q,'p_pricing_unit':isTransport?transportUnit:null
+    'p_village':village.text.trim(),'p_quantity':q,'p_pricing_unit':hasVariablePricingUnit?transportUnit:null
    });
    if(!mounted||request!=quoteRequest)return;
    final row=(r as List).first;
@@ -2159,7 +2532,7 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
    final r=await Supabase.instance.client.rpc('customer_book_tractor_service_priced',params:{
     'p_tractor_id':tractor,'p_service_type':service,'p_service_location':location.text.trim(),
     'p_county':county.text.trim(),'p_region':region.text.trim(),'p_village':village.text.trim(),
-    'p_quantity':q,'p_pricing_unit':isTransport?transportUnit:null,
+    'p_quantity':q,'p_pricing_unit':hasVariablePricingUnit?transportUnit:null,
     'p_booked_for':date.toUtc().toIso8601String(),'p_notes':null
    });
    final row=(r as List).first;final job=row['job_number'].toString();
@@ -2172,15 +2545,15 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
   if(busy)const LinearProgressIndicator(),
   if(tractors.isNotEmpty)DropdownButtonFormField<String>(value:tractor,items:tractors.map((t)=>DropdownMenuItem(value:t['tractor_id'].toString(),child:Text(t['selection_label'].toString()))).toList(),onChanged:(v)=>setState(()=>tractor=v),decoration:const InputDecoration(labelText:'Preferred available tractor (optional)')),
   if(!busy&&tractors.isEmpty)Container(padding:const EdgeInsets.all(12),margin:const EdgeInsets.only(bottom:8),decoration:BoxDecoration(color:brandGreen.withOpacity(.08),borderRadius:BorderRadius.circular(12)),child:const Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(Icons.support_agent,color:brandGreen),SizedBox(width:10),Expanded(child:Text('You can still place your booking. Your request will be sent to the TAJIR Director, who will arrange and assign a tractor for you.'))])),
-  DropdownButtonFormField<String>(value:service,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v){setState(()=>service=v??'ploughing');refreshQuote();},decoration:const InputDecoration(labelText:'Service')),
-  if(isTransport)DropdownButtonFormField<String>(value:transportUnit,items:const [DropdownMenuItem(value:'per_trip',child:Text('Charge per trip')),DropdownMenuItem(value:'per_km',child:Text('Charge per kilometre')),DropdownMenuItem(value:'per_tonne',child:Text('Charge per tonne'))],onChanged:(v){setState(()=>transportUnit=v??'per_trip');refreshQuote();},decoration:const InputDecoration(labelText:'Transport pricing basis')),
+  DropdownButtonFormField<String>(value:service,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v){setState((){service=v??'ploughing';if(service=='transport'&&transportUnit=='per_acre')transportUnit='per_trip';});refreshQuote();},decoration:const InputDecoration(labelText:'Service')),
+  if(hasVariablePricingUnit)DropdownButtonFormField<String>(value:transportUnit,items:(service=='transport'?const ['per_trip','per_km','per_tonne']:const ['per_acre','per_trip','per_km','per_tonne']).map((u)=>DropdownMenuItem(value:u,child:Text({'per_acre':'Per acre','per_trip':'Per trip','per_km':'Per kilometre','per_tonne':'Per tonne'}[u]!))).toList(),onChanged:(v){setState(()=>transportUnit=v??'per_trip');refreshQuote();},decoration:InputDecoration(labelText:service=='transport'?'Transport pricing basis':'Other service pricing basis')), 
   const Text('Farm location',style:TextStyle(fontWeight:FontWeight.w600)),
   TextField(controller:county,decoration:const InputDecoration(labelText:'County',hintText:'Select or enter county'),onChanged:(_)=>refreshQuote()),
   TextField(controller:region,decoration:const InputDecoration(labelText:'Region',hintText:'Select or enter region'),onChanged:(_)=>refreshQuote()),
   TextField(controller:village,decoration:const InputDecoration(labelText:'Village',hintText:'Select or enter village'),onChanged:(_)=>refreshQuote()),
-  TextField(controller:location,decoration:const InputDecoration(labelText:'Specific farm location / directions')),
-  TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:isTransport?'Transport quantity ($unitLabel)':'Land size (acres)'),onChanged:(_)=>refreshQuote()),
-  if(!isTransport)OutlinedButton.icon(onPressed:()=>Navigator.push<double>(context,MaterialPageRoute(builder:(_)=>const TajirLandMeasurePage())).then((value){if(value!=null&&mounted){quantity.text=value.toStringAsFixed(3);refreshQuote();}}),icon:const Icon(Icons.gps_fixed),label:const Text('Measure land with GPS')),
+  TextField(controller:location,decoration:const InputDecoration(labelText:'Specific farm location / directions'),onChanged:(_)=>refreshQuote()),
+  TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:usesLandArea?'Land size (acres)':'Service quantity ($unitLabel)'),onChanged:(_)=>refreshQuote()),
+  if(usesLandArea)OutlinedButton.icon(onPressed:()=>Navigator.push<double>(context,MaterialPageRoute(builder:(_)=>const TajirLandMeasurePage())).then((value){if(value!=null&&mounted){quantity.text=value.toStringAsFixed(3);refreshQuote();}}),icon:const Icon(Icons.gps_fixed),label:const Text('Measure land with GPS')),
   if(quoting)const LinearProgressIndicator(),
   if(quote!=null)Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
    const Text('Automatic service calculation',style:TextStyle(fontWeight:FontWeight.bold)),
@@ -2199,8 +2572,39 @@ class CustomerTractorBookingsPage extends StatefulWidget{@override State<Custome
 class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPage>{
  List<Map<String,dynamic>> rows=[];bool busy=true;
  @override void initState(){super.initState();load();}
- Future<void> load()async{try{final r=await Supabase.instance.client.rpc('customer_list_tractor_bookings');if(mounted)setState(()=>rows=List<Map<String,dynamic>>.from(r));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}if(mounted)setState(()=>busy=false);}
- @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[const Text('Tractor booking history',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(!busy&&rows.isEmpty)const Text('No bookings yet.'),...rows.map((r){final status=r['status'].toString();final statusText=status=='awaiting_director_assignment'?'The Director is arranging a tractor':status.replaceAll('_',' ');return Card(child:ListTile(leading:const Icon(Icons.agriculture,color:brandGreen),title:Text(r['service_type'].toString()+' • '+r['job_number'].toString()),subtitle:Text(r['service_location'].toString()+' • '+statusText),trailing:Text('KES '+r['total_charge'].toString())));})]));
+ Future<void> load()async{
+  try{
+   final results=await Future.wait<dynamic>([
+    Supabase.instance.client.rpc('customer_list_tractor_bookings'),
+    Supabase.instance.client.rpc('customer_get_tractor_driver_contacts'),
+   ]);
+   final contacts=<String,Map<String,dynamic>>{};
+   for(final item in List<Map<String,dynamic>>.from(results[1])){contacts[item['job_id'].toString()]=Map<String,dynamic>.from(item);}
+   final bookingRows=List<Map<String,dynamic>>.from(results[0]);
+   for(final row in bookingRows){row['driver_contact']=contacts[row['id'].toString()];}
+   if(mounted)setState(()=>rows=bookingRows);
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+  if(mounted)setState(()=>busy=false);
+ }
+ @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+  const Text('Tractor booking history',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+  const Text('Once a driver is assigned, their registered contact becomes available here.',style:TextStyle(fontSize:12,color:Colors.black54)),
+  if(busy)const LinearProgressIndicator(),
+  if(!busy&&rows.isEmpty)const Text('No bookings yet.'),
+  ...rows.map((r){
+   final status=r['status'].toString();
+   final statusText=status=='awaiting_director_assignment'?'The Director is arranging a tractor':status.replaceAll('_',' ');
+   final driver=r['driver_contact'] is Map?Map<String,dynamic>.from(r['driver_contact'] as Map):null;
+   return Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.agriculture,color:brandGreen),title:Text(r['service_type'].toString()+' • '+r['job_number'].toString()),subtitle:Text(r['service_location'].toString()+' • '+statusText),trailing:Text('KES '+r['total_charge'].toString())),
+    if(driver!=null)...[
+     const Divider(),
+     ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.person_outline),title:Text((driver['driver_name']??'Assigned driver').toString()),subtitle:Text((driver['driver_phone']??'').toString()),trailing:driver['driver_profile_id']==null?const SizedBox.shrink():TajirCallButton(profileId:driver['driver_profile_id'].toString(),linkedPhone:driver['driver_phone']?.toString(),label:'Call driver')),
+    ] else if(status!='awaiting_director_assignment')
+     const Padding(padding:EdgeInsets.only(left:8),child:Text('Driver contact will appear here once the driver is assigned.',style:TextStyle(fontSize:12,color:Colors.black54))),
+   ])));
+  })
+ ]));
 }
 
 class AccountRouter extends StatelessWidget {
@@ -2226,7 +2630,16 @@ class AccountRouter extends StatelessWidget {
       }
     }
 
-    const staffRoles = {'director','branch_manager','accountant','worker'};
+    // Resolve internal management access before external service-provider
+    // workspaces. Multi-role staff must never be routed away from Director or
+    // management controls simply because they also hold a provider role.
+    if (roleCodes.contains('director') ||
+        roleCodes.contains('branch_manager') ||
+        roleCodes.contains('accountant')) {
+      return const HomeShell();
+    }
+    if (roleCodes.contains('worker')) return const WorkerWorkspacePage();
+
     const serviceRoles = {
       'tractor_owner': 'Tractor Owner',
       'driver': 'Driver',
@@ -2238,8 +2651,6 @@ class AccountRouter extends StatelessWidget {
         return RoleWorkspacePage(roleCode: entry.key, roleName: entry.value);
       }
     }
-    if (roleCodes.contains('worker')) return const WorkerWorkspacePage();
-    if (roleCodes.any(staffRoles.contains)) return const HomeShell();
 
     // Accounts without an operational role may continue to the client portal.
     // This also preserves the client side of a multi-role account.
@@ -2305,7 +2716,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           break;
         case 'driver':
           final jobs = await db.from('tractor_service_jobs')
-            .select('id,job_number,service_type,service_location,booked_for,status,total_charge,tractor_id,operator_id')
+            .select('id,job_number,service_type,service_location,booked_for,status,total_charge,tractor_id,operator_id,farmer_name,farmer_phone')
             .eq('operator_id', uid).order('booked_for', ascending: false);
           primary = List<Map<String,dynamic>>.from(jobs);
           break;
@@ -2571,8 +2982,18 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           } else if (jobStatus == 'in_progress') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateDriverJob(r, 'completed'), child: const Text('Complete job')));
           }
+          final clientPhone = (r['farmer_phone'] ?? '').toString().trim();
+          if (clientPhone.isNotEmpty) {
+            jobActions.add(OutlinedButton.icon(
+              onPressed: busy ? null : () async {
+                try { await callTajirPhone(clientPhone); }
+                catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+              },
+              icon: const Icon(Icons.call), label: const Text('Call client'),
+            ));
+          }
           out.add(recordCard('${r['job_number'] ?? 'Job'} • ${r['service_type'] ?? ''}',
-            '${r['service_location'] ?? ''} • ${r['booked_for'] ?? ''} • ' + jobStatus,
+            '${r['farmer_name'] ?? 'Client'} • ${r['service_location'] ?? ''} • ${r['booked_for'] ?? ''} • ' + jobStatus,
             trailing: money(r['total_charge']),
             actions: jobActions.isEmpty ? null : Wrap(spacing: 8, children: jobActions)));
         }
@@ -2853,6 +3274,148 @@ class BrandMark extends StatelessWidget {
   ]);
 }
 
+
+class DirectorMasterOversightPage extends StatefulWidget {
+  const DirectorMasterOversightPage({super.key});
+  @override State<DirectorMasterOversightPage> createState() => _DirectorMasterOversightPageState();
+}
+class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPage> {
+  final db=Supabase.instance.client;
+  bool loading=true;
+  String? error;
+  List<Map<String,dynamic>> accounts=[], audit=[];
+  final Map<String,int> activity={};
+  Map<String,dynamic> summary={};
+  static const roles=<Map<String,String>>[
+    {'code':'director','name':'Director'},{'code':'buyer','name':'Buyer'},
+    {'code':'seller','name':'Seller'},{'code':'worker','name':'Worker'},
+    {'code':'tractor_owner','name':'Tractor Owner'},{'code':'driver','name':'Driver'},
+    {'code':'mechanic','name':'Mechanic'},{'code':'auto_spares_owner','name':'Auto-spares Owner'},
+  ];
+  static const tables=<String,List<String>>{
+    'director':['sales','purchases','customer_payments','supplier_payments','inventory_balances','stock_movements'],
+    'buyer':['sales_orders','marketplace_listing_offers','marketplace_purchase_requests','customer_product_requests','customer_custom_product_requests'],
+    'seller':['marketplace_listings','marketplace_purchase_requests','customer_custom_product_requests'],
+    'worker':['staff_tasks','staff_activity_reports'],
+    'tractor_owner':['tractor_service_jobs','tractor_repair_jobs'],
+    'driver':['deliveries','tractor_service_jobs'],
+    'mechanic':['tractor_repair_jobs','repair_part_requests'],
+    'auto_spares_owner':['auto_spares_inventory','repair_part_requests'],
+  };
+  @override void initState(){super.initState();load();}
+  Future<void> load() async {
+    if(mounted)setState(()=>loading=true);
+    try{
+      final p=await db.from('profiles').select('id,display_name,phone,status,created_at,user_role_assignments(is_active,app_roles(code,name)),customers(active,marketplace_can_buy,marketplace_can_sell)').order('created_at',ascending:false).limit(500);
+      final a=await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').order('created_at',ascending:false).limit(25);
+      final overview=await db.rpc('tajir_director_master_oversight_summary');
+      summary=Map<String,dynamic>.from(overview as Map);
+      accounts=List<Map<String,dynamic>>.from(p); audit=List<Map<String,dynamic>>.from(a); activity.clear();
+      final rawActivity=summary['activity'];
+      if(rawActivity is Map){
+        for(final entry in rawActivity.entries){
+          if(entry.value is num)activity[entry.key.toString()]=(entry.value as num).toInt();
+        }
+      }
+      if(mounted)setState(()=>loading=false);
+    }catch(e){if(mounted)setState(() { loading=false; error=friendlyError(e); });}
+  }
+  List<String> roleCodes(Map<String,dynamic> a){
+    final roles=<String>[];
+    final raw=a['user_role_assignments'];
+    if(raw is List){
+      roles.addAll(raw.where((r)=>r is Map&&r['is_active']==true)
+        .map((r){final v=r['app_roles'];return v is Map?(v['code']??'').toString():'';})
+        .where((v)=>v.isNotEmpty));
+    }
+    final customer=a['customers'];
+    if(customer is Map&&customer['active']==true){
+      if(customer['marketplace_can_buy']==true)roles.add('buyer');
+      if(customer['marketplace_can_sell']==true)roles.add('seller');
+    }else if(customer is List){
+      for(final c in customer.whereType<Map>()){
+        if(c['active']==true&&c['marketplace_can_buy']==true)roles.add('buyer');
+        if(c['active']==true&&c['marketplace_can_sell']==true)roles.add('seller');
+      }
+    }
+    return roles.toSet().toList();
+  }
+  int roleCount(String c){
+    final departments=summary['department_accounts'];
+    if(departments is Map)return (departments[c] as num?)?.toInt()??0;
+    return 0;
+  }
+  int volume(String c)=>(tables[c]??[]).fold<int>(0,(n,t)=>n+(activity[t]??0));
+  IconData roleIcon(String c){switch(c){case 'director':return Icons.admin_panel_settings;case 'buyer':return Icons.shopping_cart;case 'seller':return Icons.storefront;case 'worker':return Icons.groups;case 'tractor_owner':return Icons.agriculture;case 'driver':return Icons.local_shipping;case 'mechanic':return Icons.handyman;default:return Icons.settings;}}
+  Future<void> inspectAccount(Map<String,dynamic> a) async {
+    final uid=db.auth.currentUser?.id;if(uid==null)return;
+    final id=a['id'].toString();final name=(a['display_name']??'TAJIR account').toString();
+    try{
+      await db.from('audit_logs').insert({'actor_user_id':uid,'action':'director_account_viewed','entity_schema':'public','entity_table':'profiles','entity_id':id,'reason':'Director opened read-only account overview: '+name,'after_data':{'view_mode':'read_only'}});
+      final activityRaw = await db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':id});
+      final eventsRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('actor_user_id',id).order('created_at',ascending:false).limit(15);
+      final profileChangesRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('entity_table','profiles').eq('entity_id',id).order('created_at',ascending:false).limit(15);
+      final assignmentLogsRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at,before_data,after_data').inFilter('entity_table',['user_role_assignments','user_branch_assignments']).order('created_at',ascending:false).limit(250);
+      final activityRows=List<Map<String,dynamic>>.from(activityRaw);
+      final events=List<Map<String,dynamic>>.from(eventsRaw);
+      final profileChanges=List<Map<String,dynamic>>.from(profileChangesRaw);
+      final assignmentLogs=List<Map<String,dynamic>>.from(assignmentLogsRaw).where((e){
+        final before=e['before_data'];final after=e['after_data'];
+        return (before is Map && before['user_id']?.toString()==id) || (after is Map && after['user_id']?.toString()==id);
+      }).toList();
+      final changeEvents=<Map<String,dynamic>>[...profileChanges,...assignmentLogs]
+        ..sort((x,y)=>DateTime.tryParse((y['created_at']??'').toString())?.compareTo(DateTime.tryParse((x['created_at']??'').toString())??DateTime.fromMillisecondsSinceEpoch(0))??0);
+      if(!mounted)return;
+      final status=(a['status']??'unknown').toString();final assigned=roleCodes(a);
+      await showDialog<void>(context:context,builder:(ctx)=>AlertDialog(
+        title:Text(name),content:SizedBox(width:520,child:SingleChildScrollView(child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
+          const Chip(avatar:Icon(Icons.visibility_outlined,size:18),label:Text('Read-only inspection')),
+          Text('Phone: '+(a['phone']??'Not provided').toString()),
+          Text('Status: '+status.replaceAll('_',' ')),
+          Text('Assigned roles: '+(assigned.isEmpty?'None':assigned.join(', '))),
+          const SizedBox(height:12),const Text('Orders, payments and operational activity',style:TextStyle(fontWeight:FontWeight.bold)),
+          if(activityRows.isEmpty)const Text('No linked operational records were found for this account.'),
+          ...activityRows.take(12).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.receipt_long_outlined,size:18),title:Text((e['activity_type']??'Activity').toString()+' • '+(e['reference']??'Record').toString()),subtitle:Text((e['status']??'').toString().replaceAll('_',' ')+' • '+(e['activity_at']??'').toString()+'\n'+(e['details']??'').toString()),trailing:e['amount']==null?null:Text('KES '+(e['amount'] as num).toStringAsFixed(2)))),
+          const SizedBox(height:10),const Text('Changes to this account and its access',style:TextStyle(fontWeight:FontWeight.bold)),
+          if(changeEvents.isEmpty)const Text('No account or role changes have been recorded.'),
+          ...changeEvents.take(10).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.manage_history,size:18),title:Text((e['action']??'Change').toString().replaceAll('_',' ')+' • '+(e['entity_table']??'account').toString()),subtitle:Text((e['reason']??'Account access or profile change').toString()+'\n'+(e['created_at']??'').toString()))),
+          const SizedBox(height:10),const Text('Activity performed by this account',style:TextStyle(fontWeight:FontWeight.bold)),
+          if(events.isEmpty)const Text('No activity is recorded for this account yet.'),
+          ...events.take(10).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.history,size:18),title:Text((e['action']??'Activity').toString().replaceAll('_',' ')),subtitle:Text((e['entity_table']??'Account').toString()+' • '+(e['created_at']??'').toString()))),
+          const SizedBox(height:8),const Text('PINs remain private. This view does not impersonate the user or change their credentials.',style:TextStyle(fontSize:12,color:Colors.black54)),
+        ]))),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Close'))]));
+      await load();
+    }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not open audited account view: '+friendlyError(e))));}
+  }
+  Widget metric(String label,String value,IconData icon)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[Icon(icon,color:brandGreen,size:28),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(value,style:const TextStyle(fontSize:21,fontWeight:FontWeight.bold)),Text(label,style:const TextStyle(fontSize:12,color:Colors.black54))]))])));
+  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+    Row(children:[const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Director Master Oversight',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),Text('Company-wide, read-only supervision across TAJIR accounts and operations.') ])),IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh))]),
+    if(loading)const LinearProgressIndicator(),
+    if(error!=null)Text('Could not load oversight data: '+error!,style:const TextStyle(color:Colors.red)),
+    if(!loading&&error==null)...[
+      GridView.count(crossAxisCount:MediaQuery.of(context).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:2.2,children:[
+        metric('Profiles',(summary['profiles_total']??0).toString(),Icons.people_alt),
+        metric('Active',(summary['profiles_active']??0).toString(),Icons.verified_user),
+        metric('Pending',(summary['profiles_pending']??0).toString(),Icons.pending_actions),
+        metric('Suspended / disabled',(summary['profiles_suspended']??0).toString(),Icons.block),
+      ]),
+      const SizedBox(height:12),const Text('Department performance',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+      const Text('Exact department account totals and operational record counts from the TAJIR database.'),
+      GridView.count(crossAxisCount:MediaQuery.of(context).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:1.7,children:roles.map((r)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[
+        Row(children:[Icon(roleIcon(r['code']!),color:brandGreen),const SizedBox(width:7),Expanded(child:Text(r['name']!,style:const TextStyle(fontWeight:FontWeight.bold),maxLines:1,overflow:TextOverflow.ellipsis))]),
+        const SizedBox(height:8),Text(roleCount(r['code']!).toString()+' accounts',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+        Text((volume(r['code']!)<0?'Unavailable':volume(r['code']!).toString())+' recent records',style:const TextStyle(fontSize:11,color:Colors.black54)),
+      ])))).toList()),
+      const SizedBox(height:12),const Text('Account directory',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+      const Text('Latest 500 accounts are shown here. Tap an account to inspect its status, assigned roles and recorded activity. This does not sign in as that user.'),
+      ...accounts.map((a){final assigned=roleCodes(a);return Card(child:ListTile(leading:CircleAvatar(child:Icon(assigned.isEmpty?Icons.person_outline:roleIcon(assigned.first))),title:Text((a['display_name']??'Unnamed account').toString()),subtitle:Text((assigned.isEmpty?'No active role':assigned.join(', '))+' • '+(a['status']??'unknown').toString()),trailing:const Icon(Icons.visibility_outlined),onTap:()=>inspectAccount(a)));}),
+      const SizedBox(height:12),const Text('Recent audit trail',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+      if(audit.isEmpty)const Text('No audit events recorded yet.'),
+      ...audit.map((e)=>ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.history,color:brandGreen),title:Text((e['action']??'Activity').toString().replaceAll('_',' ')),subtitle:Text((e['entity_table']??'Record').toString()+' • '+(e['entity_id']??'').toString()+'\n'+(e['reason']??'').toString()),isThreeLine:true,trailing:Text((e['created_at']??'').toString().replaceFirst('T','\n').split('.').first,style:const TextStyle(fontSize:10)))),
+    ],
+  ]));
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
@@ -2870,14 +3433,14 @@ class _HomeShellState extends State<HomeShell> {
     if (found != null) {
       showDialog<void>(context: context, builder: (ctx) => AlertDialog(
         title: const Text('TAJIR update available'),
-        content: Text('A newer version (${found['version']}) is ready. Update to get the latest improvements and fixes.'),
+        content: Text('A newer version (${found['version']}) is ready. TAJIR will download it and open Android’s installer. Choose Update to replace the existing app; you should not need to uninstall or clear your data.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
           FilledButton.icon(onPressed: () async {
             Navigator.pop(ctx);
             try { await openTajirUpdate(found['url'].toString()); }
             catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open the update link. Please try again.'))); }
-          }, icon: const Icon(Icons.download), label: const Text('Download update')),
+          }, icon: const Icon(Icons.download), label: const Text('Download and install')),
         ],
       ));
     } else if (showCurrent) {
@@ -2902,20 +3465,21 @@ class _HomeShellState extends State<HomeShell> {
     return [
       DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9), onOpenMarketplacePrices: () => selectPage(10), onOpenTractorRates: () => selectPage(11)),
       const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(),
-      if (director || accountant) const FinancialRecordsPage(),
+      if (director || accountant || branchManager) const FinancialRecordsPage(),
       if (director) const StaffAccountsPage(),
       if (director) const DirectorPriceManagementPage(),
       if (director) const DirectorCustomProductRequestsPage(),
       if (director) const DirectorMarketplacePricesPage(),
       if (director) const DirectorTractorRatesPage(),
+      if (director) const DirectorMasterOversightPage(),
     ];
   }
   List<String> get labels => accountant && !director && !branchManager
     ? ['Dashboard','Stock','Financial Records']
-    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices', if (director) 'Tractor Rates'];
+    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant || branchManager) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices', if (director) 'Tractor Rates', if (director) 'Director Oversight'];
   List<IconData> get icons => accountant && !director && !branchManager
     ? [Icons.dashboard,Icons.inventory_2,Icons.account_balance]
-    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture];
+    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant || branchManager) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture, if (director) Icons.admin_panel_settings];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -2931,11 +3495,13 @@ class _HomeShellState extends State<HomeShell> {
     showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
-      if (director || accountant) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
+      if (director || accountant || branchManager) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       if (director) ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       if (director) ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Custom Requests'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
       if (director) ListTile(leading: const Icon(Icons.storefront_outlined), title: const Text('Marketplace Prices'), selected: index == 10, onTap: () { Navigator.pop(sheetContext); selectPage(10); }),
+      if (director) ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Service Rates'), selected: index == 11, onTap: () { Navigator.pop(sheetContext); selectPage(11); }),
+      if (director) ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('Director Oversight'), selected: index == 12, onTap: () { Navigator.pop(sheetContext); selectPage(12); }),
       const SizedBox(height: 8),
     ])));
   }
@@ -2944,7 +3510,80 @@ class _HomeShellState extends State<HomeShell> {
     if (accessError != null) return const AccountAccessIssuePage();
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR'), actions: [TextButton.icon(onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update), label: Text(checkingUpdate ? 'Checking…' : 'Update')), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      appBar: AppBar(
+        title: const Text('TAJIR'),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'More options',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'update') {
+                checkUpdates(showCurrent: true);
+              } else if (value == 'security') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AccountSecurityPage()),
+                );
+              } else if (value == 'signout') {
+                showDialog<void>(
+                  context: context,
+                  builder: (dialogContext) => AlertDialog(
+                    title: const Text('Sign out of TAJIR?'),
+                    content: const Text('You can sign in again using your registered phone number and PIN.'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          Supabase.instance.client.auth.signOut();
+                        },
+                        icon: const Icon(Icons.logout),
+                        label: const Text('Sign out'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem<String>(
+                value: 'update',
+                enabled: !checkingUpdate,
+                child: Row(
+                  children: [
+                    Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update_outlined),
+                    const SizedBox(width: 12),
+                    Text(checkingUpdate ? 'Checking for updates…' : 'Check for updates'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'security',
+                child: Row(
+                  children: [
+                    Icon(Icons.lock_reset_outlined),
+                    SizedBox(width: 12),
+                    Text('Account security'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'signout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout),
+                    SizedBox(width: 12),
+                    Text('Sign out'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
       body: Column(children: [
         const TajirDirectorContacts(),
         Expanded(child: Row(children: [
@@ -3497,8 +4136,8 @@ class _PurchasePageState extends State<PurchasePage> {
       }
       if (amount > 0) customExpenses.add({'cost_type': 'other', 'description': name, 'amount': amount});
     }
-    if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null || transport == null || loading == null || labour == null || drying == null || [transport,loading,labour,drying].any((v)=>v<0) || invalidCustomExpense) {
-      setState(() => message = 'Choose a product option and enter a valid quantity and buying price.');
+    if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null || supplier.text.trim().isEmpty || transport == null || loading == null || labour == null || drying == null || [transport,loading,labour,drying].any((v)=>v<0) || invalidCustomExpense) {
+      setState(() => message = 'Enter the supplier name, choose a product option, and provide a valid quantity and buying price.');
       return;
     }
     setState(() { busy = true; message = ''; });
@@ -3510,6 +4149,7 @@ class _PurchasePageState extends State<PurchasePage> {
           'branch_id': branch['id'],
           'purchase_date': DateTime.now().toIso8601String().substring(0, 10),
           'payer': payer,
+          'supplier_name': supplier.text.trim(),
           'notes': notes.text,
           'items': [
             {
@@ -3838,8 +4478,8 @@ class _SalePageState extends State<SalePage> {
           return;
         }
         final ref = entry.reference.text.trim();
-        if ((entry.method == 'mpesa' || entry.method == 'bank_transfer') && ref.isEmpty) {
-          setState(() => message = 'Add a reference for every M-Pesa or bank transfer split payment.');
+        if ((entry.method == 'mpesa' || entry.method == 'bank_transfer' || entry.method == 'other') && ref.isEmpty) {
+          setState(() => message = 'Add a transaction reference or manual receipt note for every non-cash split payment.');
           return;
         }
         methods.add(entry.method);
@@ -3862,8 +4502,8 @@ class _SalePageState extends State<SalePage> {
         return;
       }
       final ref = reference.text.trim();
-      if ((paymentMode == 'mpesa' || paymentMode == 'bank_transfer') && ref.isEmpty) {
-        setState(() => message = 'Enter the M-Pesa or bank transfer reference.');
+      if ((paymentMode == 'mpesa' || paymentMode == 'bank_transfer' || paymentMode == 'other') && ref.isEmpty) {
+        setState(() => message = 'Enter the transaction reference or manual receipt note.');
         return;
       }
       payment = {'amount': amount, 'method': paymentMode, 'reference': ref};
@@ -4068,7 +4708,7 @@ class _DirectorPriceManagementPageState extends State<DirectorPriceManagementPag
   Future<void> load() async {
     if (mounted) setState(() { loading = true; message = ''; });
     try {
-      final results = await Future.wait([
+      final results = await Future.wait<dynamic>([
         db.from('branches').select('id,code,name').eq('is_active', true).order('name'),
         db.from('product_variants').select('id,variant_name,base_unit,sku,products(name)').eq('is_active', true).order('variant_name'),
       ]);
@@ -4237,7 +4877,7 @@ class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProduc
     if (mounted) setState(() { loading = true; message = ''; });
     try {
       final result = await db.from('customer_custom_product_requests')
-        .select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,request_direction,status,director_response,customer_confirmed_at,created_at,customers(full_name,phone)')
+        .select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,request_direction,status,director_response,customer_confirmed_at,customer_response,customer_responded_at,created_at,customers(full_name,phone)')
         .order('created_at', ascending: false);
       if (mounted) setState(() {
         rows = List<Map<String, dynamic>>.from(result);
@@ -4341,7 +4981,8 @@ class _DirectorCustomProductRequestsPageState extends State<DirectorCustomProduc
             if (row['agreed_unit_price_kes'] != null) Text('Agreed official price: KES ${row['agreed_unit_price_kes']} / ${row['quantity_unit']}', style: const TextStyle(fontWeight: FontWeight.bold)),
             if ((row['description'] ?? '').toString().isNotEmpty) Text('Details: ${row['description']}'),
             if ((row['director_response'] ?? '').toString().isNotEmpty) Text('Director response: ${row['director_response']}'),
-            if (confirmed) const Text('Customer confirmed the approved offer.', style: TextStyle(color: brandGreen, fontWeight: FontWeight.bold)),
+            if (confirmed || row['customer_response'] == 'accepted') const Text('Customer accepted the agreed offer.', style: TextStyle(color: brandGreen, fontWeight: FontWeight.bold)),
+            if (row['customer_response'] == 'declined') const Text('Customer declined the offer.', style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold)),
             if (canReview) Align(alignment: Alignment.centerRight, child: FilledButton.icon(
               onPressed: busyId == row['id'].toString() ? null : () => review(row),
               icon: Icon(busyId == row['id'].toString() ? Icons.hourglass_top : Icons.rate_review_outlined),
@@ -4488,7 +5129,7 @@ class _StockPageState extends State<StockPage>{
     if(mounted)setState(()=>loading=true);
     try{
       final db=Supabase.instance.client;
-      final results=await Future.wait([
+      final results=await Future.wait<dynamic>([
         db.rpc('get_stock_balances'),
         db.rpc('get_pending_purchase_quality'),
       ]);
@@ -4793,7 +5434,7 @@ class _CustomersPageState extends State<CustomersPage> {
         if(method!='cash') TextField(controller:referenceController,
           decoration:InputDecoration(labelText:method=='other'?'Receipt / manual note':'Payment reference')),
         const SizedBox(height:6),
-        const Text('M-Pesa and bank transfers remain pending until verified. Cash is recorded as received.',style:TextStyle(fontSize:12,color:Colors.black54)),
+        const Text('Cash is verified immediately. M-Pesa, bank transfers and other/manual payments remain pending until the reference or receipt is checked.',style:TextStyle(fontSize:12,color:Colors.black54)),
       ]),
       actions:[
         TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
@@ -4806,6 +5447,7 @@ class _CustomersPageState extends State<CustomersPage> {
         if(amount==null||amount<=0)throw const FormatException('Enter a payment amount greater than zero.');
         final selected=openSales.firstWhere((sale)=>sale['id'].toString()==selectedSaleId);
         if(amount>dueFor(selected)+0.009)throw const FormatException('Payment exceeds the remaining sale balance.');
+        if(method!='cash'&&referenceController.text.trim().isEmpty)throw const FormatException('Enter the transaction reference or manual receipt note.');
         final result=await Supabase.instance.client.rpc('record_customer_sale_payment',params:{
           'p_sale_id':selectedSaleId,
           'p_amount':amount,
@@ -4839,7 +5481,7 @@ class _CustomersPageState extends State<CustomersPage> {
     final db=Supabase.instance.client;
     try {
       final id=customer['id'];
-      final results=await Future.wait([
+      final results=await Future.wait<dynamic>([
         db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode').eq('customer_id',id).order('sale_date',ascending:false),
         db.from('customer_payments').select('id,payment_number,sale_id,amount,method,status,received_at,created_at').eq('customer_id',id).order('created_at',ascending:false),
       ]);
@@ -5303,6 +5945,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
   Future<void> recordPayment() async {
     final amount=double.tryParse(pay.text.trim());
     if(selectedJob==null||amount==null||amount<=0){setState(()=>message='Select a job and enter a valid payment amount.');return;}
+    if(paymentMethod!='cash'&&reference.text.trim().isEmpty){setState(()=>message='Enter the transaction reference or manual receipt note.');return;}
     setState(()=>saving=true);
     try{
       final result=await db.rpc('record_tractor_job_payment',params:{'p_job_id':selectedJob,'p_amount':amount,'p_method':paymentMethod,'p_reference':reference.text.trim().isEmpty?null:reference.text.trim()});
@@ -5321,7 +5964,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
         Text('Payment '+payment['payment_number'].toString()+' • '+money(numberOf(payment,'amount'))),
         Text('Method: '+labelCase(payment['method'].toString())),
         const SizedBox(height:12),
-        const Text('Only verify after checking the actual cash, M-Pesa statement or bank transaction.'),
+        const Text('Only verify after checking the actual cash, M-Pesa or bank transaction, or the manual payment receipt.'),
         const SizedBox(height:8),
         TextField(controller:referenceController,decoration:const InputDecoration(labelText:'Transaction reference',border:OutlineInputBorder()))
       ]),
@@ -5576,7 +6219,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     }),
     field(pay,'Payment amount (KES)',number:true),
     dropdown('Payment method',paymentMethod,['cash','mpesa','bank_transfer','other'],(v)=>setState(()=>paymentMethod=v??'cash')),
-    field(reference,'M-Pesa / bank reference'),button('Record payment',recordPayment),
+    if(paymentMethod!='cash')field(reference,paymentMethod=='other'?'Receipt / manual payment note':'Transaction reference'),button('Record payment',recordPayment),
     const Divider(height:30),const Text('Payment receipts',style:TextStyle(fontWeight:FontWeight.bold)),
     if(payments.isEmpty)const Text('No payment records visible for this branch or role.'),
     ...payments.map((p)=>Card(child:ListTile(
@@ -5665,8 +6308,10 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   bool loading = false;
   String error = '';
   String period = 'This month';
-  double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, pendingCustomerReceipts = 0, supplierPayments = 0;
-  List<Map<String,dynamic>> salesRows = [], purchaseCostRows = [], purchaseRows = [], customerPaymentRows = [], pendingCustomerPaymentRows = [], supplierPaymentRows = [];
+  double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, pendingCustomerReceipts = 0, supplierPayments = 0, pendingSupplierPayments = 0, outstandingSupplierBalance = 0, outstandingBalance = 0;
+  bool isDirector = false, isAccountant = false;
+  Map<String,double> salesByPaymentMode = {}, verifiedReceiptsByMethod = {}, pendingReceiptsByMethod = {};
+  List<Map<String,dynamic>> salesRows = [], purchaseCostRows = [], purchaseRows = [], customerPaymentRows = [], pendingCustomerPaymentRows = [], supplierPaymentRows = [], pendingSupplierPaymentRows = [], supplierPurchaseRows = [], supplierRows = [];
   double numVal(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
   DateTime? get startDate {
     final now = DateTime.now();
@@ -5687,22 +6332,44 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     try {
       final db = Supabase.instance.client;
       final roles = await db.from('user_role_assignments').select('app_roles(code)').eq('user_id', db.auth.currentUser!.id).eq('is_active', true);
-      final hasFinanceAccess = roles.any((r) => r['app_roles'] is Map && ['director','accountant'].contains((r['app_roles'] as Map)['code']));
-      if (!hasFinanceAccess) throw Exception('This financial report is available to Director and Accountant accounts only.');
-      final data = await Future.wait([
+      final hasFinanceAccess = roles.any((r) => r['app_roles'] is Map && ['director','accountant','branch_manager'].contains((r['app_roles'] as Map)['code']));
+      final directorAccess = roles.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='director');
+      final accountantAccess = roles.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='accountant');
+      if (!hasFinanceAccess) throw Exception('This financial workspace is available to Director, Accountant and authorised Branch Manager accounts.');
+      final data = await Future.wait<dynamic>([
         db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,customer_id,customer:customers(full_name),sale_items(line_cost)').order('sale_date',ascending:false),
         db.from('purchase_costs').select('id,purchase_id,purchase_item_id,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
-        db.from('purchases').select('id,purchase_number,purchase_date,status,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
-        db.from('customer_payments').select('id,payment_number,sale_id,amount,status,method,received_at').order('received_at',ascending:false),
-        db.from('supplier_payments').select('amount,status,method,payment_date,transaction_reference').order('payment_date',ascending:false),
+        db.from('purchases').select('id,purchase_number,purchase_date,status,supplier_id,supplier_name,invoice_total,payment_mode,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
+        db.from('customer_payments').select('id,payment_number,sale_id,amount,status,method,provider_reference,received_at,recorded_by,verified_by,recorder:profiles!customer_payments_recorded_by_fkey(display_name),verifier:profiles!customer_payments_verified_by_fkey(display_name)').order('received_at',ascending:false),
+        db.from('supplier_payments').select('id,purchase_id,supplier_id,amount,status,method,payment_date,transaction_reference,notes,recorded_by,verified_by,recorder:profiles!supplier_payments_recorded_by_fkey(display_name),verifier:profiles!supplier_payments_verified_by_fkey(display_name),supplier:suppliers(business_name),purchase:purchases(purchase_number)').order('payment_date',ascending:false),
+        db.from('supplier_purchase_payment_summary').select('*').order('purchase_date',ascending:false),
+        db.from('suppliers').select('id,business_name,approval_status,is_active,contact_name,phone,created_at').order('created_at',ascending:false),
       ]);
       final sr = List<Map<String,dynamic>>.from(data[0]).where((r)=>within(r['sale_date'])).toList();
       final pcr = List<Map<String,dynamic>>.from(data[1]).where((r)=>within(r['incurred_at'])).toList();
       final pr = List<Map<String,dynamic>>.from(data[2]).where((r)=>within(r['purchase_date']) && r['status']=='accepted').toList();
-      final allCustomerRows = List<Map<String,dynamic>>.from(data[3]).where((r)=>within(r['received_at'])).toList();
+      final allPaymentRows = List<Map<String,dynamic>>.from(data[3]);
+      final allCustomerRows = allPaymentRows.where((r)=>within(r['received_at'])).toList();
       final cr = allCustomerRows.where((r)=>r['status']=='verified').toList();
       final pendingCr = allCustomerRows.where((r)=>r['status']=='pending').toList();
-      final spr = List<Map<String,dynamic>>.from(data[4]).where((r)=>within(r['payment_date']) && r['status']=='verified').toList();
+      final verifiedBySale=<String,double>{};
+      for(final payment in allPaymentRows){
+        if(payment['status']!='verified')continue;
+        final saleId=payment['sale_id']?.toString();
+        if(saleId!=null)verifiedBySale[saleId]=(verifiedBySale[saleId]??0)+numVal(payment['amount']);
+      }
+      final outstanding=sr.fold<double>(0,(sum,sale)=>sum+(numVal(sale['total_amount'])-(verifiedBySale[sale['id'].toString()]??0)).clamp(0,double.infinity).toDouble());
+      final modeTotals=<String,double>{};
+      for(final sale in sr){final mode=(sale['payment_mode']??'credit').toString();modeTotals[mode]=(modeTotals[mode]??0)+numVal(sale['total_amount']);}
+      final verifiedMethods=<String,double>{};
+      for(final payment in cr){final method=(payment['method']??'other').toString();verifiedMethods[method]=(verifiedMethods[method]??0)+numVal(payment['amount']);}
+      final pendingMethods=<String,double>{};
+      for(final payment in pendingCr){final method=(payment['method']??'other').toString();pendingMethods[method]=(pendingMethods[method]??0)+numVal(payment['amount']);}
+      final allSupplierPayments = List<Map<String,dynamic>>.from(data[4]);
+      final spr = allSupplierPayments.where((r)=>within(r['payment_date'])&&r['status']=='verified').toList();
+      final pendingSpr = allSupplierPayments.where((r)=>r['status']=='pending').toList();
+      final supplierPurchases = List<Map<String,dynamic>>.from(data[5]);
+      final supplierRecords = List<Map<String,dynamic>>.from(data[6]);
       double rev=0,cogs=0,buy=0;
       for(final row in sr) {
         rev += numVal(row['total_amount']);
@@ -5715,11 +6382,14 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       }
       if(!mounted)return;
       setState(() {
-        salesRows=sr; purchaseCostRows=pcr; purchaseRows=pr; customerPaymentRows=cr; pendingCustomerPaymentRows=pendingCr; supplierPaymentRows=spr;
+        salesRows=sr; purchaseCostRows=pcr; purchaseRows=pr; customerPaymentRows=cr; pendingCustomerPaymentRows=pendingCr; supplierPaymentRows=spr; pendingSupplierPaymentRows=pendingSpr; supplierPurchaseRows=supplierPurchases; supplierRows=supplierRecords; isDirector=directorAccess; isAccountant=accountantAccess;
         revenue=rev; costOfGoods=cogs; purchaseCostsTotal=pcr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         purchaseTotal=buy; customerReceipts=cr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         pendingCustomerReceipts=pendingCr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         supplierPayments=spr.fold(0.0,(v,r)=>v+numVal(r['amount']));
+        pendingSupplierPayments=pendingSpr.fold(0.0,(v,r)=>v+numVal(r['amount']));
+        outstandingSupplierBalance=supplierPurchases.fold(0.0,(v,r)=>v+numVal(r['outstanding_balance']));
+        outstandingBalance=outstanding; salesByPaymentMode=modeTotals; verifiedReceiptsByMethod=verifiedMethods; pendingReceiptsByMethod=pendingMethods;
       });
     } catch(e) { if(mounted)setState(()=>error=friendlyError(e)); }
     finally { if(mounted)setState(()=>loading=false); }
@@ -5727,7 +6397,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   Future<void> recordCustomerPayment() async {
     try {
       final db=Supabase.instance.client;
-      final allResults=await Future.wait([
+      final allResults=await Future.wait<dynamic>([
         db.from('sales').select('id,sale_number,sale_date,total_amount,customer:customers(full_name)').order('sale_date',ascending:false),
         db.from('customer_payments').select('sale_id,amount,status').inFilter('status',['pending','verified']),
       ]);
@@ -5779,7 +6449,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
           if(method!='cash')TextField(controller:referenceController,
             decoration:InputDecoration(labelText:method=='other'?'Receipt / manual note':'Payment reference')),
           const SizedBox(height:6),
-          const Text('Pending transfers are not counted as verified receipts until approved.',style:TextStyle(fontSize:12,color:Colors.black54)),
+          const Text('M-Pesa, bank transfers and other/manual payments remain pending until verified. Cash is recorded as received.',style:TextStyle(fontSize:12,color:Colors.black54)),
         ]),
         actions:[
           TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
@@ -5791,6 +6461,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         if(amount==null||amount<=0)throw const FormatException('Enter a payment amount greater than zero.');
         final selected=allSales.firstWhere((sale)=>sale['id'].toString()==selectedSaleId);
         if(amount>dueFor(selected)+0.009)throw const FormatException('Payment exceeds the remaining sale balance.');
+        if(method!='cash'&&referenceController.text.trim().isEmpty)throw const FormatException('Enter the transaction reference or manual receipt note.');
         final result=await db.rpc('record_customer_sale_payment',params:{
           'p_sale_id':selectedSaleId,'p_amount':amount,'p_method':method,'p_reference':referenceController.text.trim(),
         });
@@ -5816,6 +6487,177 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     }
   }
 
+
+  Future<void> approveSupplier(Map<String,dynamic> supplier) async {
+    final uid=Supabase.instance.client.auth.currentUser?.id;
+    if(!isDirector||uid==null)return;
+    try{
+      await Supabase.instance.client.from('suppliers').update({
+        'approval_status':'active','is_active':true,'approved_by':uid,
+        'approved_at':DateTime.now().toUtc().toIso8601String(),
+      }).eq('id',supplier['id'].toString()).eq('approval_status','pending');
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text((supplier['business_name']??'Supplier').toString()+' approved.')));
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not approve supplier: '+friendlyError(e))));
+    }
+  }
+
+  Future<void> verifySupplierPayment(Map<String,dynamic> payment) async {
+    final referenceController=TextEditingController(text:(payment['transaction_reference']??'').toString());
+    final supplier=(payment['supplier'] as Map?)?.cast<String,dynamic>()??{};
+    final accepted=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+      title:const Text('Verify supplier payment'),
+      content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Text((supplier['business_name']??'Supplier').toString(),style:const TextStyle(fontWeight:FontWeight.bold)),
+        Text('KES '+numVal(payment['amount']).toStringAsFixed(2)+' • '+(payment['method']??'').toString()),
+        const SizedBox(height:8),
+        const Text('Verify against the actual cash receipt, M-Pesa/bank transaction or manual receipt evidence.'),
+        const SizedBox(height:8),
+        TextField(controller:referenceController,decoration:const InputDecoration(labelText:'Transaction reference / receipt note',border:OutlineInputBorder())),
+      ]),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Confirm verification')),
+      ],
+    ));
+    if(accepted!=true){referenceController.dispose();return;}
+    try{
+      await Supabase.instance.client.rpc('verify_supplier_purchase_payment',params:{
+        'p_payment_id':payment['id'].toString(),
+        'p_transaction_reference':referenceController.text.trim(),
+      });
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Supplier payment verified.')));
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not verify supplier payment: '+friendlyError(e))));
+    }finally{referenceController.dispose();}
+  }
+
+  Future<void> recordSupplierPayment([String? requestedPurchaseId]) async {
+    final eligible=supplierPurchaseRows.where((purchase){
+      final supplierId=(purchase['supplier_id']??'').toString();
+      final supplier=supplierRows.where((r)=>r['id'].toString()==supplierId).toList();
+      return numVal(purchase['uncommitted_balance'])>0.009 &&
+        supplier.isNotEmpty && supplier.first['approval_status']=='active' && supplier.first['is_active']==true;
+    }).toList();
+    if(eligible.isEmpty){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('No supplier invoice is ready for payment. Approve its supplier first, or record a purchase.')));
+      return;
+    }
+    String selectedPurchaseId=eligible.any((r)=>r['purchase_id'].toString()==requestedPurchaseId)
+      ?requestedPurchaseId!:eligible.first['purchase_id'].toString();
+    String mode='cash';
+    final amountController=TextEditingController();
+    final referenceController=TextEditingController();
+    final splitEntries=<_SaleSplitPaymentEntry>[_SaleSplitPaymentEntry(),_SaleSplitPaymentEntry(method:'mpesa')];
+    final accepted=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(dialogContext,setDialogState)=>AlertDialog(
+      title:const Text('Record supplier payment'),
+      content:SizedBox(width:520,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+        DropdownButtonFormField<String>(
+          value:selectedPurchaseId,isExpanded:true,
+          items:eligible.map((purchase)=>DropdownMenuItem<String>(
+            value:purchase['purchase_id'].toString(),
+            child:Text((purchase['purchase_number']??'Purchase').toString()+' • '+(purchase['supplier_name']??'Supplier').toString()+' • Due KES '+numVal(purchase['uncommitted_balance']).toStringAsFixed(2),overflow:TextOverflow.ellipsis),
+          )).toList(),
+          onChanged:(v)=>setDialogState(()=>selectedPurchaseId=v??selectedPurchaseId),
+          decoration:const InputDecoration(labelText:'Supplier invoice'),
+        ),
+        DropdownButtonFormField<String>(
+          value:mode,
+          items:const [
+            DropdownMenuItem(value:'cash',child:Text('Cash')),
+            DropdownMenuItem(value:'mpesa',child:Text('M-Pesa')),
+            DropdownMenuItem(value:'bank_transfer',child:Text('Bank transfer')),
+            DropdownMenuItem(value:'credit',child:Text('Credit / pay later')),
+            DropdownMenuItem(value:'split',child:Text('Split / multiple methods')),
+            DropdownMenuItem(value:'other',child:Text('Other / manual payment')),
+          ],
+          onChanged:(v)=>setDialogState(()=>mode=v??'cash'),
+          decoration:const InputDecoration(labelText:'Payment mode'),
+        ),
+        if(mode=='credit')
+          const Padding(padding:EdgeInsets.only(top:8),child:Text('No payment is recorded now. The full supplier invoice remains outstanding until payments are entered.',style:TextStyle(fontSize:12,color:Colors.black54))),
+        if(mode=='split')...[
+          const Padding(padding:EdgeInsets.only(top:8,bottom:4),child:Text('Add at least two different payment methods. Each entry is linked to this same supplier invoice.',style:TextStyle(fontSize:12,color:Colors.black54))),
+          ...List.generate(splitEntries.length,(index){
+            final entry=splitEntries[index];
+            return Card(child:Padding(padding:const EdgeInsets.all(8),child:Column(children:[
+              Row(children:[
+                Expanded(child:DropdownButtonFormField<String>(
+                  value:entry.method,
+                  items:const [
+                    DropdownMenuItem(value:'cash',child:Text('Cash')),
+                    DropdownMenuItem(value:'mpesa',child:Text('M-Pesa')),
+                    DropdownMenuItem(value:'bank_transfer',child:Text('Bank transfer')),
+                    DropdownMenuItem(value:'other',child:Text('Other / manual')),
+                  ],
+                  onChanged:(v)=>setDialogState(()=>entry.method=v??'cash'),
+                  decoration:InputDecoration(labelText:'Payment '+(index+1).toString()+' method'),
+                )),
+                IconButton(onPressed:splitEntries.length<=2?null:()=>setDialogState(()=>splitEntries.removeAt(index)),icon:const Icon(Icons.delete_outline)),
+              ]),
+              TextField(controller:entry.amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Amount (KES)')),
+              if(entry.method!='cash')TextField(controller:entry.reference,decoration:InputDecoration(labelText:entry.method=='other'?'Manual receipt note':'Transaction reference')),
+            ])));
+          }),
+          Align(alignment:Alignment.centerLeft,child:TextButton.icon(onPressed:()=>setDialogState(()=>splitEntries.add(_SaleSplitPaymentEntry())),icon:const Icon(Icons.add),label:const Text('Add payment entry'))),
+        ],
+        if(mode!='credit'&&mode!='split')...[
+          TextField(controller:amountController,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Payment amount (KES)')),
+          if(mode!='cash')TextField(controller:referenceController,decoration:InputDecoration(labelText:mode=='other'?'Manual receipt note':'Transaction reference')),
+        ],
+      ]))),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Save supplier payment')),
+      ],
+    )));
+    if(accepted!=true){
+      amountController.dispose();referenceController.dispose();for(final e in splitEntries)e.dispose();return;
+    }
+    try{
+      final selected=eligible.firstWhere((r)=>r['purchase_id'].toString()==selectedPurchaseId);
+      final payments=<Map<String,dynamic>>[];
+      if(mode=='split'){
+        final methods=<String>{};double total=0;
+        if(splitEntries.length<2)throw const FormatException('Split payment needs at least two entries.');
+        for(final entry in splitEntries){
+          final amount=double.tryParse(entry.amount.text.trim());
+          final reference=entry.reference.text.trim();
+          if(amount==null||amount<=0)throw const FormatException('Enter a positive amount for every split payment entry.');
+          if(entry.method!='cash'&&reference.isEmpty)throw const FormatException('Add a reference or manual receipt note for every non-cash split entry.');
+          methods.add(entry.method);total+=amount;
+          payments.add({'method':entry.method,'amount':amount,'reference':reference,'notes':entry.method=='other'?reference:null});
+        }
+        if(methods.length<2)throw const FormatException('Split payment must use at least two different methods.');
+        if(total>numVal(selected['uncommitted_balance'])+0.009)throw const FormatException('Supplier payments exceed the remaining invoice balance.');
+      }else if(mode!='credit'){
+        final amount=double.tryParse(amountController.text.trim());
+        final reference=referenceController.text.trim();
+        if(amount==null||amount<=0)throw const FormatException('Enter a positive supplier payment amount.');
+        if(mode!='cash'&&reference.isEmpty)throw const FormatException('Enter the transaction reference or manual receipt note.');
+        if(amount>numVal(selected['uncommitted_balance'])+0.009)throw const FormatException('Supplier payment exceeds the remaining invoice balance.');
+        payments.add({'method':mode,'amount':amount,'reference':reference,'notes':mode=='other'?reference:null});
+      }else if(numVal(selected['verified_paid'])+numVal(selected['pending_paid'])>0.009){
+        throw const FormatException('This invoice already has payment entries. Add another payment instead of changing it to credit.');
+      }
+      final result=await Supabase.instance.client.rpc('record_supplier_purchase_payments',params:{
+        'p_purchase_id':selectedPurchaseId,'p_payment_mode':mode,'p_payments':payments,
+      });
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(
+        'Supplier payment saved. Verified: KES '+numVal(result['verified_paid']).toStringAsFixed(2)+
+        ' • Pending: KES '+numVal(result['pending_paid']).toStringAsFixed(2)+
+        ' • Balance due: KES '+numVal(result['outstanding_balance']).toStringAsFixed(2),
+      )));
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not record supplier payment: '+friendlyError(e))));
+    }finally{
+      amountController.dispose();referenceController.dispose();for(final e in splitEntries)e.dispose();
+    }
+  }
+
   Widget pendingPaymentsSection() => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Divider(height:24),
     const Text('Pending customer payments',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
@@ -5823,9 +6665,78 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     ...pendingCustomerPaymentRows.take(40).map((p)=>ListTile(
       dense:true,
       title:Text((p['payment_number']??'Payment').toString()+' • '+(p['method']??'').toString()),
-      subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['received_at']??'Awaiting confirmation').toString()),
-      trailing:FilledButton.tonal(onPressed:loading?null:()=>verifyCustomerPayment(p),child:const Text('Verify')),
+      subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['received_at']??'Awaiting confirmation').toString()+'\nRecorded by: '+(((p['recorder'] as Map?)?['display_name'])??'Account not identified').toString()+' • Reference: '+(p['provider_reference']??'Not supplied').toString()),
+      trailing:(isDirector||isAccountant)?FilledButton.tonal(onPressed:loading?null:()=>verifyCustomerPayment(p),child:const Text('Verify')):const Text('Awaiting Director / Accountant'),
     )),
+  ]);
+
+  Widget pendingSupplierPaymentsSection() => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Divider(height:24),
+    const Text('Pending supplier payments',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    if(pendingSupplierPaymentRows.isEmpty)const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No supplier payments are waiting for verification.')),
+    ...pendingSupplierPaymentRows.take(40).map((p){
+      final supplier=(p['supplier'] as Map?)?.cast<String,dynamic>()??{};
+      final purchase=(p['purchase'] as Map?)?.cast<String,dynamic>()??{};
+      return ListTile(
+        dense:true,
+        title:Text((supplier['business_name']??'Supplier').toString()+' • '+(purchase['purchase_number']??'Purchase').toString()),
+        subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['method']??'').toString()+' • Reference: '+(p['transaction_reference']??'Not supplied').toString()+'\nRecorded by: '+_paymentPerson(p['recorder'])),
+        trailing:FilledButton.tonal(onPressed:loading?null:()=>verifySupplierPayment(p),child:const Text('Verify')),
+      );
+    }),
+  ]);
+
+  Widget supplierPurchaseSection() => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Divider(height:24),
+    const Text('Supplier invoices and balances',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    if(supplierPurchaseRows.isEmpty)const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No supplier invoices are recorded yet.')),
+    ...supplierPurchaseRows.take(40).map((r){
+      final supplier=supplierRows.where((x)=>x['id'].toString()==(r['supplier_id']??'').toString()).toList();
+      final approved=supplier.isNotEmpty&&supplier.first['approval_status']=='active'&&supplier.first['is_active']==true;
+      final balance=numVal(r['outstanding_balance']);
+      final canPay=approved&&numVal(r['uncommitted_balance'])>0.009;
+      return Card(child:ListTile(
+        title:Text((r['purchase_number']??'Purchase').toString()+' • '+(r['supplier_name']??'Supplier').toString()),
+        subtitle:Text('Invoice: '+cash(numVal(r['invoice_total']))+' • Verified: '+cash(numVal(r['verified_paid']))+' • Pending: '+cash(numVal(r['pending_paid']))+'\nBalance due: '+cash(balance)+' • '+(r['payment_status']??'unpaid').toString().replaceAll('_',' ')),
+        isThreeLine:true,
+        trailing:canPay?IconButton(tooltip:'Record supplier payment',onPressed:loading?null:()=>recordSupplierPayment(r['purchase_id'].toString()),icon:const Icon(Icons.payments_outlined,color:brandGreen))
+          :Text(approved?'Settled / pending':'Awaiting supplier approval',style:const TextStyle(fontSize:10,color:Colors.black54),textAlign:TextAlign.center),
+      ));
+    }),
+  ]);
+
+  Widget pendingSupplierApprovalsSection() {
+    if(!isDirector)return const SizedBox.shrink();
+    final pending=supplierRows.where((r)=>r['approval_status']=='pending').toList();
+    return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      const Divider(height:24),
+      const Text('Suppliers awaiting Director approval',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+      if(pending.isEmpty)const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No suppliers are waiting for approval.')),
+      ...pending.map((supplier)=>Card(child:ListTile(
+        leading:const Icon(Icons.store_outlined),
+        title:Text((supplier['business_name']??'Supplier').toString()),
+        subtitle:Text((supplier['contact_name']??'Contact not provided').toString()+' • '+(supplier['phone']??'No phone').toString()),
+        trailing:FilledButton.tonal(onPressed:loading?null:()=>approveSupplier(supplier),child:const Text('Approve')),
+      ))),
+    ]);
+  }
+
+  String _paymentPerson(dynamic value) {
+    if (value is Map && value['display_name'] != null) return value['display_name'].toString();
+    return 'Not recorded';
+  }
+  Widget paymentAuditSection(String title, List<Map<String,dynamic>> rows, {required String dateField, required String nameField, required String referenceField}) => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Divider(height:24),Text(title,style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    if(rows.isEmpty) const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No records for this period.')),
+    ...rows.take(40).map((r)=>ListTile(dense:true,title:Text((r[nameField]??title).toString()),subtitle:Text((r[dateField]??'').toString()+' • '+(r['method']??'').toString()+' • '+(r['status']??'').toString()+'\nRecorded by: '+_paymentPerson(r['recorder'])+' • Verified by: '+_paymentPerson(r['verifier'])+'\nReference: '+(r[referenceField]??'Not supplied').toString()),trailing:Text(cash(numVal(r['amount']))))),
+  ]);
+
+  Widget paymentBreakdowns() => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Divider(height:24),const Text('Sales by payment option',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    ...const ['cash','mpesa','bank_transfer','credit','split','other'].map((mode)=>ListTile(dense:true,title:Text(mode=='mpesa'?'M-Pesa':mode.replaceAll('_',' ')),trailing:Text(cash(salesByPaymentMode[mode]??0)))),
+    const SizedBox(height:8),const Text('Verified and pending receipts by actual payment method',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    ...const ['cash','mpesa','bank_transfer','other'].map((method)=>ListTile(dense:true,title:Text(method=='mpesa'?'M-Pesa':method.replaceAll('_',' ')),subtitle:Text('Pending: '+cash(pendingReceiptsByMethod[method]??0)),trailing:Text('Verified: '+cash(verifiedReceiptsByMethod[method]??0)))),
+    const Text('Split sales are included under Split; receipts are itemised under the methods used. Credit sales remain in outstanding balances until payments are verified.',style:TextStyle(fontSize:12,color:Colors.black54)),
   ]);
 
   String cash(double v) => 'KSh ' + v.toStringAsFixed(2);
@@ -5843,8 +6754,11 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     final net = gross;
     return RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
       const Text('Financial Records & Profit',style:TextStyle(fontSize:23,fontWeight:FontWeight.bold)),
-      Align(alignment:Alignment.centerLeft,child:OutlinedButton.icon(onPressed:loading?null:recordCustomerPayment,icon:const Icon(Icons.payments_outlined),label:const Text('Record customer payment'))),
-      const Text('Director & Accountant reports • amounts in Kenya shillings'),
+      Wrap(spacing:8,runSpacing:8,children:[
+        OutlinedButton.icon(onPressed:loading?null:recordCustomerPayment,icon:const Icon(Icons.payments_outlined),label:const Text('Record customer payment')),
+        OutlinedButton.icon(onPressed:loading?null:recordSupplierPayment,icon:const Icon(Icons.store_mall_directory_outlined),label:const Text('Record supplier payment')),
+      ]),
+      const Text('Director and Accountant reports • amounts in Kenya shillings'),
       const SizedBox(height:12),
       DropdownButtonFormField<String>(value:period,decoration:const InputDecoration(labelText:'Reporting period',border:OutlineInputBorder()),
         items:const ['Today','This week','This month','This year','All time'].map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),
@@ -5856,14 +6770,18 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         metric('Sales revenue',revenue),metric('Cost of goods sold',costOfGoods),
         metric('Trading profit (including landed stock cost)',gross,highlight:true),metric('Purchase-related expenses',purchaseCostsTotal),
         metric('Net trading result before other overheads',net,highlight:true),metric('Accepted purchases / stock cost',purchaseTotal),
-        metric('Verified customer receipts',customerReceipts),metric('Pending customer payments',pendingCustomerReceipts),metric('Verified supplier payments',supplierPayments),
+        metric('Verified customer receipts',customerReceipts),metric('Pending customer payments',pendingCustomerReceipts),metric('Outstanding customer balances',outstandingBalance),metric('Verified supplier payments',supplierPayments),metric('Pending supplier payments',pendingSupplierPayments),metric('Outstanding supplier balances',outstandingSupplierBalance),
       ]),
+      paymentBreakdowns(),
       section('Sales records',salesRows,'sale_date','total_amount','sale_number',extraField:'payment_mode'),
       section('Expenses attached to purchases',purchaseCostRows,'incurred_at','amount','cost_type'),
-      section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number'),
-      section('Verified customer payments',customerPaymentRows,'received_at','amount','payment_number'),
+      section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number',extraField:'supplier_name'),
+      paymentAuditSection('Verified customer payments',customerPaymentRows,dateField:'received_at',nameField:'payment_number',referenceField:'provider_reference'),
       pendingPaymentsSection(),
-      section('Verified supplier payments',supplierPaymentRows,'payment_date','amount','transaction_reference'),
+      pendingSupplierApprovalsSection(),
+      supplierPurchaseSection(),
+      pendingSupplierPaymentsSection(),
+      paymentAuditSection('Verified supplier payments',supplierPaymentRows,dateField:'payment_date',nameField:'transaction_reference',referenceField:'transaction_reference'),
       const Padding(padding:EdgeInsets.only(top:14),child:Text('Profit method: trading profit = recorded sales revenue less the cost of goods sold. Purchase-related costs such as transport, loading, labour and drying are attached to each purchase and included in landed stock cost, so they are not deducted a second time. This is trading profit before any separate business overheads. Figures depend on complete and correctly approved records.',style:TextStyle(fontSize:12,color:Colors.black54))),
       Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:loading?null:load,icon:const Icon(Icons.refresh),label:const Text('Refresh'))),
     ]));
