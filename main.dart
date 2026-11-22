@@ -6173,7 +6173,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
           if(method!='cash')TextField(controller:referenceController,
             decoration:InputDecoration(labelText:method=='other'?'Receipt / manual note':'Payment reference')),
           const SizedBox(height:6),
-          const Text('Pending transfers are not counted as verified receipts until approved.',style:TextStyle(fontSize:12,color:Colors.black54)),
+          const Text('M-Pesa, bank transfers and other/manual payments remain pending until verified. Cash is recorded as received.',style:TextStyle(fontSize:12,color:Colors.black54)),
         ]),
         actions:[
           TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
