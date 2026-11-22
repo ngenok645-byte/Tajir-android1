@@ -2889,7 +2889,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
         try{final rows=await db.from(t).select('id').limit(500);activity[t]=rows.length;}catch(_){activity[t]=-1;}
       }
       if(mounted)setState(()=>loading=false);
-    }catch(e){if(mounted)setState(()=>{loading=false,error=friendlyError(e)});}
+    }catch(e){if(mounted)setState(() { loading=false; error=friendlyError(e); });}
   }
   List<String> roleCodes(Map<String,dynamic> a){
     final raw=a['user_role_assignments']; if(raw is! List)return [];
