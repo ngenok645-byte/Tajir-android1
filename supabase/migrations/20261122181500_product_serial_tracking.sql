@@ -102,6 +102,10 @@ drop trigger if exists tajir_sync_expense_serials on public.expenses;
 create trigger tajir_sync_expense_serials before insert or update of stock_batch_id
 on public.expenses for each row execute function public.tajir_sync_expense_serials();
 
+-- Backfill serial references for sales/payment rows created before these triggers existed.
+update public.sale_items set product_variant_id=product_variant_id;
+update public.customer_payments set sale_id=sale_id where sale_id is not null;
+
 create index if not exists purchase_items_product_serial_idx on public.purchase_items(product_serial);
 create index if not exists sale_items_product_serials_gin_idx on public.sale_items using gin(product_serials);
 create index if not exists customer_payments_product_serials_gin_idx on public.customer_payments using gin(product_serials);
