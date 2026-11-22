@@ -4229,8 +4229,8 @@ class _SalePageState extends State<SalePage> {
           return;
         }
         final ref = entry.reference.text.trim();
-        if ((entry.method == 'mpesa' || entry.method == 'bank_transfer') && ref.isEmpty) {
-          setState(() => message = 'Add a reference for every M-Pesa or bank transfer split payment.');
+        if ((entry.method == 'mpesa' || entry.method == 'bank_transfer' || entry.method == 'other') && ref.isEmpty) {
+          setState(() => message = 'Add a transaction reference or manual receipt note for every non-cash split payment.');
           return;
         }
         methods.add(entry.method);
@@ -4253,8 +4253,8 @@ class _SalePageState extends State<SalePage> {
         return;
       }
       final ref = reference.text.trim();
-      if ((paymentMode == 'mpesa' || paymentMode == 'bank_transfer') && ref.isEmpty) {
-        setState(() => message = 'Enter the M-Pesa or bank transfer reference.');
+      if ((paymentMode == 'mpesa' || paymentMode == 'bank_transfer' || paymentMode == 'other') && ref.isEmpty) {
+        setState(() => message = 'Enter the transaction reference or manual receipt note.');
         return;
       }
       payment = {'amount': amount, 'method': paymentMode, 'reference': ref};
@@ -5185,7 +5185,7 @@ class _CustomersPageState extends State<CustomersPage> {
         if(method!='cash') TextField(controller:referenceController,
           decoration:InputDecoration(labelText:method=='other'?'Receipt / manual note':'Payment reference')),
         const SizedBox(height:6),
-        const Text('M-Pesa and bank transfers remain pending until verified. Cash is recorded as received.',style:TextStyle(fontSize:12,color:Colors.black54)),
+        const Text('Cash is verified immediately. M-Pesa, bank transfers and other/manual payments remain pending until the reference or receipt is checked.',style:TextStyle(fontSize:12,color:Colors.black54)),
       ]),
       actions:[
         TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
@@ -5198,6 +5198,7 @@ class _CustomersPageState extends State<CustomersPage> {
         if(amount==null||amount<=0)throw const FormatException('Enter a payment amount greater than zero.');
         final selected=openSales.firstWhere((sale)=>sale['id'].toString()==selectedSaleId);
         if(amount>dueFor(selected)+0.009)throw const FormatException('Payment exceeds the remaining sale balance.');
+        if(method!='cash'&&referenceController.text.trim().isEmpty)throw const FormatException('Enter the transaction reference or manual receipt note.');
         final result=await Supabase.instance.client.rpc('record_customer_sale_payment',params:{
           'p_sale_id':selectedSaleId,
           'p_amount':amount,
@@ -5695,6 +5696,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
   Future<void> recordPayment() async {
     final amount=double.tryParse(pay.text.trim());
     if(selectedJob==null||amount==null||amount<=0){setState(()=>message='Select a job and enter a valid payment amount.');return;}
+    if(paymentMethod!='cash'&&reference.text.trim().isEmpty){setState(()=>message='Enter the transaction reference or manual receipt note.');return;}
     setState(()=>saving=true);
     try{
       final result=await db.rpc('record_tractor_job_payment',params:{'p_job_id':selectedJob,'p_amount':amount,'p_method':paymentMethod,'p_reference':reference.text.trim().isEmpty?null:reference.text.trim()});
@@ -5713,7 +5715,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
         Text('Payment '+payment['payment_number'].toString()+' • '+money(numberOf(payment,'amount'))),
         Text('Method: '+labelCase(payment['method'].toString())),
         const SizedBox(height:12),
-        const Text('Only verify after checking the actual cash, M-Pesa statement or bank transaction.'),
+        const Text('Only verify after checking the actual cash, M-Pesa or bank transaction, or the manual payment receipt.'),
         const SizedBox(height:8),
         TextField(controller:referenceController,decoration:const InputDecoration(labelText:'Transaction reference',border:OutlineInputBorder()))
       ]),
@@ -5968,7 +5970,7 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     }),
     field(pay,'Payment amount (KES)',number:true),
     dropdown('Payment method',paymentMethod,['cash','mpesa','bank_transfer','other'],(v)=>setState(()=>paymentMethod=v??'cash')),
-    field(reference,'M-Pesa / bank reference'),button('Record payment',recordPayment),
+    if(paymentMethod!='cash')field(reference,paymentMethod=='other'?'Receipt / manual payment note':'Transaction reference'),button('Record payment',recordPayment),
     const Divider(height:30),const Text('Payment receipts',style:TextStyle(fontWeight:FontWeight.bold)),
     if(payments.isEmpty)const Text('No payment records visible for this branch or role.'),
     ...payments.map((p)=>Card(child:ListTile(
@@ -6183,6 +6185,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         if(amount==null||amount<=0)throw const FormatException('Enter a payment amount greater than zero.');
         final selected=allSales.firstWhere((sale)=>sale['id'].toString()==selectedSaleId);
         if(amount>dueFor(selected)+0.009)throw const FormatException('Payment exceeds the remaining sale balance.');
+        if(method!='cash'&&referenceController.text.trim().isEmpty)throw const FormatException('Enter the transaction reference or manual receipt note.');
         final result=await db.rpc('record_customer_sale_payment',params:{
           'p_sale_id':selectedSaleId,'p_amount':amount,'p_method':method,'p_reference':referenceController.text.trim(),
         });
