@@ -1448,7 +1448,7 @@ class _BranchRequestPanelState extends State<BranchRequestPanel> {
   Future<void> load() async {
     if(mounted)setState(()=>loading=true);
     try {
-      final r=await Future.wait([
+      final r=await Future.wait<dynamic>([
         db.from('branches').select('id,code,name').eq('is_active',true).order('name'),
         db.from('branch_requests').select('id,proposed_name,address,status,rejection_reason').order('created_at',ascending:false).limit(30),
       ]);
@@ -1718,7 +1718,7 @@ class _RepairMarketplacePageState extends State<RepairMarketplacePage> with Sing
  Future<void> load() async {
   setState(()=>busy=true);
   try {
-   final results=await Future.wait([
+   final results=await Future.wait<dynamic>([
     db.from('mechanic_profiles').select('id,business_name,phone,location,services').eq('status','approved').order('business_name'),
     db.from('auto_spares_inventory').select('id,shop_id,part_name,part_reference,description,quantity,unit,price_kes,auto_spares_profiles(shop_name,phone,location)').eq('status','active').gt('quantity',0).order('part_name')
    ]);
@@ -2426,7 +2426,7 @@ class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPag
  @override void initState(){super.initState();load();}
  Future<void> load()async{
   try{
-   final results=await Future.wait([
+   final results=await Future.wait<dynamic>([
     Supabase.instance.client.rpc('customer_list_tractor_bookings'),
     Supabase.instance.client.rpc('customer_get_tractor_driver_contacts'),
    ]);
@@ -4479,7 +4479,7 @@ class _DirectorPriceManagementPageState extends State<DirectorPriceManagementPag
   Future<void> load() async {
     if (mounted) setState(() { loading = true; message = ''; });
     try {
-      final results = await Future.wait([
+      final results = await Future.wait<dynamic>([
         db.from('branches').select('id,code,name').eq('is_active', true).order('name'),
         db.from('product_variants').select('id,variant_name,base_unit,sku,products(name)').eq('is_active', true).order('variant_name'),
       ]);
@@ -4900,7 +4900,7 @@ class _StockPageState extends State<StockPage>{
     if(mounted)setState(()=>loading=true);
     try{
       final db=Supabase.instance.client;
-      final results=await Future.wait([
+      final results=await Future.wait<dynamic>([
         db.rpc('get_stock_balances'),
         db.rpc('get_pending_purchase_quality'),
       ]);
@@ -5252,7 +5252,7 @@ class _CustomersPageState extends State<CustomersPage> {
     final db=Supabase.instance.client;
     try {
       final id=customer['id'];
-      final results=await Future.wait([
+      final results=await Future.wait<dynamic>([
         db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode').eq('customer_id',id).order('sale_date',ascending:false),
         db.from('customer_payments').select('id,payment_number,sale_id,amount,method,status,received_at,created_at').eq('customer_id',id).order('created_at',ascending:false),
       ]);
@@ -6104,7 +6104,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       final roles = await db.from('user_role_assignments').select('app_roles(code)').eq('user_id', db.auth.currentUser!.id).eq('is_active', true);
       final hasFinanceAccess = roles.any((r) => r['app_roles'] is Map && ['director','accountant'].contains((r['app_roles'] as Map)['code']));
       if (!hasFinanceAccess) throw Exception('This financial report is available to Director and Accountant accounts only.');
-      final data = await Future.wait([
+      final data = await Future.wait<dynamic>([
         db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,customer_id,customer:customers(full_name),sale_items(line_cost)').order('sale_date',ascending:false),
         db.from('purchase_costs').select('id,purchase_id,purchase_item_id,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
         db.from('purchases').select('id,purchase_number,purchase_date,status,supplier_name,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
@@ -6157,7 +6157,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   Future<void> recordCustomerPayment() async {
     try {
       final db=Supabase.instance.client;
-      final allResults=await Future.wait([
+      final allResults=await Future.wait<dynamic>([
         db.from('sales').select('id,sale_number,sale_date,total_amount,customer:customers(full_name)').order('sale_date',ascending:false),
         db.from('customer_payments').select('sale_id,amount,status').inFilter('status',['pending','verified']),
       ]);
