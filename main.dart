@@ -3137,12 +3137,14 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     {'code':'mechanic','name':'Mechanic'},{'code':'auto_spares_owner','name':'Auto-spares Owner'},
   ];
   static const tables=<String,List<String>>{
-    'director':['sales','purchases','customer_payments'],
-    'buyer':['sales_orders','marketplace_listing_offers'],
-    'seller':['marketplace_listings'],'worker':['staff_tasks','staff_activity_reports'],
-    'tractor_owner':['tractor_service_jobs'],'driver':['deliveries'],
+    'director':['sales','purchases','customer_payments','supplier_payments','inventory_balances','stock_movements'],
+    'buyer':['sales_orders','marketplace_listing_offers','marketplace_purchase_requests','customer_product_requests','customer_custom_product_requests'],
+    'seller':['marketplace_listings','marketplace_purchase_requests','customer_custom_product_requests'],
+    'worker':['staff_tasks','staff_activity_reports'],
+    'tractor_owner':['tractor_service_jobs','tractor_repair_jobs'],
+    'driver':['deliveries','tractor_service_jobs'],
     'mechanic':['tractor_repair_jobs','repair_part_requests'],
-    'auto_spares_owner':['auto_spares_inventory'],
+    'auto_spares_owner':['auto_spares_inventory','repair_part_requests'],
   };
   @override void initState(){super.initState();load();}
   Future<void> load() async {
