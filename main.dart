@@ -99,6 +99,28 @@ const brandGold = Color(0xFFD6A52D);
 const tajirUpdateChannel = MethodChannel('tajir/update');
 const tajirVersion = String.fromEnvironment('TAJIR_VERSION', defaultValue: '0');
 
+String _tajirOfflineKey(String name) {
+  final userId = Supabase.instance.client.auth.currentUser?.id ?? 'signed-out';
+  return 'tajir_offline_${userId}_${name}';
+}
+
+Future<void> saveTajirOfflineData(String name, Map<String, dynamic> data) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString(_tajirOfflineKey(name), jsonEncode(data));
+}
+
+Future<Map<String, dynamic>?> readTajirOfflineData(String name) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_tajirOfflineKey(name));
+    if (raw == null || raw.isEmpty) return null;
+    final decoded = jsonDecode(raw);
+    return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 Future<Map<String, dynamic>?> checkTajirUpdate() async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
   try {
@@ -4119,6 +4141,11 @@ class _PurchasePageState extends State<PurchasePage> {
           .eq('is_active', true)
           .order('variant_name');
       final loadedRows = List<Map<String, dynamic>>.from(loaded);
+      await saveTajirOfflineData('product_options_${product.toLowerCase()}', {
+        'product_id': row['id'].toString(),
+        'variants': loadedRows,
+        'saved_at': DateTime.now().toUtc().toIso8601String(),
+      });
       if (!mounted) return;
       setState(() {
         productId = row['id'] as String;
@@ -4127,7 +4154,18 @@ class _PurchasePageState extends State<PurchasePage> {
         if (loadedRows.isEmpty) message = 'No active stock option is configured for ' + product + '.';
       });
     } catch (e) {
-      if (mounted) setState(() => message = 'Could not load ' + product + ' options: ' + friendlyError(e));
+      final cached = await readTajirOfflineData('product_options_${product.toLowerCase()}');
+      if (mounted && cached != null && cached['product_id'] != null && cached['variants'] is List) {
+        final cachedRows = List<Map<String, dynamic>>.from((cached['variants'] as List).map((v) => Map<String, dynamic>.from(v as Map)));
+        setState(() {
+          productId = cached['product_id'].toString();
+          variants = cachedRows;
+          selectedVariantId = cachedRows.isNotEmpty ? cachedRows.first['id']?.toString() : null;
+          message = 'Offline mode: showing the last saved ${product} options. Recording a purchase requires internet.';
+        });
+      } else if (mounted) {
+        setState(() => message = 'Could not load ' + product + ' options: ' + friendlyError(e));
+      }
     } finally {
       if (mounted) setState(() => loadingVariants = false);
     }
@@ -4409,6 +4447,13 @@ class _SalePageState extends State<SalePage> {
         'p_product_variant_id': variantId,
       });
       final value = (row as num?)?.toDouble();
+      if (value != null && value > 0) {
+        await saveTajirOfflineData('selling_price_${variantId}', {
+          'branch_id': branchId,
+          'price_per_kg': value,
+          'saved_at': DateTime.now().toUtc().toIso8601String(),
+        });
+      }
       if (!mounted) return;
       setState(() {
         officialPricePerKg = value;
@@ -4418,7 +4463,18 @@ class _SalePageState extends State<SalePage> {
           : '';
       });
     } catch (e) {
-      if (mounted) setState(() { officialPricePerKg = null; price.clear(); message = 'Could not load the Director-approved price: ' + friendlyError(e); });
+      final cached = await readTajirOfflineData('selling_price_${variantId}');
+      final cachedPrice = double.tryParse((cached?['price_per_kg'] ?? '').toString());
+      if (mounted && cachedPrice != null && cachedPrice > 0) {
+        setState(() {
+          officialPricePerKg = cachedPrice;
+          branchId = cached?['branch_id']?.toString();
+          updateDisplayedOfficialPrice();
+          message = 'Offline mode: showing the last saved Director-approved price. A sale cannot be submitted until internet returns.';
+        });
+      } else if (mounted) {
+        setState(() { officialPricePerKg = null; price.clear(); message = 'Could not load the Director-approved price: ' + friendlyError(e); });
+      }
     } finally {
       if (mounted) setState(() { loadingOfficialPrice = false; });
     }
@@ -4444,6 +4500,11 @@ class _SalePageState extends State<SalePage> {
       final loaded = await db.from('product_variants').select('id,variant_name,base_unit,sku')
         .eq('product_id', row['id']).eq('is_active', true).order('variant_name');
       final loadedRows = List<Map<String, dynamic>>.from(loaded);
+      await saveTajirOfflineData('product_options_${product.toLowerCase()}', {
+        'product_id': row['id'].toString(),
+        'variants': loadedRows,
+        'saved_at': DateTime.now().toUtc().toIso8601String(),
+      });
       if (!mounted) return;
       setState(() {
         productId = row['id'] as String;
@@ -4453,7 +4514,19 @@ class _SalePageState extends State<SalePage> {
       });
       if (loadedRows.isNotEmpty) await loadDirectorSellingPrice();
     } catch (e) {
-      if (mounted) setState(() => message = 'Could not load ' + product + ' options: ' + friendlyError(e));
+      final cached = await readTajirOfflineData('product_options_${product.toLowerCase()}');
+      if (mounted && cached != null && cached['product_id'] != null && cached['variants'] is List) {
+        final cachedRows = List<Map<String, dynamic>>.from((cached['variants'] as List).map((v) => Map<String, dynamic>.from(v as Map)));
+        setState(() {
+          productId = cached['product_id'].toString();
+          variants = cachedRows;
+          selectedVariantId = cachedRows.isNotEmpty ? cachedRows.first['id']?.toString() : null;
+          message = 'Offline mode: showing the last saved ${product} options. Transactions require internet.';
+        });
+        if (selectedVariantId != null) await loadDirectorSellingPrice();
+      } else if (mounted) {
+        setState(() => message = 'Could not load ' + product + ' options: ' + friendlyError(e));
+      }
     } finally {
       if (mounted) setState(() => loadingVariants = false);
     }
