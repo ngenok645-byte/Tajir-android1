@@ -7154,9 +7154,12 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       final items=(r[isPurchase?'purchase_items':'sale_items'] as List?)??const [];
       final itemDetails=items.take(8).map((item){
         final row=(item as Map).cast<String,dynamic>();
+        final hasQuantity=row.containsKey('quantity_accepted')||row.containsKey('quantity');
         final quantity=numVal(row['quantity_accepted']??row['quantity']);
         final unitPrice=numVal(row['buying_price_per_unit']??row['line_cost']);
-        return 'Item: Qty '+quantity.toStringAsFixed(2)+' • Unit price KSh '+unitPrice.toStringAsFixed(2);
+        return hasQuantity
+          ? 'Item: Qty '+quantity.toStringAsFixed(2)+' • Unit price KSh '+unitPrice.toStringAsFixed(2)
+          : 'Item line amount: KSh '+unitPrice.toStringAsFixed(2);
       }).toList();
       return ListTile(dense:true,title:Text((r[nameField]??title).toString()),
         subtitle:Text((r[dateField]??'').toString()+(extraField==null?'':' • '+(r[extraField]??'').toString())),
@@ -7199,7 +7202,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       paymentBreakdowns(),
       section('Sales records',salesRows,'sale_date','total_amount','sale_number',extraField:'payment_mode'),
       section('Expenses attached to purchases',purchaseCostRows,'incurred_at','amount','cost_type'),
-      section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number',extraField:'supplier_name'),
+      section('Accepted purchases',purchaseRows,'purchase_date','invoice_total','purchase_number',extraField:'supplier_name'),
       paymentAuditSection('Verified customer payments',customerPaymentRows,dateField:'received_at',nameField:'payment_number',referenceField:'provider_reference'),
       pendingPaymentsSection(),
       pendingSupplierApprovalsSection(),
