@@ -219,6 +219,8 @@ jobs:
                       }}
                       startActivity(installIntent)
                       pendingUpdateUri = null
+                      getSharedPreferences("tajir_updates", Context.MODE_PRIVATE)
+                          .edit().remove("download_id").apply()
                   }} catch (_: Exception) {{
                       pendingUpdateUri = uri
                   }}
@@ -238,7 +240,6 @@ jobs:
                           if (uri != null) {{
                               updateDownloadId = id
                               installUpdate(uri)
-                              prefs.edit().remove("download_id").apply()
                           }}
                       }} else if (status == DownloadManager.STATUS_FAILED) {{
                           prefs.edit().remove("download_id").apply()
