@@ -556,8 +556,8 @@ class AuthChoicePage extends StatelessWidget {
                           icon: Icons.person_outline,
                           title: 'Client',
                           subtitle: 'Buy and sell approved products and request tractor services.',
-                          onLogin: _openClient.bind(context),
-                          onJoin: _openClient.bind(context),
+                          onLogin: () => _openClient(context),
+                          onJoin: () => _openClient(context),
                         ),
                       ),
                       SizedBox(
