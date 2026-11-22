@@ -6081,7 +6081,8 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   bool loading = false;
   String error = '';
   String period = 'This month';
-  double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, pendingCustomerReceipts = 0, supplierPayments = 0;
+  double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, pendingCustomerReceipts = 0, supplierPayments = 0, outstandingBalance = 0;
+  Map<String,double> salesByPaymentMode = {}, verifiedReceiptsByMethod = {}, pendingReceiptsByMethod = {};
   List<Map<String,dynamic>> salesRows = [], purchaseCostRows = [], purchaseRows = [], customerPaymentRows = [], pendingCustomerPaymentRows = [], supplierPaymentRows = [];
   double numVal(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
   DateTime? get startDate {
@@ -6115,9 +6116,23 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       final sr = List<Map<String,dynamic>>.from(data[0]).where((r)=>within(r['sale_date'])).toList();
       final pcr = List<Map<String,dynamic>>.from(data[1]).where((r)=>within(r['incurred_at'])).toList();
       final pr = List<Map<String,dynamic>>.from(data[2]).where((r)=>within(r['purchase_date']) && r['status']=='accepted').toList();
-      final allCustomerRows = List<Map<String,dynamic>>.from(data[3]).where((r)=>within(r['received_at'])).toList();
+      final allPaymentRows = List<Map<String,dynamic>>.from(data[3]);
+      final allCustomerRows = allPaymentRows.where((r)=>within(r['received_at'])).toList();
       final cr = allCustomerRows.where((r)=>r['status']=='verified').toList();
       final pendingCr = allCustomerRows.where((r)=>r['status']=='pending').toList();
+      final verifiedBySale=<String,double>{};
+      for(final payment in allPaymentRows){
+        if(payment['status']!='verified')continue;
+        final saleId=payment['sale_id']?.toString();
+        if(saleId!=null)verifiedBySale[saleId]=(verifiedBySale[saleId]??0)+numVal(payment['amount']);
+      }
+      final outstanding=sr.fold<double>(0,(sum,sale)=>sum+(numVal(sale['total_amount'])-(verifiedBySale[sale['id'].toString()]??0)).clamp(0,double.infinity).toDouble());
+      final modeTotals=<String,double>{};
+      for(final sale in sr){final mode=(sale['payment_mode']??'credit').toString();modeTotals[mode]=(modeTotals[mode]??0)+numVal(sale['total_amount']);}
+      final verifiedMethods=<String,double>{};
+      for(final payment in cr){final method=(payment['method']??'other').toString();verifiedMethods[method]=(verifiedMethods[method]??0)+numVal(payment['amount']);}
+      final pendingMethods=<String,double>{};
+      for(final payment in pendingCr){final method=(payment['method']??'other').toString();pendingMethods[method]=(pendingMethods[method]??0)+numVal(payment['amount']);}
       final spr = List<Map<String,dynamic>>.from(data[4]).where((r)=>within(r['payment_date']) && r['status']=='verified').toList();
       double rev=0,cogs=0,buy=0;
       for(final row in sr) {
@@ -6136,6 +6151,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         purchaseTotal=buy; customerReceipts=cr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         pendingCustomerReceipts=pendingCr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         supplierPayments=spr.fold(0.0,(v,r)=>v+numVal(r['amount']));
+        outstandingBalance=outstanding; salesByPaymentMode=modeTotals; verifiedReceiptsByMethod=verifiedMethods; pendingReceiptsByMethod=pendingMethods;
       });
     } catch(e) { if(mounted)setState(()=>error=friendlyError(e)); }
     finally { if(mounted)setState(()=>loading=false); }
@@ -6254,6 +6270,14 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     ...rows.take(40).map((r)=>ListTile(dense:true,title:Text((r[nameField]??title).toString()),subtitle:Text((r[dateField]??'').toString()+' • '+(r['method']??'').toString()+' • '+(r['status']??'').toString()+'\nRecorded by: '+_paymentPerson(r['recorder'])+' • Verified by: '+_paymentPerson(r['verifier'])+'\nReference: '+(r[referenceField]??'Not supplied').toString()),trailing:Text(cash(numVal(r['amount']))))),
   ]);
 
+  Widget paymentBreakdowns() => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Divider(height:24),const Text('Sales by payment option',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    ...const ['cash','mpesa','bank_transfer','credit','split','other'].map((mode)=>ListTile(dense:true,title:Text(mode=='mpesa'?'M-Pesa':mode.replaceAll('_',' ')),trailing:Text(cash(salesByPaymentMode[mode]??0)))),
+    const SizedBox(height:8),const Text('Verified and pending receipts by actual payment method',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    ...const ['cash','mpesa','bank_transfer','other'].map((method)=>ListTile(dense:true,title:Text(method=='mpesa'?'M-Pesa':method.replaceAll('_',' ')),subtitle:Text('Pending: '+cash(pendingReceiptsByMethod[method]??0)),trailing:Text('Verified: '+cash(verifiedReceiptsByMethod[method]??0)))),
+    const Text('Split sales are included under Split; their receipts are itemised under the methods used. Credit sales remain in outstanding balances until payments are verified.',style:TextStyle(fontSize:12,color:Colors.black54)),
+  ]);
+
   String cash(double v) => 'KSh ' + v.toStringAsFixed(2);
   Widget metric(String title,double value,{bool highlight=false}) => Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     Text(title,style:const TextStyle(fontSize:13,color:Colors.black54)),const SizedBox(height:5),
@@ -6282,8 +6306,9 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         metric('Sales revenue',revenue),metric('Cost of goods sold',costOfGoods),
         metric('Trading profit (including landed stock cost)',gross,highlight:true),metric('Purchase-related expenses',purchaseCostsTotal),
         metric('Net trading result before other overheads',net,highlight:true),metric('Accepted purchases / stock cost',purchaseTotal),
-        metric('Verified customer receipts',customerReceipts),metric('Pending customer payments',pendingCustomerReceipts),metric('Verified supplier payments',supplierPayments),
+        metric('Verified customer receipts',customerReceipts),metric('Pending customer payments',pendingCustomerReceipts),metric('Outstanding customer balances',outstandingBalance),metric('Verified supplier payments',supplierPayments),
       ]),
+      paymentBreakdowns(),
       section('Sales records',salesRows,'sale_date','total_amount','sale_number',extraField:'payment_mode'),
       section('Expenses attached to purchases',purchaseCostRows,'incurred_at','amount','cost_type'),
       section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number'),
