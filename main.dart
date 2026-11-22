@@ -528,10 +528,93 @@ class _TajirAppState extends State<TajirApp> {
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'TAJIR', debugShowCheckedModeBanner: false, theme: appTheme,
+    builder: (context, child) => TajirSessionGuard(child: child ?? const SizedBox.shrink()),
     home: const AuthGate(),
   );
 }
 
+
+class TajirSessionGuard extends StatefulWidget {
+  final Widget child;
+  const TajirSessionGuard({super.key, required this.child});
+  @override State<TajirSessionGuard> createState() => _TajirSessionGuardState();
+}
+
+class _TajirSessionGuardState extends State<TajirSessionGuard> with WidgetsBindingObserver {
+  static const Duration _idleLimit = Duration(minutes: 15);
+  Timer? _idleTimer;
+  DateTime _lastActivity = DateTime.now();
+  DateTime? _backgroundedAt;
+  StreamSubscription<AuthState>? _authSubscription;
+
+  @override void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    if (tajirBackendConfigured) {
+      final auth = Supabase.instance.client.auth;
+      if (auth.currentSession != null) _armTimer();
+      _authSubscription = auth.onAuthStateChange.listen((state) {
+        if (state.session == null) {
+          _idleTimer?.cancel();
+        } else {
+          _lastActivity = DateTime.now();
+          _armTimer();
+        }
+      });
+    }
+  }
+
+  void _recordActivity() {
+    if (!tajirBackendConfigured || Supabase.instance.client.auth.currentSession == null) return;
+    _lastActivity = DateTime.now();
+    _armTimer();
+  }
+
+  void _armTimer() {
+    _idleTimer?.cancel();
+    if (!tajirBackendConfigured || Supabase.instance.client.auth.currentSession == null) return;
+    _idleTimer = Timer(_idleLimit, _expireSession);
+  }
+
+  Future<void> _expireSession() async {
+    if (!tajirBackendConfigured || Supabase.instance.client.auth.currentSession == null) return;
+    if (DateTime.now().difference(_lastActivity) < _idleLimit) {
+      _armTimer();
+      return;
+    }
+    _idleTimer?.cancel();
+    await Supabase.instance.client.auth.signOut();
+  }
+
+  @override void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      _backgroundedAt ??= DateTime.now();
+    } else if (state == AppLifecycleState.resumed) {
+      _backgroundedAt = null;
+      if (tajirBackendConfigured && Supabase.instance.client.auth.currentSession != null) {
+        if (DateTime.now().difference(_lastActivity) >= _idleLimit) {
+          _expireSession();
+        } else {
+          _armTimer();
+        }
+      }
+    }
+  }
+
+  @override Widget build(BuildContext context) => Listener(
+    behavior: HitTestBehavior.translucent,
+    onPointerDown: (_) => _recordActivity(),
+    onPointerSignal: (_) => _recordActivity(),
+    child: widget.child,
+  );
+
+  @override void dispose() {
+    _idleTimer?.cancel();
+    _authSubscription?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+}
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
