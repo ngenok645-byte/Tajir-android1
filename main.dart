@@ -6447,6 +6447,57 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     )),
   ]);
 
+  Widget pendingSupplierPaymentsSection() => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Divider(height:24),
+    const Text('Pending supplier payments',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    if(pendingSupplierPaymentRows.isEmpty)const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No supplier payments are waiting for verification.')),
+    ...pendingSupplierPaymentRows.take(40).map((p){
+      final supplier=(p['supplier'] as Map?)?.cast<String,dynamic>()??{};
+      final purchase=(p['purchase'] as Map?)?.cast<String,dynamic>()??{};
+      return ListTile(
+        dense:true,
+        title:Text((supplier['business_name']??'Supplier').toString()+' • '+(purchase['purchase_number']??'Purchase').toString()),
+        subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['method']??'').toString()+' • Reference: '+(p['transaction_reference']??'Not supplied').toString()+'\nRecorded by: '+_paymentPerson(p['recorder'])),
+        trailing:FilledButton.tonal(onPressed:loading?null:()=>verifySupplierPayment(p),child:const Text('Verify')),
+      );
+    }),
+  ]);
+
+  Widget supplierPurchaseSection() => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Divider(height:24),
+    const Text('Supplier invoices and balances',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    if(supplierPurchaseRows.isEmpty)const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No supplier invoices are recorded yet.')),
+    ...supplierPurchaseRows.take(40).map((r){
+      final supplier=supplierRows.where((x)=>x['id'].toString()==(r['supplier_id']??'').toString()).toList();
+      final approved=supplier.isNotEmpty&&supplier.first['approval_status']=='active'&&supplier.first['is_active']==true;
+      final balance=numVal(r['outstanding_balance']);
+      final canPay=approved&&numVal(r['uncommitted_balance'])>0.009;
+      return Card(child:ListTile(
+        title:Text((r['purchase_number']??'Purchase').toString()+' • '+(r['supplier_name']??'Supplier').toString()),
+        subtitle:Text('Invoice: '+cash(numVal(r['invoice_total']))+' • Verified: '+cash(numVal(r['verified_paid']))+' • Pending: '+cash(numVal(r['pending_paid']))+'\nBalance due: '+cash(balance)+' • '+(r['payment_status']??'unpaid').toString().replaceAll('_',' ')),
+        isThreeLine:true,
+        trailing:canPay?IconButton(tooltip:'Record supplier payment',onPressed:loading?null:()=>recordSupplierPayment(r['purchase_id'].toString()),icon:const Icon(Icons.payments_outlined,color:brandGreen))
+          :Text(approved?'Settled / pending':'Awaiting supplier approval',style:const TextStyle(fontSize:10,color:Colors.black54),textAlign:TextAlign.center),
+      ));
+    }),
+  ]);
+
+  Widget pendingSupplierApprovalsSection() {
+    if(!isDirector)return const SizedBox.shrink();
+    final pending=supplierRows.where((r)=>r['approval_status']=='pending').toList();
+    return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      const Divider(height:24),
+      const Text('Suppliers awaiting Director approval',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+      if(pending.isEmpty)const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No suppliers are waiting for approval.')),
+      ...pending.map((supplier)=>Card(child:ListTile(
+        leading:const Icon(Icons.store_outlined),
+        title:Text((supplier['business_name']??'Supplier').toString()),
+        subtitle:Text((supplier['contact_name']??'Contact not provided').toString()+' • '+(supplier['phone']??'No phone').toString()),
+        trailing:FilledButton.tonal(onPressed:loading?null:()=>approveSupplier(supplier),child:const Text('Approve')),
+      ))),
+    ]);
+  }
+
   String _paymentPerson(dynamic value) {
     if (value is Map && value['display_name'] != null) return value['display_name'].toString();
     return 'Not recorded';
