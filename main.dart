@@ -58,7 +58,7 @@ Future<Map<String, dynamic>?> checkTajirUpdate() async {
 }
 
 Future<void> openTajirUpdate(String url) async {
-  await tajirUpdateChannel.invokeMethod<void>('openUrl', {'url': url});
+  await tajirUpdateChannel.invokeMethod<void>('downloadAndInstall', {'url': url});
 }
 
 Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = false}) async {
@@ -87,13 +87,13 @@ Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = fals
             } catch (_) {
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Could not open the update link. Please try again.')),
+                  const SnackBar(content: Text('Could not start the update. Check your internet connection and try again.')),
                 );
               }
             }
           },
           icon: const Icon(Icons.download),
-          label: const Text('Download update'),
+          label: const Text('Download and install'),
         ),
       ],
     ),
