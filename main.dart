@@ -177,21 +177,25 @@ Future<void> addMyTajirNationalId(BuildContext context) async {
 class TajirCallButton extends StatelessWidget {
   final String profileId;
   final String label;
-  const TajirCallButton({super.key, required this.profileId, this.label = 'Call'});
+  final String? linkedPhone;
+  const TajirCallButton({super.key, required this.profileId, this.label = 'Call', this.linkedPhone});
 
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
       onPressed: profileId.trim().isEmpty ? null : () async {
         try {
-          // Always resolve the number from the selected user's registered profile.
-          // Never dial a stale customer/provider contact field.
-          final row = await Supabase.instance.client
-              .from('profiles')
-              .select('phone')
-              .eq('id', profileId)
-              .maybeSingle();
-          final registeredPhone = row?['phone']?.toString().trim() ?? '';
+          // A server-authorised task relationship may supply the registered number.
+          // Otherwise only the caller's own profile is queried under normal RLS.
+          var registeredPhone = linkedPhone?.trim() ?? '';
+          if (registeredPhone.isEmpty) {
+            final row = await Supabase.instance.client
+                .from('profiles')
+                .select('phone')
+                .eq('id', profileId)
+                .maybeSingle();
+            registeredPhone = row?['phone']?.toString().trim() ?? '';
+          }
           if (registeredPhone.isEmpty) {
             throw const FormatException('This account has no registered phone number.');
           }
@@ -281,7 +285,7 @@ class _TajirDirectorContactsState extends State<TajirDirectorContacts> {
           leading: const CircleAvatar(child: Icon(Icons.person_outline)),
           title: Text((contact['display_name'] ?? 'TAJIR account').toString()),
           subtitle: Text((contact['relationship'] ?? 'Linked task').toString() + ' • ' + (contact['reference'] ?? '').toString()),
-          trailing: TajirCallButton(profileId: contact['profile_id'].toString(), label: 'Call'),
+          trailing: TajirCallButton(profileId: contact['profile_id'].toString(), linkedPhone: contact['phone']?.toString(), label: 'Call'),
         )),
         const SizedBox(height: 6),
         SizedBox(
@@ -2261,7 +2265,7 @@ class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPag
     ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.agriculture,color:brandGreen),title:Text(r['service_type'].toString()+' • '+r['job_number'].toString()),subtitle:Text(r['service_location'].toString()+' • '+statusText),trailing:Text('KES '+r['total_charge'].toString())),
     if(driver!=null)...[
      const Divider(),
-     ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.person_outline),title:Text((driver['driver_name']??'Assigned driver').toString()),subtitle:Text((driver['driver_phone']??'').toString()),trailing:driver['driver_profile_id']==null?const SizedBox.shrink():TajirCallButton(profileId:driver['driver_profile_id'].toString(),label:'Call driver')),
+     ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.person_outline),title:Text((driver['driver_name']??'Assigned driver').toString()),subtitle:Text((driver['driver_phone']??'').toString()),trailing:driver['driver_profile_id']==null?const SizedBox.shrink():TajirCallButton(profileId:driver['driver_profile_id'].toString(),linkedPhone:driver['driver_phone']?.toString(),label:'Call driver')),
     ] else if(status!='awaiting_director_assignment')
      const Padding(padding:EdgeInsets.only(left:8),child:Text('Driver contact will appear here once the driver is assigned.',style:TextStyle(fontSize:12,color:Colors.black54))),
    ])));
