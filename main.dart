@@ -3424,23 +3424,44 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
         ..sort((x,y)=>DateTime.tryParse((y['created_at']??'').toString())?.compareTo(DateTime.tryParse((x['created_at']??'').toString())??DateTime.fromMillisecondsSinceEpoch(0))??0);
       if(!mounted)return;
       final status=(a['status']??'unknown').toString();final assigned=roleCodes(a);
-      await showDialog<void>(context:context,builder:(ctx)=>AlertDialog(
-        title:Text(name),content:SizedBox(width:520,child:SingleChildScrollView(child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
-          const Chip(avatar:Icon(Icons.visibility_outlined,size:18),label:Text('Read-only inspection')),
-          Text('Phone: '+(a['phone']??'Not provided').toString()),
-          Text('Status: '+status.replaceAll('_',' ')),
-          Text('Assigned roles: '+(assigned.isEmpty?'None':assigned.join(', '))),
-          const SizedBox(height:12),const Text('Orders, payments and operational activity',style:TextStyle(fontWeight:FontWeight.bold)),
-          if(activityRows.isEmpty)const Text('No linked operational records were found for this account.'),
-          ...activityRows.take(12).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.receipt_long_outlined,size:18),title:Text((e['activity_type']??'Activity').toString()+' • '+(e['reference']??'Record').toString()),subtitle:Text((e['status']??'').toString().replaceAll('_',' ')+' • '+(e['activity_at']??'').toString()+'\n'+(e['details']??'').toString()),trailing:e['amount']==null?null:Text('KES '+(e['amount'] as num).toStringAsFixed(2)))),
-          const SizedBox(height:10),const Text('Changes to this account and its access',style:TextStyle(fontWeight:FontWeight.bold)),
-          if(changeEvents.isEmpty)const Text('No account or role changes have been recorded.'),
-          ...changeEvents.take(10).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.manage_history,size:18),title:Text((e['action']??'Change').toString().replaceAll('_',' ')+' • '+(e['entity_table']??'account').toString()),subtitle:Text((e['reason']??'Account access or profile change').toString()+'\n'+(e['created_at']??'').toString()))),
-          const SizedBox(height:10),const Text('Activity performed by this account',style:TextStyle(fontWeight:FontWeight.bold)),
-          if(events.isEmpty)const Text('No activity is recorded for this account yet.'),
-          ...events.take(10).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.history,size:18),title:Text((e['action']??'Activity').toString().replaceAll('_',' ')),subtitle:Text((e['entity_table']??'Account').toString()+' • '+(e['created_at']??'').toString()))),
-          const SizedBox(height:8),const Text('PINs remain private. This view does not impersonate the user or change their credentials.',style:TextStyle(fontSize:12,color:Colors.black54)),
-        ]))),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Close'))]));
+      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (pageContext) => Scaffold(
+        appBar: AppBar(title: Text(name), actions: [
+          IconButton(tooltip: 'Close account dashboard', icon: const Icon(Icons.close), onPressed: () => Navigator.pop(pageContext)),
+        ]),
+        body: ListView(padding: const EdgeInsets.all(16), children: [
+          Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Row(children: [Icon(Icons.visibility_outlined, color: brandGreen), SizedBox(width: 8), Text('DIRECTOR READ-ONLY ACCOUNT DASHBOARD', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))]),
+            const SizedBox(height: 12),
+            Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            Text('Phone: '+(a['phone']??'Not provided').toString()),
+            Text('Account status: '+status.replaceAll('_',' ')),
+            const SizedBox(height: 8),
+            Wrap(spacing: 6, runSpacing: 6, children: assigned.isEmpty
+              ? [const Chip(label: Text('No active role'))]
+              : assigned.map((r) => Chip(label: Text(r.replaceAll('_',' ')))).toList()),
+          ]))),
+          const SizedBox(height: 12),
+          const Text('Orders, payments and operational activity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Text(activityRows.length.toString()+' linked activity records returned for this account'),
+          if(activityRows.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(14), child: Text('No linked operational records were found for this account.'))),
+          ...activityRows.map((e) => Card(child: ListTile(
+            leading: const Icon(Icons.receipt_long_outlined, color: brandGreen),
+            title: Text((e['activity_type']??'Activity').toString()+' • '+(e['reference']??'Record').toString()),
+            subtitle: Text((e['status']??'').toString().replaceAll('_',' ')+' • '+(e['activity_at']??'').toString()+'\\n'+(e['details']??'').toString()),
+            trailing: e['amount']==null ? null : Text('KES '+(e['amount'] as num).toStringAsFixed(2)),
+          ))),
+          const SizedBox(height: 12),
+          const Text('Changes to this account and its access', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          if(changeEvents.isEmpty) const Text('No account or role changes have been recorded.'),
+          ...changeEvents.take(20).map((e) => ListTile(dense:true, leading:const Icon(Icons.manage_history), title:Text((e['action']??'Change').toString().replaceAll('_',' ')+' • '+(e['entity_table']??'account').toString()), subtitle:Text((e['reason']??'Account access or profile change').toString()+'\\n'+(e['created_at']??'').toString()))),
+          const SizedBox(height:12),
+          const Text('Activity performed by this account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          if(events.isEmpty) const Text('No activity is recorded for this account yet.'),
+          ...events.take(20).map((e) => ListTile(dense:true, leading:const Icon(Icons.history), title:Text((e['action']??'Activity').toString().replaceAll('_',' ')), subtitle:Text((e['entity_table']??'Account').toString()+' • '+(e['created_at']??'').toString()))),
+          const SizedBox(height:8),
+          const Text('This is a read-only oversight dashboard. PINs and passwords remain private. It does not sign in as the user or change their credentials.', style:TextStyle(fontSize:12,color:Colors.black54)),
+        ]),
+      )));
       await load();
     }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not open audited account view: '+friendlyError(e))));}
   }
