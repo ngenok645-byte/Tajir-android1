@@ -544,7 +544,6 @@ class _TajirSessionGuardState extends State<TajirSessionGuard> with WidgetsBindi
   static const Duration _idleLimit = Duration(minutes: 15);
   Timer? _idleTimer;
   DateTime _lastActivity = DateTime.now();
-  DateTime? _backgroundedAt;
   StreamSubscription<AuthState>? _authSubscription;
 
   @override void initState() {
@@ -588,9 +587,7 @@ class _TajirSessionGuardState extends State<TajirSessionGuard> with WidgetsBindi
 
   @override void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
-      _backgroundedAt ??= DateTime.now();
     } else if (state == AppLifecycleState.resumed) {
-      _backgroundedAt = null;
       if (tajirBackendConfigured && Supabase.instance.client.auth.currentSession != null) {
         if (DateTime.now().difference(_lastActivity) >= _idleLimit) {
           _expireSession();
