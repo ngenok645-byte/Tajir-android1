@@ -138,7 +138,7 @@ jobs:
 
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {{
                   super.configureFlutterEngine(flutterEngine)
-                  updateReceiver = object : BroadcastReceiver() {{
+                  val receiver = object : BroadcastReceiver() {{
                       override fun onReceive(context: Context, intent: Intent) {{
                           if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
                           val completedId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
@@ -158,9 +158,14 @@ jobs:
                           }}
                       }}
                   }}
+                  updateReceiver = receiver
                   val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-                  if (Build.VERSION.SDK_INT >= 33) registerReceiver(updateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-                  else @Suppress("DEPRECATION") registerReceiver(updateReceiver, filter)
+                  if (Build.VERSION.SDK_INT >= 33) {{
+                      registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                  }} else {{
+                      @Suppress("DEPRECATION")
+                      registerReceiver(receiver, filter)
+                  }}
 
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tajir/update")
                       .setMethodCallHandler {{ call, result ->
