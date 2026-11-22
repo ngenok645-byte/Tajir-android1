@@ -1989,55 +1989,85 @@ class _TajirLandMeasurePageState extends State<TajirLandMeasurePage>{
  StreamSubscription<Position>? tracking;
  StreamSubscription<List<ConnectivityResult>>? connectivitySub;
  bool measuring=false,saving=false;
+ String measurementType='area';
  @override void initState(){super.initState();syncPending();connectivitySub=Connectivity().onConnectivityChanged.listen((states){if(states.any((v)=>v!=ConnectivityResult.none))syncPending();});}
- Future<void> syncPending()async{try{final user=Supabase.instance.client.auth.currentUser;if(user==null)return;final prefs=await SharedPreferences.getInstance();final key='tajir_land_measurements_${user.id}';final rows=(prefs.getStringList(key)??<String>[]).map((v)=>jsonDecode(v) as Map<String,dynamic>).toList();var changed=false;for(var i=0;i<rows.length;i++){if(rows[i]['sync_status']=='synced')continue;try{await Supabase.instance.client.from('land_measurements').upsert(rows[i]);rows[i]['sync_status']='synced';changed=true;}catch(_){}}if(changed)await prefs.setStringList(key,rows.map((v)=>jsonEncode(v)).toList());}catch(_){}}
-
- String message='Tap Start, then walk around the full farm boundary.';
- double get perimeter{double v=0;for(var i=1;i<points.length;i++){v+=Geolocator.distanceBetween(points[i-1].latitude,points[i-1].longitude,points[i].latitude,points[i].longitude);}if(points.length>2)v+=Geolocator.distanceBetween(points.last.latitude,points.last.longitude,points.first.latitude,points.first.longitude);return v;}
- double get areaM2{if(points.length<3)return 0;const r=6378137.0;final lat=points.map((p)=>p.latitude).reduce((a,b)=>a+b)/points.length*math.pi/180;final xy=points.map((p)=>(x:r*p.longitude*math.pi/180*math.cos(lat),y:r*p.latitude*math.pi/180)).toList();double sum=0;for(var i=0;i<xy.length;i++){final a=xy[i],b=xy[(i+1)%xy.length];sum+=a.x*b.y-b.x*a.y;}return sum.abs()/2;}
+ Future<void> syncPending()async{
+  try{
+   final user=Supabase.instance.client.auth.currentUser;if(user==null)return;
+   final prefs=await SharedPreferences.getInstance();final key='tajir_land_measurements_${user.id}';
+   final rows=(prefs.getStringList(key)??<String>[]).map((v)=>jsonDecode(v) as Map<String,dynamic>).toList();var changed=false;
+   for(var i=0;i<rows.length;i++){if(rows[i]['sync_status']=='synced')continue;try{await Supabase.instance.client.from('land_measurements').upsert(rows[i]);rows[i]['sync_status']='synced';changed=true;}catch(_){}}
+   if(changed)await prefs.setStringList(key,rows.map((v)=>jsonEncode(v)).toList());
+  }catch(_){}
+ }
+ String message='Choose Area to measure a farm boundary or Distance to measure a route.';
+ double get perimeter{
+  double v=0;for(var i=1;i<points.length;i++){v+=Geolocator.distanceBetween(points[i-1].latitude,points[i-1].longitude,points[i].latitude,points[i].longitude);}
+  if(measurementType=='area'&&points.length>2)v+=Geolocator.distanceBetween(points.last.latitude,points.last.longitude,points.first.latitude,points.first.longitude);
+  return v;
+ }
+ double get routeDistance{
+  double v=0;for(var i=1;i<points.length;i++){v+=Geolocator.distanceBetween(points[i-1].latitude,points[i-1].longitude,points[i].latitude,points[i].longitude);}return v;
+ }
+ double get areaM2{
+  if(measurementType!='area'||points.length<3)return 0;
+  const r=6378137.0;final lat=points.map((p)=>p.latitude).reduce((a,b)=>a+b)/points.length*math.pi/180;
+  final xy=points.map((p)=>(x:r*p.longitude*math.pi/180*math.cos(lat),y:r*p.latitude*math.pi/180)).toList();
+  double sum=0;for(var i=0;i<xy.length;i++){final a=xy[i],b=xy[(i+1)%xy.length];sum+=a.x*b.y-b.x*a.y;}return sum.abs()/2;
+ }
  double get acres=>areaM2/4046.8564224;
  Future<void> start()async{
   var p=await Geolocator.checkPermission();if(p==LocationPermission.denied)p=await Geolocator.requestPermission();
   if(p==LocationPermission.denied||p==LocationPermission.deniedForever){setState(()=>message='Location permission is required. Enable it in Android settings.');return;}
   if(!await Geolocator.isLocationServiceEnabled()){setState(()=>message='Turn on phone GPS/location services.');return;}
-  setState(() { points.clear(); measuring=true; message='Recording boundary. Walk slowly around the field edge.'; });
+  setState(() { points.clear();measuring=true;message=measurementType=='area'?'Recording farm boundary. Walk slowly around the field edge.':'Recording route distance. Walk or travel along the route you want to measure.'; });
   tracking=Geolocator.getPositionStream(locationSettings:const LocationSettings(accuracy:LocationAccuracy.bestForNavigation,distanceFilter:3)).listen((p){if(mounted)setState(()=>points.add(p));},onError:(e){if(mounted)setState(()=>message='GPS tracking stopped: $e');});
  }
  Future<void> finish()async{
   await tracking?.cancel();tracking=null;
-  if(points.length<3){setState(() { measuring=false; message='At least three GPS points are needed. Walk around more of the boundary.'; });return;}
-  setState(() { measuring=false; saving=true; });
+  final minimum=measurementType=='area'?3:2;
+  if(points.length<minimum){setState(() { measuring=false;message=measurementType=='area'?'At least three GPS points are needed to calculate an area.':'At least two GPS points are needed to calculate distance.'; });return;}
+  setState(() { measuring=false;saving=true; });
   try{
    final user=Supabase.instance.client.auth.currentUser;if(user==null)throw Exception('Sign in before saving.');
    final id='${user.id}_${DateTime.now().microsecondsSinceEpoch}';
    final coords=points.map((p)=>{'lat':p.latitude,'lng':p.longitude,'accuracy_m':p.accuracy,'time':p.timestamp.toUtc().toIso8601String()}).toList();
-   final record={'id':id,'user_id':user.id,'area_m2':areaM2,'area_acres':acres,'perimeter_m':perimeter,'points':coords,'point_count':points.length,'max_accuracy_m':points.map((p)=>p.accuracy).reduce((a,b)=>math.max(a,b).toDouble()),'measured_at':DateTime.now().toUtc().toIso8601String(),'sync_status':'pending'};
+   final distance=routeDistance;
+   final record={'id':id,'user_id':user.id,'measurement_type':measurementType,'distance_m':distance,'distance_km':distance/1000,'area_m2':areaM2,'area_acres':acres,'perimeter_m':measurementType=='area'?perimeter:0.0,'points':coords,'point_count':points.length,'max_accuracy_m':points.map((p)=>p.accuracy).reduce((a,b)=>math.max(a,b).toDouble()),'measured_at':DateTime.now().toUtc().toIso8601String(),'sync_status':'pending'};
    final prefs=await SharedPreferences.getInstance(),key='tajir_land_measurements_${user.id}';
    final list=(prefs.getStringList(key)??<String>[]).map((v)=>jsonDecode(v) as Map<String,dynamic>).toList()..add(record);
    await prefs.setStringList(key,list.map((v)=>jsonEncode(v)).toList());
    var synced=false;try{await Supabase.instance.client.from('land_measurements').upsert(record);synced=true;}catch(_){}
    if(synced){record['sync_status']='synced';list[list.length-1]=record;await prefs.setStringList(key,list.map((v)=>jsonEncode(v)).toList());}
-   if(!mounted)return;setState(() { saving=false; message=synced?'Saved on this phone and synced to TAJIR.':'Saved offline. It will sync when internet returns.'; });
-   await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:const Text('Land measurement saved'),content:Text('${acres.toStringAsFixed(3)} acres\n${(areaM2/10000).toStringAsFixed(4)} hectares\n${areaM2.toStringAsFixed(1)} m²\nPerimeter: ${perimeter.toStringAsFixed(1)} m\nGPS points: ${points.length}\n${synced?'Synced':'Pending sync'}'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Close')),FilledButton(onPressed:(){Navigator.pop(c);Navigator.pop(context,acres);},child:const Text('Use this area'))]));
-  }catch(e){if(mounted)setState(() { saving=false; message='Could not save: ${friendlyError(e)}'; });}
+   if(!mounted)return;
+   final summary=measurementType=='area'?'Area: ${acres.toStringAsFixed(3)} acres\\n${(areaM2/10000).toStringAsFixed(4)} hectares\\n${areaM2.toStringAsFixed(1)} m²\\nBoundary perimeter: ${perimeter.toStringAsFixed(1)} m':'Route distance: ${distance.toStringAsFixed(1)} m (${(distance/1000).toStringAsFixed(3)} km)';
+   setState(() { saving=false;message=synced?'Saved on this phone and synced to TAJIR.':'Saved offline. It will sync when internet returns.'; });
+   await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text(measurementType=='area'?'Area measurement saved':'Distance measurement saved'),content:Text('$summary\\nGPS points: ${points.length}\\nMaximum recorded GPS error: ${record['max_accuracy_m'].toStringAsFixed(1)} m\\n${synced?'Synced':'Pending sync'}'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Close')),if(measurementType=='area')FilledButton(onPressed:(){Navigator.pop(c);Navigator.pop(context,acres);},child:const Text('Use this area'))]));
+  }catch(e){if(mounted)setState(() { saving=false;message='Could not save: ${friendlyError(e)}'; });}
  }
  @override void dispose(){tracking?.cancel();connectivitySub?.cancel();super.dispose();}
  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(16),children:[
-  const Text('TAJIR Land Measure',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
-  const Text('Walk around the farm boundary with GPS enabled. Keep the phone outdoors for better accuracy.'),
+  const Text('TAJIR Area & Distance Measure',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
+  const Text('Built into TAJIR: no separate measurement app is required. Keep GPS enabled and measure outdoors for better accuracy.'),
+  SegmentedButton<String>(segments:const [ButtonSegment(value:'area',label:Text('Land area'),icon:Icon(Icons.crop_square)),ButtonSegment(value:'distance',label:Text('Route distance'),icon:Icon(Icons.route))],selected:{measurementType},onSelectionChanged:measuring||saving?null:(v)=>setState((){measurementType=v.first;points.clear();message=measurementType=='area'?'Walk around the full farm boundary.':'Start at one end and follow the route to measure.';})),
   Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-   Text('${acres.toStringAsFixed(3)} acres',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
-   Text('${(areaM2/10000).toStringAsFixed(4)} hectares • ${areaM2.toStringAsFixed(1)} m²'),
-   Text('Perimeter: ${perimeter.toStringAsFixed(1)} metres'),
+   if(measurementType=='area')...[
+    Text('${acres.toStringAsFixed(3)} acres',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+    Text('${(areaM2/10000).toStringAsFixed(4)} hectares • ${areaM2.toStringAsFixed(1)} m²'),
+    Text('Boundary perimeter: ${perimeter.toStringAsFixed(1)} metres'),
+   ]else...[
+    Text('${routeDistance.toStringAsFixed(1)} metres',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+    Text('${(routeDistance/1000).toStringAsFixed(3)} kilometres'),
+   ],
    Text('GPS points: ${points.length}'),
    if(points.isNotEmpty)Text('Latest GPS accuracy: ${points.last.accuracy.toStringAsFixed(1)} m'),
   ]))),
-  Container(height:170,decoration:BoxDecoration(color:brandGreen.withOpacity(.07),borderRadius:BorderRadius.circular(12)),child:CustomPaint(painter:_LandBoundaryPainter(points),child:Center(child:points.isEmpty?const Icon(Icons.landscape_outlined,size:56):Text('${points.length} boundary points')))),
+  Container(height:170,decoration:BoxDecoration(color:brandGreen.withOpacity(.07),borderRadius:BorderRadius.circular(12)),child:CustomPaint(painter:_LandBoundaryPainter(points),child:Center(child:points.isEmpty?const Icon(Icons.landscape_outlined,size:56):Text('${points.length} recorded GPS points')))),
   Text(message,style:const TextStyle(color:brandGreen)),
-  if(!measuring)FilledButton.icon(onPressed:saving?null:start,icon:const Icon(Icons.play_arrow),label:const Text('Start GPS measurement')),
+  if(!measuring)FilledButton.icon(onPressed:saving?null:start,icon:const Icon(Icons.play_arrow),label:Text(measurementType=='area'?'Start area measurement':'Start distance measurement')),
   if(measuring)FilledButton.icon(onPressed:finish,icon:const Icon(Icons.stop),label:const Text('Finish and save')),
   if(saving)const Center(child:CircularProgressIndicator()),
-  const Text('GPS results are operational estimates, not certified legal surveys. Tree cover, buildings and poor satellite signal can affect accuracy.',style:TextStyle(fontSize:12,color:Colors.black54)),
+  const Text('GPS measurements are operational estimates, not certified legal surveys. Tree cover, buildings and poor satellite signal can affect accuracy. The route distance follows recorded GPS points and is not a straight-line estimate.',style:TextStyle(fontSize:12,color:Colors.black54)),
  ]);
 }
 class _LandBoundaryPainter extends CustomPainter{
