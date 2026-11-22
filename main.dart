@@ -2350,6 +2350,7 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
  DateTime date=DateTime.now().add(const Duration(days:1));
  bool get isTransport=>service=='transport';
  bool get hasVariablePricingUnit=>service=='transport'||service=='other';
+ bool get usesLandArea=>!isTransport&&(!hasVariablePricingUnit||transportUnit=='per_acre');
  String get unitLabel=>hasVariablePricingUnit?({'per_acre':'acres','per_trip':'trips','per_km':'kilometres','per_tonne':'tonnes'}[transportUnit]??'trips'):'acres';
  @override void initState(){super.initState();load();}
  @override void dispose(){location.dispose();county.dispose();region.dispose();village.dispose();quantity.dispose();super.dispose();}
@@ -2398,13 +2399,13 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
   if(!busy&&tractors.isEmpty)Container(padding:const EdgeInsets.all(12),margin:const EdgeInsets.only(bottom:8),decoration:BoxDecoration(color:brandGreen.withOpacity(.08),borderRadius:BorderRadius.circular(12)),child:const Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(Icons.support_agent,color:brandGreen),SizedBox(width:10),Expanded(child:Text('You can still place your booking. Your request will be sent to the TAJIR Director, who will arrange and assign a tractor for you.'))])),
   DropdownButtonFormField<String>(value:service,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v){setState((){service=v??'ploughing';if(service=='transport'&&transportUnit=='per_acre')transportUnit='per_trip';});refreshQuote();},decoration:const InputDecoration(labelText:'Service')),
   if(hasVariablePricingUnit)DropdownButtonFormField<String>(value:transportUnit,items:(service=='transport'?const ['per_trip','per_km','per_tonne']:const ['per_acre','per_trip','per_km','per_tonne']).map((u)=>DropdownMenuItem(value:u,child:Text({'per_acre':'Per acre','per_trip':'Per trip','per_km':'Per kilometre','per_tonne':'Per tonne'}[u]!))).toList(),onChanged:(v){setState(()=>transportUnit=v??'per_trip');refreshQuote();},decoration:InputDecoration(labelText:service=='transport'?'Transport pricing basis':'Other service pricing basis')), 
-  const Text('Farm location',style:TextStyle(fontWeight:FontWeight.w600)),
+  const Text('Service location',style:TextStyle(fontWeight:FontWeight.w600)),
   TextField(controller:county,decoration:const InputDecoration(labelText:'County',hintText:'Select or enter county'),onChanged:(_)=>refreshQuote()),
   TextField(controller:region,decoration:const InputDecoration(labelText:'Region',hintText:'Select or enter region'),onChanged:(_)=>refreshQuote()),
   TextField(controller:village,decoration:const InputDecoration(labelText:'Village',hintText:'Select or enter village'),onChanged:(_)=>refreshQuote()),
   TextField(controller:location,decoration:const InputDecoration(labelText:'Specific farm location / directions'),onChanged:(_)=>refreshQuote()),
-  TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:isTransport?'Transport quantity ($unitLabel)':'Land size (acres)'),onChanged:(_)=>refreshQuote()),
-  if(!isTransport)OutlinedButton.icon(onPressed:()=>Navigator.push<double>(context,MaterialPageRoute(builder:(_)=>const TajirLandMeasurePage())).then((value){if(value!=null&&mounted){quantity.text=value.toStringAsFixed(3);refreshQuote();}}),icon:const Icon(Icons.gps_fixed),label:const Text('Measure land with GPS')),
+  TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:usesLandArea?'Land size (acres)':'Service quantity ($unitLabel)'),onChanged:(_)=>refreshQuote()),
+  if(usesLandArea)OutlinedButton.icon(onPressed:()=>Navigator.push<double>(context,MaterialPageRoute(builder:(_)=>const TajirLandMeasurePage())).then((value){if(value!=null&&mounted){quantity.text=value.toStringAsFixed(3);refreshQuote();}}),icon:const Icon(Icons.gps_fixed),label:const Text('Measure land with GPS')),
   if(quoting)const LinearProgressIndicator(),
   if(quote!=null)Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
    const Text('Automatic service calculation',style:TextStyle(fontWeight:FontWeight.bold)),
