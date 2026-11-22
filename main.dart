@@ -3022,7 +3022,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
       GridView.count(crossAxisCount:MediaQuery.of(context).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:1.7,children:roles.map((r)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[
         Row(children:[Icon(roleIcon(r['code']!),color:brandGreen),const SizedBox(width:7),Expanded(child:Text(r['name']!,style:const TextStyle(fontWeight:FontWeight.bold),maxLines:1,overflow:TextOverflow.ellipsis))]),
         const SizedBox(height:8),Text(roleCount(r['code']!).toString()+' accounts',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
-        Text((volume(r['code']!)<0?'Unavailable':volume(r['code']).toString())+' recent records',style:const TextStyle(fontSize:11,color:Colors.black54)),
+        Text((volume(r['code']!)<0?'Unavailable':volume(r['code']!).toString())+' recent records',style:const TextStyle(fontSize:11,color:Colors.black54)),
       ])))).toList()),
       const SizedBox(height:12),const Text('Account directory',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
       const Text('Tap an account to inspect its status, assigned roles and recorded activity. This does not sign in as that user.'),
