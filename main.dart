@@ -1964,14 +1964,9 @@ class AccountRouter extends StatelessWidget {
     final user = db.auth.currentUser;
     if (user == null) return const AuthChoicePage();
 
-    // Resolve customer status and staff roles independently. A failed permission
-    // lookup must never silently grant access to the general staff dashboard.
-    final status = await db.rpc('get_my_account_status');
-    final rows = List<Map<String,dynamic>>.from(status ?? const []);
-    if (rows.isNotEmpty && rows.first['is_customer'] == true) {
-      return const CustomerPortalPage();
-    }
-
+    // Resolve assigned roles before customer status. A person may be both a
+    // client and a service provider; their approved provider/staff workspace
+    // must take precedence without deleting their customer history.
     final assigned = await db.from('user_role_assignments')
         .select('app_roles(code,name)')
         .eq('user_id', user.id)
@@ -1998,6 +1993,14 @@ class AccountRouter extends StatelessWidget {
     }
     if (roleCodes.contains('worker')) return const WorkerWorkspacePage();
     if (roleCodes.any(staffRoles.contains)) return const HomeShell();
+
+    // Accounts without an operational role may continue to the client portal.
+    // This also preserves the client side of a multi-role account.
+    final status = await db.rpc('get_my_account_status');
+    final rows = List<Map<String,dynamic>>.from(status ?? const []);
+    if (rows.isNotEmpty && rows.first['is_customer'] == true) {
+      return const CustomerPortalPage();
+    }
     return const AccountAccessIssuePage();
   }
 
