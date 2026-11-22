@@ -17,21 +17,56 @@ bool get tajirBackendConfigured =>
     tajirSupabaseUrl.isNotEmpty && tajirSupabaseAnonKey.isNotEmpty;
 
 String friendlyError(Object? error) {
-  if (error is AuthException) {
-    return error.message.isNotEmpty ? error.message : 'Authentication failed.';
+  // Never expose raw database, server, SQL, or programming errors to app users.
+  // Keep this function as the single translation point for user-facing errors.
+  final raw = error?.toString().toLowerCase() ?? '';
+  if (error is SocketException ||
+      raw.contains('socketexception') ||
+      raw.contains('failed host lookup') ||
+      raw.contains('network is unreachable') ||
+      raw.contains('connection refused')) {
+    return 'Unable to connect to TAJIR. Check your internet connection and try again.';
   }
-  if (error is PostgrestException) {
-    return error.message.isNotEmpty ? error.message : 'The request could not be completed.';
+  if (error is TimeoutException || raw.contains('timed out') || raw.contains('timeout')) {
+    return 'The request is taking too long. Please try again.';
   }
-  if (error is SocketException) {
-    return 'Network connection unavailable. Check your internet and try again.';
+  if (error is AuthException ||
+      raw.contains('invalid login credentials') ||
+      raw.contains('invalid_credentials')) {
+    return 'Your login details are incorrect. Check them and try again.';
   }
-  if (error is TimeoutException) {
-    return 'The request timed out. Please try again.';
+  if (raw.contains('email not confirmed') || raw.contains('email_not_confirmed')) {
+    return 'Please confirm your email address before signing in.';
   }
-  final message = error?.toString().trim() ?? '';
-  return message.isEmpty ? 'Something went wrong. Please try again.' :
-      message.replaceFirst(RegExp(r'^(Exception|Error):\\s*'), '');
+  if (raw.contains('user already registered') || raw.contains('already registered') ||
+      raw.contains('duplicate key') || raw.contains('unique constraint')) {
+    return 'This record already exists. Check the details and try again.';
+  }
+  if (raw.contains('permission denied') || raw.contains('row-level security') ||
+      raw.contains('rls') || raw.contains('not authorized') ||
+      raw.contains('unauthorized') || raw.contains('forbidden') ||
+      raw.contains('jwt expired') || raw.contains('token is expired')) {
+    return 'You do not have permission to do this, or your session has expired. Sign in again or contact your administrator.';
+  }
+  if (raw.contains('foreign key') || raw.contains('violates') ||
+      raw.contains('check constraint') || raw.contains('invalid input syntax')) {
+    return 'Some of the information is missing or incorrect. Check the details and try again.';
+  }
+  if (raw.contains('not found') || raw.contains('no rows')) {
+    return 'The requested information could not be found. Refresh and try again.';
+  }
+  if (raw.contains('insufficient') && (raw.contains('balance') || raw.contains('fund'))) {
+    return 'There is not enough money in the account to complete this transaction.';
+  }
+  if (raw.contains('format') || raw.contains('invalid') ||
+      raw.contains('must be') || raw.contains('required')) {
+    return 'Some information is invalid or missing. Check the fields and try again.';
+  }
+  if (raw.contains('function') && (raw.contains('does not exist') || raw.contains('schema cache')) ||
+      raw.contains('relation') && raw.contains('does not exist')) {
+    return 'This feature is temporarily unavailable. Please contact TAJIR support.';
+  }
+  return 'We could not complete your request. Please try again. If the problem continues, contact your TAJIR administrator.';
 }
 
 Future<void> main() async {
@@ -5158,7 +5193,7 @@ class _StockPageState extends State<StockPage>{
         message='';
       });
     }catch(e){
-      if(mounted)setState(()=>message='Could not load stock or pending approvals. Sign in with an active Director or Branch Manager account. Details: ${friendlyError(e)}');
+      if(mounted)setState(()=>message='Could not load stock or pending approvals. Sign in with an active Director or Branch Manager account. Please try again or contact your administrator.');
     }finally{
       if(mounted)setState(()=>loading=false);
     }
