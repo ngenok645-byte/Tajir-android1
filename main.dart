@@ -3129,6 +3129,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
   String? error;
   List<Map<String,dynamic>> accounts=[], audit=[];
   final Map<String,int> activity={};
+  Map<String,dynamic> summary={};
   static const roles=<Map<String,String>>[
     {'code':'director','name':'Director'},{'code':'buyer','name':'Buyer'},
     {'code':'seller','name':'Seller'},{'code':'worker','name':'Worker'},
@@ -3149,9 +3150,14 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     try{
       final p=await db.from('profiles').select('id,display_name,phone,status,created_at,user_role_assignments(is_active,app_roles(code,name))').order('created_at',ascending:false).limit(500);
       final a=await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').order('created_at',ascending:false).limit(25);
+      final overview=await db.rpc('tajir_director_master_oversight_summary');
+      summary=Map<String,dynamic>.from(overview as Map);
       accounts=List<Map<String,dynamic>>.from(p); audit=List<Map<String,dynamic>>.from(a); activity.clear();
-      for(final t in tables.values.expand((v)=>v).toSet()){
-        try{final rows=await db.from(t).select('id').limit(500);activity[t]=rows.length;}catch(_){activity[t]=-1;}
+      final rawActivity=summary['activity'];
+      if(rawActivity is Map){
+        for(final entry in rawActivity.entries){
+          if(entry.value is num)activity[entry.key.toString()]=(entry.value as num).toInt();
+        }
       }
       if(mounted)setState(()=>loading=false);
     }catch(e){if(mounted)setState(() { loading=false; error=friendlyError(e); });}
@@ -3160,7 +3166,11 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     final raw=a['user_role_assignments']; if(raw is! List)return [];
     return raw.where((r)=>r is Map&&r['is_active']==true).map((r){final v=r['app_roles'];return v is Map?(v['code']??'').toString():'';}).where((v)=>v.isNotEmpty).toList();
   }
-  int roleCount(String c)=>accounts.where((a)=>roleCodes(a).contains(c)).length;
+  int roleCount(String c){
+    final departments=summary['department_accounts'];
+    if(departments is Map)return (departments[c] as num?)?.toInt()??0;
+    return 0;
+  }
   int volume(String c)=>(tables[c]??[]).fold<int>(0,(n,t)=>n+(activity[t]??0));
   IconData roleIcon(String c){switch(c){case 'director':return Icons.admin_panel_settings;case 'buyer':return Icons.shopping_cart;case 'seller':return Icons.storefront;case 'worker':return Icons.groups;case 'tractor_owner':return Icons.agriculture;case 'driver':return Icons.local_shipping;case 'mechanic':return Icons.handyman;default:return Icons.settings;}}
   Future<void> inspectAccount(Map<String,dynamic> a) async {
@@ -3212,20 +3222,20 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     if(error!=null)Text('Could not load oversight data: '+error!,style:const TextStyle(color:Colors.red)),
     if(!loading&&error==null)...[
       GridView.count(crossAxisCount:MediaQuery.of(context).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:2.2,children:[
-        metric('Profiles',accounts.length.toString(),Icons.people_alt),
-        metric('Active',accounts.where((a)=>a['status']=='active').length.toString(),Icons.verified_user),
-        metric('Pending',accounts.where((a)=>a['status']=='pending').length.toString(),Icons.pending_actions),
-        metric('Suspended / disabled',accounts.where((a)=>a['status']=='suspended'||a['status']=='disabled').length.toString(),Icons.block),
+        metric('Profiles',(summary['profiles_total']??0).toString(),Icons.people_alt),
+        metric('Active',(summary['profiles_active']??0).toString(),Icons.verified_user),
+        metric('Pending',(summary['profiles_pending']??0).toString(),Icons.pending_actions),
+        metric('Suspended / disabled',(summary['profiles_suspended']??0).toString(),Icons.block),
       ]),
       const SizedBox(height:12),const Text('Department performance',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
-      const Text('Assigned accounts and recent operational records (up to 500 rows per activity table).'),
+      const Text('Exact department account totals and operational record counts from the TAJIR database.'),
       GridView.count(crossAxisCount:MediaQuery.of(context).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:1.7,children:roles.map((r)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[
         Row(children:[Icon(roleIcon(r['code']!),color:brandGreen),const SizedBox(width:7),Expanded(child:Text(r['name']!,style:const TextStyle(fontWeight:FontWeight.bold),maxLines:1,overflow:TextOverflow.ellipsis))]),
         const SizedBox(height:8),Text(roleCount(r['code']!).toString()+' accounts',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
         Text((volume(r['code']!)<0?'Unavailable':volume(r['code']!).toString())+' recent records',style:const TextStyle(fontSize:11,color:Colors.black54)),
       ])))).toList()),
       const SizedBox(height:12),const Text('Account directory',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
-      const Text('Tap an account to inspect its status, assigned roles and recorded activity. This does not sign in as that user.'),
+      const Text('Latest 500 accounts are shown here. Tap an account to inspect its status, assigned roles and recorded activity. This does not sign in as that user.'),
       ...accounts.map((a){final assigned=roleCodes(a);return Card(child:ListTile(leading:CircleAvatar(child:Icon(assigned.isEmpty?Icons.person_outline:roleIcon(assigned.first))),title:Text((a['display_name']??'Unnamed account').toString()),subtitle:Text((assigned.isEmpty?'No active role':assigned.join(', '))+' • '+(a['status']??'unknown').toString()),trailing:const Icon(Icons.visibility_outlined),onTap:()=>inspectAccount(a)));}),
       const SizedBox(height:12),const Text('Recent audit trail',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
       if(audit.isEmpty)const Text('No audit events recorded yet.'),
