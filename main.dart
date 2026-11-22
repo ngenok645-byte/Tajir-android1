@@ -289,19 +289,39 @@ class TajirNotificationCenter extends StatelessWidget {
   }
 }
 
-class TajirDirectorContacts extends StatefulWidget {
+class TajirDirectorContacts extends StatelessWidget {
   const TajirDirectorContacts({super.key});
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.centerLeft,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+      child: OutlinedButton.icon(
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const TajirContactsPage()),
+        ),
+        icon: const Icon(Icons.contacts_outlined),
+        label: const Text('Search contacts'),
+      ),
+    ),
+  );
+}
+
+class TajirContactsPage extends StatefulWidget {
+  const TajirContactsPage({super.key});
   static const List<Map<String, String>> directors = [
     {'name': 'Mercy', 'phone': '0713971207'},
     {'name': 'Edwin (Edu)', 'phone': '0700020140'},
   ];
-  @override State<TajirDirectorContacts> createState() => _TajirDirectorContactsState();
+  @override State<TajirContactsPage> createState() => _TajirContactsPageState();
 }
 
-class _TajirDirectorContactsState extends State<TajirDirectorContacts> {
+class _TajirContactsPageState extends State<TajirContactsPage> {
+  final searchController = TextEditingController();
   List<Map<String,dynamic>> linkedContacts = [];
   bool loadingContacts = true;
   @override void initState() { super.initState(); loadLinkedContacts(); }
+  @override void dispose() { searchController.dispose(); super.dispose(); }
   Future<void> loadLinkedContacts() async {
     try {
       final db = Supabase.instance.client;
@@ -323,178 +343,105 @@ class _TajirDirectorContactsState extends State<TajirDirectorContacts> {
       }
       if (mounted) setState(() => linkedContacts = unique.values.toList());
     } catch (_) {
-      // Keep the dashboard usable if linked contacts cannot be loaded.
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load linked contacts. Pull down to retry.')),
+      );
     } finally {
       if (mounted) setState(() => loadingContacts = false);
     }
   }
-  Future<void> callDirector(BuildContext context, String phone) async {
-    try { await callTajirPhone(phone); }
-    catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(friendlyError(e))),
-      );
-    }
-  }
-
-  @override Widget build(BuildContext context) => Card(
-    margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const TajirNotificationCenter(),
-        const Divider(),
-        const Row(children: [
-          Icon(Icons.support_agent, color: brandGreen),
-          SizedBox(width: 8),
-          Expanded(child: Text('TAJIR Directors contact list', style: TextStyle(fontWeight: FontWeight.bold))),
-        ]),
-        ...TajirDirectorContacts.directors.map((director) {
-          final name = director['name']!;
-          final phone = director['phone']!;
-          return ListTile(
-            dense: true, contentPadding: EdgeInsets.zero,
-            title: Text(name), subtitle: Text('TAJIR Director • $phone'),
-            trailing: IconButton(
-              tooltip: 'Call $name',
-              onPressed: () => callDirector(context, phone),
-              icon: const Icon(Icons.call, color: brandGreen),
-            ),
-          );
-        }),
-        const Divider(),
-        const Row(children: [
-          Icon(Icons.link, color: brandGreen),
-          SizedBox(width: 8),
-          Expanded(child: Text('People linked to your tasks', style: TextStyle(fontWeight: FontWeight.bold))),
-        ]),
-        const Text('Contacts are shown only when you share a booking, delivery, order, repair or parts request.', style: TextStyle(fontSize: 12, color: Colors.black54)),
-        if (loadingContacts) const LinearProgressIndicator(),
-        if (!loadingContacts && linkedContacts.isEmpty)
-          const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('No linked contacts yet.', style: TextStyle(fontSize: 12))),
-        ...linkedContacts.map((contact) => ListTile(
-          dense: true, contentPadding: EdgeInsets.zero,
-          leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-          title: Text((contact['display_name'] ?? 'TAJIR account').toString()),
-          subtitle: Text((contact['relationship'] ?? 'Linked task').toString() + ' • ' + (contact['reference'] ?? '').toString()),
-          trailing: TajirCallButton(profileId: contact['profile_id'].toString(), linkedPhone: contact['phone']?.toString(), label: 'Call'),
-        )),
-        const SizedBox(height: 6),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () => promptForTajirUpdate(context, showCurrent: true),
-            icon: const Icon(Icons.system_update),
-            label: const Text('Check for TAJIR app updates'),
-          ),
+  void openContact(Map<String,dynamic> contact) {
+    final name = (contact['display_name'] ?? 'TAJIR account').toString();
+    showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(name),
+      content: Text([
+        (contact['relationship'] ?? 'Linked TAJIR contact').toString(),
+        if ((contact['reference'] ?? '').toString().isNotEmpty) 'Reference: ${contact['reference']}',
+        if ((contact['phone'] ?? '').toString().isNotEmpty) 'Phone: ${contact['phone']}',
+      ].join('\n')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        FilledButton.icon(
+          onPressed: () async {
+            Navigator.pop(ctx);
+            try {
+              await callTajirPhone((contact['phone'] ?? '').toString());
+            } catch (e) {
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+            }
+          },
+          icon: const Icon(Icons.call), label: const Text('Call'),
         ),
-      ]),
-    ),
-  );
+      ],
+    ));
+  }
+  @override Widget build(BuildContext context) {
+    final query = searchController.text.trim().toLowerCase();
+    final linked = linkedContacts.where((c) {
+      final haystack = '${c['display_name'] ?? ''} ${c['relationship'] ?? ''} ${c['reference'] ?? ''} ${c['phone'] ?? ''}'.toLowerCase();
+      return query.isEmpty || haystack.contains(query);
+    }).toList();
+    final directors = TajirContactsPage.directors.where((d) =>
+      query.isEmpty || '${d['name']} ${d['phone']}'.toLowerCase().contains(query)).toList();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Contacts')),
+      body: RefreshIndicator(
+        onRefresh: loadLinkedContacts,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text('Find the client, driver, or TAJIR contact connected to your work. Open a contact to view details and call.', style: TextStyle(color: Colors.black54)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: searchController,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: 'Search by name, task or phone',
+                suffixIcon: searchController.text.isEmpty ? null : IconButton(
+                  onPressed: () { searchController.clear(); setState(() {}); },
+                  icon: const Icon(Icons.clear),
+                ),
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('People linked to your tasks', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+            if (loadingContacts) const LinearProgressIndicator(),
+            if (!loadingContacts && linked.isEmpty) Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(query.isEmpty ? 'No linked contacts yet. Contacts appear when you share a booking, delivery, order, repair or parts request.' : 'No matching linked contacts.'),
+            ),
+            ...linked.map((contact) => Card(
+              child: ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+                title: Text((contact['display_name'] ?? 'TAJIR account').toString()),
+                subtitle: Text((contact['relationship'] ?? 'Linked task').toString() + ((contact['reference'] ?? '').toString().isEmpty ? '' : ' • ${contact['reference']}')),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => openContact(contact),
+              ),
+            )),
+            const Divider(height: 28),
+            const Text('TAJIR support contacts', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+            ...directors.map((d) => Card(child: ListTile(
+              leading: const CircleAvatar(child: Icon(Icons.support_agent)),
+              title: Text(d['name']!),
+              subtitle: const Text('TAJIR Director'),
+              trailing: IconButton(
+                tooltip: 'Call ${d['name']}',
+                onPressed: () async {
+                  try { await callTajirPhone(d['phone']!); }
+                  catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+                },
+                icon: const Icon(Icons.call, color: brandGreen),
+              ),
+            ))),
+          ],
+        ),
+      ),
+    );
+  }
 }
-
-/// Turns technical backend/network failures into clear messages for everyday users.
-/// Never display raw HTTP/database error codes in the app.
-String friendlyError(Object error) {
-  final raw = error.toString().replaceFirst(
-    RegExp(r'^(Exception|FormatException|AuthException|PostgrestException|FunctionException):\s*'),
-    '',
-  ).trim();
-  final value = raw.toLowerCase();
-
-  // Lockout and throttling messages must be checked before generic PIN errors.
-  // The server's lockout message contains "incorrect PIN", but it is not a bad-PIN
-  // response; preserve the retry guidance instead of misleading every user.
-  if (RegExp(r'\b429\b').hasMatch(value) ||
-      value.contains('too many incorrect pin attempts') ||
-      value.contains('too many attempts') ||
-      value.contains('try again in') ||
-      value.contains('temporarily locked')) {
-    final waitMatch = RegExp(r'try again in ([^.]+)').firstMatch(raw);
-    return waitMatch != null
-        ? 'Your account is temporarily locked. Please try again in ${waitMatch.group(1)}.'
-        : 'Your account is temporarily locked after several attempts. Please wait before trying again.';
-  }
-
-  // Only show Wrong PIN for an actual credential mismatch.
-  if (value.contains('wrong pin') || value.contains('incorrect pin') ||
-      value.contains('invalid pin') || value.contains('pin does not match')) {
-    return 'Wrong PIN. Please check your PIN and try again.';
-  }
-  if (value.contains('invalid login credentials') || value.contains('invalid credentials')) {
-    return 'The phone number or PIN is incorrect. Please check and try again.';
-  }
-  if (value.contains('phone') && (value.contains('already registered') ||
-      value.contains('already exists') || value.contains('duplicate'))) {
-    return 'This phone number is already registered. Please sign in or use another number.';
-  }
-  if (value.contains('phone') && (value.contains('not found') ||
-      value.contains('not registered') || value.contains('no account'))) {
-    return 'We could not find an account with this phone number. Check the number or register first.';
-  }
-  if (value.contains('pin') && (value.contains('four') || value.contains('4 digit') ||
-      value.contains('4-digit') || value.contains('length'))) {
-    return 'Your PIN must contain exactly four digits.';
-  }
-  if (value.contains('pin') && value.contains('match')) {
-    return 'The PINs do not match. Enter the same PIN in both boxes.';
-  }
-  if (value.contains('session') && (value.contains('expired') || value.contains('missing'))) {
-    return 'Your session has expired. Please sign in again.';
-  }
-  if (RegExp(r'\b401\b').hasMatch(value) || value.contains('unauthorized') || value.contains('jwt')) {
-    return 'Your session has expired. Please sign in again and try once more.';
-  }
-  if (RegExp(r'\b403\b').hasMatch(value) || value.contains('permission denied') || value.contains('not allowed')) {
-    return 'You do not have permission to do this. Please contact the Director if you need access.';
-  }
-  if (RegExp(r'\b404\b').hasMatch(value) || value.contains('not found')) {
-    return 'We could not find that record. Refresh the page and try again.';
-  }
-  if (RegExp(r'\b409\b').hasMatch(value) || value.contains('duplicate') || value.contains('already exists') || value.contains('conflict')) {
-    return 'This information is already registered or has changed. Refresh and check the details.';
-  }
-  if (RegExp(r'\b429\b').hasMatch(value) || value.contains('too many requests') || value.contains('rate limit')) {
-    return 'Too many attempts were made. Please wait a little and try again.';
-  }
-  if (RegExp(r'\b400\b').hasMatch(value) || value.contains('bad request')) {
-    return 'Some details are missing or incorrect. Check the information and try again.';
-  }
-  if (RegExp(r'\b(500|502|503|504)\b').hasMatch(value) || value.contains('server error')) {
-    return 'The service is temporarily unavailable. Please try again in a few minutes.';
-  }
-  if (value.contains('socketexception') || value.contains('failed host lookup') ||
-      value.contains('network is unreachable') || value.contains('connection refused')) {
-    return 'There is a connection problem. Check your internet and try again.';
-  }
-  if (value.contains('timed out') || value.contains('timeout')) {
-    return 'The request took too long. Check your connection and try again.';
-  }
-  if (raw.isEmpty || RegExp(r'\b(code|status)\s*[:=]?\s*\d{3}\b', caseSensitive: false).hasMatch(raw)) {
-    return 'Something went wrong. Please try again. If the problem continues, contact the Director.';
-  }
-  return raw;
-}
-
-const tajirBackendConfigured = String.fromEnvironment('SUPABASE_URL') != '' && String.fromEnvironment('SUPABASE_ANON_KEY') != '';
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  const previewMode = bool.fromEnvironment('TAJIR_PREVIEW');
-  const url = String.fromEnvironment('SUPABASE_URL');
-  const anon = String.fromEnvironment('SUPABASE_ANON_KEY');
-  if (previewMode && (url.isEmpty || anon.isEmpty)) {
-    runApp(const TajirApp());
-    return;
-  }
-  if (url.isEmpty || anon.isEmpty) {
-    runApp(const SetupRequiredApp());
-    return;
-  }
-  await Supabase.initialize(url: url, anonKey: anon);
-  runApp(const TajirApp());
-}
-
 class SetupRequiredApp extends StatelessWidget {
   const SetupRequiredApp({super.key});
   @override
