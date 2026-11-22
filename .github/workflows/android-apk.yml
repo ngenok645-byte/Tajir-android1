@@ -13,7 +13,7 @@ name: Build TAJIR Android APK
       - main
 
 concurrency:
-  group: tajir-android-${{ github.ref }}
+  group: tajir-android-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -23,6 +23,7 @@ jobs:
   build:
     name: Build TAJIR Android APK
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
