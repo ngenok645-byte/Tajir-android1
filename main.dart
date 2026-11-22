@@ -3364,7 +3364,80 @@ class _HomeShellState extends State<HomeShell> {
     if (accessError != null) return const AccountAccessIssuePage();
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR'), actions: [TextButton.icon(onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update), label: Text(checkingUpdate ? 'Checking…' : 'Update')), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      appBar: AppBar(
+        title: const Text('TAJIR'),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'More options',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'update') {
+                checkUpdates(showCurrent: true);
+              } else if (value == 'security') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AccountSecurityPage()),
+                );
+              } else if (value == 'signout') {
+                showDialog<void>(
+                  context: context,
+                  builder: (dialogContext) => AlertDialog(
+                    title: const Text('Sign out of TAJIR?'),
+                    content: const Text('You can sign in again using your registered phone number and PIN.'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          Supabase.instance.client.auth.signOut();
+                        },
+                        icon: const Icon(Icons.logout),
+                        label: const Text('Sign out'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem<String>(
+                value: 'update',
+                enabled: !checkingUpdate,
+                child: Row(
+                  children: [
+                    Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update_outlined),
+                    const SizedBox(width: 12),
+                    Text(checkingUpdate ? 'Checking for updates…' : 'Check for updates'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'security',
+                child: Row(
+                  children: [
+                    Icon(Icons.lock_reset_outlined),
+                    SizedBox(width: 12),
+                    Text('Account security'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'signout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout),
+                    SizedBox(width: 12),
+                    Text('Sign out'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
       body: Column(children: [
         const TajirDirectorContacts(),
         Expanded(child: Row(children: [
