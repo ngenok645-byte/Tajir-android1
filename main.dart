@@ -1635,7 +1635,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      return Card(child:ListTile(
       leading:CircleAvatar(child:Icon(productIconFor(product))),
       title:Text(variant.isEmpty||variant.toLowerCase()==product.toLowerCase()?product:'$product • $variant'),
-      subtitle:Text('$branch\\n'+(price==null?'Official price unavailable':'Official TAJIR BUY price: KES '+price.toStringAsFixed(2)+' / KG  •  KES '+(price*kgPerBag).toStringAsFixed(2)+' / 90 KG bag')),
+      subtitle:Text('$branch\n'+(price==null?'Official price unavailable':'Official TAJIR BUY price: KES '+price.toStringAsFixed(2)+' / KG  •  KES '+(price*kgPerBag).toStringAsFixed(2)+' / 90 KG bag')),
       isThreeLine:true,
      ));
     }),
