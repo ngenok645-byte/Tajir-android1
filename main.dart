@@ -5039,6 +5039,35 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     }catch(_){}
   }
 
+  Future<void> assignTractorToSelectedJob() async {
+    if (selectedJob == null || selectedTractor == null) {
+      setState(() => message = 'Select a pending booking and an available tractor.');
+      return;
+    }
+    final selected = jobs.where((j) => j['id'].toString() == selectedJob).toList();
+    final asset = tractors.where((t) => t['id'].toString() == selectedTractor).toList();
+    if (selected.isEmpty || selected.first['status'] != 'awaiting_director_assignment') {
+      setState(() => message = 'This booking is not waiting for tractor assignment.');
+      return;
+    }
+    if (asset.isEmpty || asset.first['status'] != 'available') {
+      setState(() => message = 'Choose a tractor that is currently available.');
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      await db.from('tractor_service_jobs').update({
+        'tractor_id': selectedTractor,
+        'status': 'booked',
+      }).eq('id', selectedJob!);
+      setState(() => message = 'Tractor assigned. The booking is now in the job schedule.');
+      await loadBranchData();
+    } catch (e) {
+      setState(() => message = 'Could not assign tractor: ' + friendlyError(e));
+    }
+    if (mounted) setState(() => saving = false);
+  }
+
   Future<void> updateJobStatus(String nextStatus) async {
     if(selectedJob==null){setState(()=>message='Select a service job first.');return;}
     final selected=jobs.where((x)=>x['id'].toString()==selectedJob).toList();
@@ -5293,10 +5322,21 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
         Text('Service: '+labelCase(j['service_type'].toString())+' at '+j['service_location'].toString()),
         Text('Area: '+(j['area_acres']??'Flat rate').toString()+' acres • Estimated duration: '+numberOf(j,'estimated_hours').toStringAsFixed(1)+' hours • Rate: '+money(numberOf(j,'rate'))),
         Text('Quotation: '+money(numberOf(j,'total_charge'))+' • Status: '+labelCase(j['status'].toString())),
-        Text('Operator: '+operatorName(j['operator_id'])), 
+        Text('Tractor: '+(j['tractor_id']==null?'Awaiting Director assignment':'Assigned fleet tractor')),
+        Text('Operator: '+operatorName(j['operator_id'])),
         Text('Hours worked: '+numberOf(j,'hours_worked').toStringAsFixed(1)),
       ])))),
       const SizedBox(height:8),
+      if(jobs.firstWhere((x)=>x['id'].toString()==selectedJob)['status']=='awaiting_director_assignment')...[
+        const Text('This client booking needs a tractor. Select an available tractor below to assign it.',style:TextStyle(fontWeight:FontWeight.w600)),
+        Padding(padding:const EdgeInsets.only(top:8,bottom:8),child:DropdownButtonFormField<String>(
+          value:tractors.any((t)=>t['id'].toString()==selectedTractor&&t['status']=='available')?selectedTractor:null,
+          decoration:const InputDecoration(labelText:'Available tractor for this booking',border:OutlineInputBorder()),
+          items:tractors.where((t)=>t['status']=='available').map((t)=>DropdownMenuItem<String>(value:t['id'].toString(),child:Text(t['tractor_code'].toString()+' • '+t['make_model'].toString()))).toList(),
+          onChanged:(v)=>setState(()=>selectedTractor=v),
+        )),
+        FilledButton.icon(onPressed:saving?null:assignTractorToSelectedJob,icon:const Icon(Icons.assignment_turned_in_outlined),label:const Text('Assign tractor to booking')),
+      ],
       Wrap(spacing:8,runSpacing:8,children:[
         if(['booked'].contains(jobs.firstWhere((x)=>x['id'].toString()==selectedJob)['status']))OutlinedButton(onPressed:saving?null:()=>updateJobStatus('confirmed'),child:const Text('Confirm job')),
         if(['booked','confirmed'].contains(jobs.firstWhere((x)=>x['id'].toString()==selectedJob)['status']))FilledButton.tonal(onPressed:saving?null:()=>updateJobStatus('in_progress'),child:const Text('Start job')),
