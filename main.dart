@@ -3809,9 +3809,11 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
     ),
     const SizedBox(height: 12),
-    if(!accountant || branchManager) TajirImageTile(
-      title:'TRACTOR & MACHINERY SERVICES',
-      subtitle:'Manage machines, providers, bookings, operators and payments',
+    if(!accountant || branchManager || director) TajirImageTile(
+      title:director ? 'DIRECTOR • TRACTOR SERVICES' : 'TRACTOR & MACHINERY SERVICES',
+      subtitle:director
+        ? 'Open the full tractor services workspace to oversee fleet, providers, bookings, job assignments, operators, payments and reports'
+        : 'Manage machines, providers, bookings, operators and payments',
       imageUrl:TajirPictures.tractor,
       icon:Icons.agriculture,
       large:true,
