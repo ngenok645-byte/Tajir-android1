@@ -2350,7 +2350,6 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
  DateTime date=DateTime.now().add(const Duration(days:1));
  bool get isTransport=>service=='transport';
  bool get hasVariablePricingUnit=>service=='transport'||service=='other';
- bool get usesLandArea=>!isTransport&&(!hasVariablePricingUnit||transportUnit=='per_acre');
  String get unitLabel=>hasVariablePricingUnit?({'per_acre':'acres','per_trip':'trips','per_km':'kilometres','per_tonne':'tonnes'}[transportUnit]??'trips'):'acres';
  @override void initState(){super.initState();load();}
  @override void dispose(){location.dispose();county.dispose();region.dispose();village.dispose();quantity.dispose();super.dispose();}
@@ -2399,13 +2398,13 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
   if(!busy&&tractors.isEmpty)Container(padding:const EdgeInsets.all(12),margin:const EdgeInsets.only(bottom:8),decoration:BoxDecoration(color:brandGreen.withOpacity(.08),borderRadius:BorderRadius.circular(12)),child:const Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(Icons.support_agent,color:brandGreen),SizedBox(width:10),Expanded(child:Text('You can still place your booking. Your request will be sent to the TAJIR Director, who will arrange and assign a tractor for you.'))])),
   DropdownButtonFormField<String>(value:service,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v){setState((){service=v??'ploughing';if(service=='transport'&&transportUnit=='per_acre')transportUnit='per_trip';});refreshQuote();},decoration:const InputDecoration(labelText:'Service')),
   if(hasVariablePricingUnit)DropdownButtonFormField<String>(value:transportUnit,items:(service=='transport'?const ['per_trip','per_km','per_tonne']:const ['per_acre','per_trip','per_km','per_tonne']).map((u)=>DropdownMenuItem(value:u,child:Text({'per_acre':'Per acre','per_trip':'Per trip','per_km':'Per kilometre','per_tonne':'Per tonne'}[u]!))).toList(),onChanged:(v){setState(()=>transportUnit=v??'per_trip');refreshQuote();},decoration:InputDecoration(labelText:service=='transport'?'Transport pricing basis':'Other service pricing basis')), 
-  const Text('Service location',style:TextStyle(fontWeight:FontWeight.w600)),
+  const Text('Farm location',style:TextStyle(fontWeight:FontWeight.w600)),
   TextField(controller:county,decoration:const InputDecoration(labelText:'County',hintText:'Select or enter county'),onChanged:(_)=>refreshQuote()),
   TextField(controller:region,decoration:const InputDecoration(labelText:'Region',hintText:'Select or enter region'),onChanged:(_)=>refreshQuote()),
   TextField(controller:village,decoration:const InputDecoration(labelText:'Village',hintText:'Select or enter village'),onChanged:(_)=>refreshQuote()),
   TextField(controller:location,decoration:const InputDecoration(labelText:'Specific farm location / directions'),onChanged:(_)=>refreshQuote()),
-  TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:usesLandArea?'Land size (acres)':'Service quantity ($unitLabel)'),onChanged:(_)=>refreshQuote()),
-  if(usesLandArea)OutlinedButton.icon(onPressed:()=>Navigator.push<double>(context,MaterialPageRoute(builder:(_)=>const TajirLandMeasurePage())).then((value){if(value!=null&&mounted){quantity.text=value.toStringAsFixed(3);refreshQuote();}}),icon:const Icon(Icons.gps_fixed),label:const Text('Measure land with GPS')),
+  TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:isTransport?'Transport quantity ($unitLabel)':'Land size (acres)'),onChanged:(_)=>refreshQuote()),
+  if(!isTransport)OutlinedButton.icon(onPressed:()=>Navigator.push<double>(context,MaterialPageRoute(builder:(_)=>const TajirLandMeasurePage())).then((value){if(value!=null&&mounted){quantity.text=value.toStringAsFixed(3);refreshQuote();}}),icon:const Icon(Icons.gps_fixed),label:const Text('Measure land with GPS')),
   if(quoting)const LinearProgressIndicator(),
   if(quote!=null)Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
    const Text('Automatic service calculation',style:TextStyle(fontWeight:FontWeight.bold)),
@@ -3138,20 +3137,18 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     {'code':'mechanic','name':'Mechanic'},{'code':'auto_spares_owner','name':'Auto-spares Owner'},
   ];
   static const tables=<String,List<String>>{
-    'director':['sales','purchases','customer_payments','supplier_payments','inventory_balances','stock_movements'],
-    'buyer':['sales_orders','marketplace_listing_offers','marketplace_purchase_requests','customer_product_requests','customer_custom_product_requests'],
-    'seller':['marketplace_listings','marketplace_purchase_requests','customer_custom_product_requests'],
-    'worker':['staff_tasks','staff_activity_reports'],
-    'tractor_owner':['tractor_service_jobs','tractor_repair_jobs'],
-    'driver':['deliveries','tractor_service_jobs'],
+    'director':['sales','purchases','customer_payments'],
+    'buyer':['sales_orders','marketplace_listing_offers'],
+    'seller':['marketplace_listings'],'worker':['staff_tasks','staff_activity_reports'],
+    'tractor_owner':['tractor_service_jobs'],'driver':['deliveries'],
     'mechanic':['tractor_repair_jobs','repair_part_requests'],
-    'auto_spares_owner':['auto_spares_inventory','repair_part_requests'],
+    'auto_spares_owner':['auto_spares_inventory'],
   };
   @override void initState(){super.initState();load();}
   Future<void> load() async {
     if(mounted)setState(()=>loading=true);
     try{
-      final p=await db.from('profiles').select('id,display_name,phone,status,created_at,user_role_assignments(is_active,app_roles(code,name)),customers(active,marketplace_can_buy,marketplace_can_sell)').order('created_at',ascending:false).limit(500);
+      final p=await db.from('profiles').select('id,display_name,phone,status,created_at,user_role_assignments(is_active,app_roles(code,name))').order('created_at',ascending:false).limit(500);
       final a=await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').order('created_at',ascending:false).limit(25);
       final overview=await db.rpc('tajir_director_master_oversight_summary');
       summary=Map<String,dynamic>.from(overview as Map);
@@ -3166,24 +3163,8 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     }catch(e){if(mounted)setState(() { loading=false; error=friendlyError(e); });}
   }
   List<String> roleCodes(Map<String,dynamic> a){
-    final roles=<String>[];
-    final raw=a['user_role_assignments'];
-    if(raw is List){
-      roles.addAll(raw.where((r)=>r is Map&&r['is_active']==true)
-        .map((r){final v=r['app_roles'];return v is Map?(v['code']??'').toString():'';})
-        .where((v)=>v.isNotEmpty));
-    }
-    final customer=a['customers'];
-    if(customer is Map&&customer['active']==true){
-      if(customer['marketplace_can_buy']==true)roles.add('buyer');
-      if(customer['marketplace_can_sell']==true)roles.add('seller');
-    }else if(customer is List){
-      for(final c in customer.whereType<Map>()){
-        if(c['active']==true&&c['marketplace_can_buy']==true)roles.add('buyer');
-        if(c['active']==true&&c['marketplace_can_sell']==true)roles.add('seller');
-      }
-    }
-    return roles.toSet().toList();
+    final raw=a['user_role_assignments']; if(raw is! List)return [];
+    return raw.where((r)=>r is Map&&r['is_active']==true).map((r){final v=r['app_roles'];return v is Map?(v['code']??'').toString():'';}).where((v)=>v.isNotEmpty).toList();
   }
   int roleCount(String c){
     final departments=summary['department_accounts'];
@@ -3197,16 +3178,14 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     final id=a['id'].toString();final name=(a['display_name']??'TAJIR account').toString();
     try{
       await db.from('audit_logs').insert({'actor_user_id':uid,'action':'director_account_viewed','entity_schema':'public','entity_table':'profiles','entity_id':id,'reason':'Director opened read-only account overview: '+name,'after_data':{'view_mode':'read_only'}});
-      final results = await Future.wait([
-        db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':id}),
-        db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('actor_user_id',id).order('created_at',ascending:false).limit(15),
-        db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('entity_table','profiles').eq('entity_id',id).order('created_at',ascending:false).limit(15),
-        db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at,before_data,after_data').inFilter('entity_table',['user_role_assignments','user_branch_assignments']).order('created_at',ascending:false).limit(250),
-      ]);
-      final activityRows=List<Map<String,dynamic>>.from(results[0]);
-      final events=List<Map<String,dynamic>>.from(results[1]);
-      final profileChanges=List<Map<String,dynamic>>.from(results[2]);
-      final assignmentLogs=List<Map<String,dynamic>>.from(results[3]).where((e){
+      final activityRaw = await db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':id});
+      final eventsRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('actor_user_id',id).order('created_at',ascending:false).limit(15);
+      final profileChangesRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('entity_table','profiles').eq('entity_id',id).order('created_at',ascending:false).limit(15);
+      final assignmentLogsRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at,before_data,after_data').inFilter('entity_table',['user_role_assignments','user_branch_assignments']).order('created_at',ascending:false).limit(250);
+      final activityRows=List<Map<String,dynamic>>.from(activityRaw);
+      final events=List<Map<String,dynamic>>.from(eventsRaw);
+      final profileChanges=List<Map<String,dynamic>>.from(profileChangesRaw);
+      final assignmentLogs=List<Map<String,dynamic>>.from(assignmentLogsRaw).where((e){
         final before=e['before_data'];final after=e['after_data'];
         return (before is Map && before['user_id']?.toString()==id) || (after is Map && after['user_id']?.toString()==id);
       }).toList();
@@ -3251,7 +3230,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
       GridView.count(crossAxisCount:MediaQuery.of(context).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:1.7,children:roles.map((r)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[
         Row(children:[Icon(roleIcon(r['code']!),color:brandGreen),const SizedBox(width:7),Expanded(child:Text(r['name']!,style:const TextStyle(fontWeight:FontWeight.bold),maxLines:1,overflow:TextOverflow.ellipsis))]),
         const SizedBox(height:8),Text(roleCount(r['code']!).toString()+' accounts',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
-        Text((volume(r['code']!)<0?'Unavailable':volume(r['code']!).toString())+' total records',style:const TextStyle(fontSize:11,color:Colors.black54)),
+        Text((volume(r['code']!)<0?'Unavailable':volume(r['code']!).toString())+' recent records',style:const TextStyle(fontSize:11,color:Colors.black54)),
       ])))).toList()),
       const SizedBox(height:12),const Text('Account directory',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
       const Text('Latest 500 accounts are shown here. Tap an account to inspect its status, assigned roles and recorded activity. This does not sign in as that user.'),
@@ -3280,18 +3259,14 @@ class _HomeShellState extends State<HomeShell> {
     if (found != null) {
       showDialog<void>(context: context, builder: (ctx) => AlertDialog(
         title: const Text('TAJIR update available'),
-        content: Text('A newer version (${found['version']}) is ready. TAJIR will download it and open Android’s installer. Choose Update to replace the existing app; you should not need to uninstall or clear your data.'),
+        content: Text('A newer version (${found['version']}) is ready. Update to get the latest improvements and fixes.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
           FilledButton.icon(onPressed: () async {
             Navigator.pop(ctx);
-            try {
-              await openTajirUpdate(found['url'].toString());
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('TAJIR update download started. Android will ask you to install it when the download finishes.')));
-            } catch (_) {
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start the update. Check your internet connection and try again.')));
-            }
-          }, icon: const Icon(Icons.download), label: const Text('Download and install')),
+            try { await openTajirUpdate(found['url'].toString()); }
+            catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open the update link. Please try again.'))); }
+          }, icon: const Icon(Icons.download), label: const Text('Download update')),
         ],
       ));
     } else if (showCurrent) {
@@ -6082,8 +6057,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   bool loading = false;
   String error = '';
   String period = 'This month';
-  double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, pendingCustomerReceipts = 0, supplierPayments = 0, outstandingBalance = 0;
-  Map<String,double> salesByPaymentMode = {}, verifiedReceiptsByMethod = {}, pendingReceiptsByMethod = {};
+  double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, pendingCustomerReceipts = 0, supplierPayments = 0;
   List<Map<String,dynamic>> salesRows = [], purchaseCostRows = [], purchaseRows = [], customerPaymentRows = [], pendingCustomerPaymentRows = [], supplierPaymentRows = [];
   double numVal(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
   DateTime? get startDate {
@@ -6117,23 +6091,9 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       final sr = List<Map<String,dynamic>>.from(data[0]).where((r)=>within(r['sale_date'])).toList();
       final pcr = List<Map<String,dynamic>>.from(data[1]).where((r)=>within(r['incurred_at'])).toList();
       final pr = List<Map<String,dynamic>>.from(data[2]).where((r)=>within(r['purchase_date']) && r['status']=='accepted').toList();
-      final allPaymentRows = List<Map<String,dynamic>>.from(data[3]);
-      final allCustomerRows = allPaymentRows.where((r)=>within(r['received_at'])).toList();
+      final allCustomerRows = List<Map<String,dynamic>>.from(data[3]).where((r)=>within(r['received_at'])).toList();
       final cr = allCustomerRows.where((r)=>r['status']=='verified').toList();
       final pendingCr = allCustomerRows.where((r)=>r['status']=='pending').toList();
-      final verifiedBySale=<String,double>{};
-      for(final payment in allPaymentRows){
-        if(payment['status']!='verified')continue;
-        final saleId=payment['sale_id']?.toString();
-        if(saleId!=null)verifiedBySale[saleId]=(verifiedBySale[saleId]??0)+numVal(payment['amount']);
-      }
-      final outstanding=sr.fold<double>(0,(sum,sale)=>sum+(numVal(sale['total_amount'])-(verifiedBySale[sale['id'].toString()]??0)).clamp(0,double.infinity).toDouble());
-      final modeTotals=<String,double>{};
-      for(final sale in sr){final mode=(sale['payment_mode']??'credit').toString();modeTotals[mode]=(modeTotals[mode]??0)+numVal(sale['total_amount']);}
-      final verifiedMethods=<String,double>{};
-      for(final payment in cr){final method=(payment['method']??'other').toString();verifiedMethods[method]=(verifiedMethods[method]??0)+numVal(payment['amount']);}
-      final pendingMethods=<String,double>{};
-      for(final payment in pendingCr){final method=(payment['method']??'other').toString();pendingMethods[method]=(pendingMethods[method]??0)+numVal(payment['amount']);}
       final spr = List<Map<String,dynamic>>.from(data[4]).where((r)=>within(r['payment_date']) && r['status']=='verified').toList();
       double rev=0,cogs=0,buy=0;
       for(final row in sr) {
@@ -6152,7 +6112,6 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         purchaseTotal=buy; customerReceipts=cr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         pendingCustomerReceipts=pendingCr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         supplierPayments=spr.fold(0.0,(v,r)=>v+numVal(r['amount']));
-        outstandingBalance=outstanding; salesByPaymentMode=modeTotals; verifiedReceiptsByMethod=verifiedMethods; pendingReceiptsByMethod=pendingMethods;
       });
     } catch(e) { if(mounted)setState(()=>error=friendlyError(e)); }
     finally { if(mounted)setState(()=>loading=false); }
@@ -6271,14 +6230,6 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     ...rows.take(40).map((r)=>ListTile(dense:true,title:Text((r[nameField]??title).toString()),subtitle:Text((r[dateField]??'').toString()+' • '+(r['method']??'').toString()+' • '+(r['status']??'').toString()+'\nRecorded by: '+_paymentPerson(r['recorder'])+' • Verified by: '+_paymentPerson(r['verifier'])+'\nReference: '+(r[referenceField]??'Not supplied').toString()),trailing:Text(cash(numVal(r['amount']))))),
   ]);
 
-  Widget paymentBreakdowns() => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    const Divider(height:24),const Text('Sales by payment option',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
-    ...const ['cash','mpesa','bank_transfer','credit','split','other'].map((mode)=>ListTile(dense:true,title:Text(mode=='mpesa'?'M-Pesa':mode.replaceAll('_',' ')),trailing:Text(cash(salesByPaymentMode[mode]??0)))),
-    const SizedBox(height:8),const Text('Verified and pending receipts by actual payment method',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
-    ...const ['cash','mpesa','bank_transfer','other'].map((method)=>ListTile(dense:true,title:Text(method=='mpesa'?'M-Pesa':method.replaceAll('_',' ')),subtitle:Text('Pending: '+cash(pendingReceiptsByMethod[method]??0)),trailing:Text('Verified: '+cash(verifiedReceiptsByMethod[method]??0)))),
-    const Text('Split sales are included under Split; their receipts are itemised under the methods used. Credit sales remain in outstanding balances until payments are verified.',style:TextStyle(fontSize:12,color:Colors.black54)),
-  ]);
-
   String cash(double v) => 'KSh ' + v.toStringAsFixed(2);
   Widget metric(String title,double value,{bool highlight=false}) => Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     Text(title,style:const TextStyle(fontSize:13,color:Colors.black54)),const SizedBox(height:5),
@@ -6307,9 +6258,8 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         metric('Sales revenue',revenue),metric('Cost of goods sold',costOfGoods),
         metric('Trading profit (including landed stock cost)',gross,highlight:true),metric('Purchase-related expenses',purchaseCostsTotal),
         metric('Net trading result before other overheads',net,highlight:true),metric('Accepted purchases / stock cost',purchaseTotal),
-        metric('Verified customer receipts',customerReceipts),metric('Pending customer payments',pendingCustomerReceipts),metric('Outstanding customer balances',outstandingBalance),metric('Verified supplier payments',supplierPayments),
+        metric('Verified customer receipts',customerReceipts),metric('Pending customer payments',pendingCustomerReceipts),metric('Verified supplier payments',supplierPayments),
       ]),
-      paymentBreakdowns(),
       section('Sales records',salesRows,'sale_date','total_amount','sale_number',extraField:'payment_mode'),
       section('Expenses attached to purchases',purchaseCostRows,'incurred_at','amount','cost_type'),
       section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number'),
