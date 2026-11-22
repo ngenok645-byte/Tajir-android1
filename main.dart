@@ -385,44 +385,10 @@ class TajirApp extends StatefulWidget {
   State<TajirApp> createState() => _TajirAppState();
 }
 
-class _TajirAppState extends State<TajirApp> with WidgetsBindingObserver {
-  bool _backgroundLogoutStarted = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  // Sign out when TAJIR is sent to the background so reopening requires login.
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _logoutWhenAppIsLeft();
-    }
-  }
-
-  Future<void> _logoutWhenAppIsLeft() async {
-    if (_backgroundLogoutStarted) return;
-    _backgroundLogoutStarted = true;
-    try {
-      if (Supabase.instance.client.auth.currentSession != null) {
-        await Supabase.instance.client.auth.signOut();
-      }
-    } catch (_) {
-      // Do not block app closing if the network is unavailable.
-    } finally {
-      _backgroundLogoutStarted = false;
-    }
-  }
-
+class _TajirAppState extends State<TajirApp> {
+  // Supabase securely persists the authenticated session on this device.
+  // Do not sign users out merely because they switch apps or lock the screen.
+  // Explicit sign-out and server-side session expiry remain in force.
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'TAJIR', debugShowCheckedModeBanner: false, theme: appTheme,
@@ -1388,7 +1354,9 @@ class CustomerMarketPage extends StatefulWidget{
  @override State<CustomerMarketPage> createState()=>_CustomerMarketPageState();
 }
 class _CustomerMarketPageState extends State<CustomerMarketPage>{
- List<Map<String,dynamic>> rows=[];bool busy=true;String? error;
+ List<Map<String,dynamic>> rows=[];
+ List<Map<String,dynamic>> sellCatalogue=[];
+ bool busy=true;String? error;
  @override void initState(){super.initState();load();}
  Future<void> load()async{
   if(mounted)setState(()=>busy=true);
@@ -1399,7 +1367,12 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     // One row per branch/product variant so the customer sees the price for the selected branch.
     r=await db.rpc('customer_list_tajir_products');
    }else if(widget.mode=='sell'){
-    r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status,total_value_kes,quantity_kg,branch_id,branches(name),marketplace_listing_buying_prices(buying_price_kes)').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final results=await Future.wait([
+     db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status,total_value_kes,quantity_kg,branch_id,branches(name),marketplace_listing_buying_prices(buying_price_kes)').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false),
+     db.rpc('customer_list_tajir_sell_products'),
+    ]);
+    r=results[0];
+    sellCatalogue=List<Map<String,dynamic>>.from(results[1]);
    }else if(widget.mode=='marketplace_buy'){
     r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status,total_value_kes,branch_id,branches(name),marketplace_listing_selling_prices(selling_price_kes)').eq('status','active').neq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
    }else{
@@ -1648,6 +1621,27 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     Expanded(child:Text(widget.mode=='buy'?'TAJIR products available':widget.mode=='sell'?'Your produce offers':widget.mode=='marketplace_buy'?'Farmer marketplace':'Purchase requests',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))),
     if(widget.mode=='sell')FilledButton(onPressed:createListing,child:const Text('Offer produce')),
    ]),
+   if(widget.mode=='sell') ...[
+    const SizedBox(height:12),
+    const Text('TAJIR catalogue and official buying prices',style:TextStyle(fontSize:17,fontWeight:FontWeight.bold)),
+    const Text('These are Director-approved prices TAJIR pays for listed products. Select “Offer produce” to submit quantity and collection details.',style:TextStyle(fontSize:12,color:Colors.black54)),
+    if(sellCatalogue.isEmpty&&!busy)
+     const Padding(padding:EdgeInsets.symmetric(vertical:10),child:Text('No official TAJIR buying prices are available yet. Please contact the Director.')),
+    ...sellCatalogue.map((p){
+     final product=(p['product_name']??'Product').toString();
+     final variant=(p['variant_name']??'').toString();
+     final branch=(p['branch_name']??'Branch').toString();
+     final price=(p['official_tajir_buy_price_per_kg'] as num?)?.toDouble();
+     return Card(child:ListTile(
+      leading:CircleAvatar(child:Icon(productIconFor(product))),
+      title:Text(variant.isEmpty||variant.toLowerCase()==product.toLowerCase()?product:'$product • $variant'),
+      subtitle:Text('$branch\\n'+(price==null?'Official price unavailable':'Official TAJIR BUY price: KES '+price.toStringAsFixed(2)+' / KG  •  KES '+(price*kgPerBag).toStringAsFixed(2)+' / 90 KG bag')),
+      isThreeLine:true,
+     ));
+    }),
+    const Divider(height:24),
+    const Text('Your submitted produce offers',style:TextStyle(fontSize:17,fontWeight:FontWeight.bold)),
+   ],
    if(widget.mode=='buy')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('BUY_FROM_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Request unlisted product'))),
    if(widget.mode=='sell')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('SELL_TO_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Offer unlisted product to TAJIR'))),
    if(busy)const LinearProgressIndicator(),
