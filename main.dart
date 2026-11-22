@@ -2104,8 +2104,8 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
    });
    if(!mounted||request!=quoteRequest)return;
    final row=(r as List).first;
-   setState(()=>quote=Map<String,dynamic>.from(row)..['quantity']=q);
-  }catch(e){if(!mounted||request!=quoteRequest)return;setState(()=>quote=null..quoteError=friendlyError(e));}
+   setState(()=>{quote=Map<String,dynamic>.from(row)..['quantity']=q;quoteError=null;});
+  }catch(e){if(!mounted||request!=quoteRequest)return;setState((){quote=null;quoteError=friendlyError(e);});}
   if(mounted&&request==quoteRequest)setState(()=>quoting=false);
  }
  Future<void> book()async{
