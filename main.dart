@@ -431,9 +431,11 @@ class AuthChoicePage extends StatelessWidget {
     );
   }
 
-  void _openClient(BuildContext context) {
+  void _openClient(BuildContext context, {required bool createAccount}) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const CustomerAuthPage()),
+      MaterialPageRoute(
+        builder: (_) => CustomerAuthPage(startInCreateAccount: createAccount),
+      ),
     );
   }
 
@@ -556,8 +558,8 @@ class AuthChoicePage extends StatelessWidget {
                           icon: Icons.person_outline,
                           title: 'Client',
                           subtitle: 'Buy and sell approved products and request tractor services.',
-                          onLogin: () => _openClient(context),
-                          onJoin: () => _openClient(context),
+                          onLogin: () => _openClient(context, createAccount: false),
+                          onJoin: () => _openClient(context, createAccount: true),
                         ),
                       ),
                       SizedBox(
@@ -913,7 +915,8 @@ String normalizeKenyanPhone(String input) {
 }
 
 class CustomerAuthPage extends StatefulWidget {
-  const CustomerAuthPage({super.key});
+  final bool startInCreateAccount;
+  const CustomerAuthPage({super.key, this.startInCreateAccount = true});
   @override State<CustomerAuthPage> createState() => _CustomerAuthPageState();
 }
 class _CustomerAuthPageState extends State<CustomerAuthPage> {
@@ -924,6 +927,10 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   final confirmPin = TextEditingController();
   bool createAccount = true, busy = false;
   String? message;
+  @override void initState() {
+    super.initState();
+    createAccount = widget.startInCreateAccount;
+  }
   @override void dispose() {
     name.dispose(); phone.dispose(); nationalId.dispose(); pin.dispose(); confirmPin.dispose(); super.dispose();
   }
