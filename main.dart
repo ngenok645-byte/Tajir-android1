@@ -425,61 +425,264 @@ class AuthGate extends StatelessWidget {
 class AuthChoicePage extends StatelessWidget {
   const AuthChoicePage({super.key});
 
-  Widget _choice(BuildContext context, {required IconData icon,
-    required String title, required String subtitle, required String button,
-    required VoidCallback onPressed}) {
+  void _openLogin(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+    );
+  }
+
+  void _openClient(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CustomerAuthPage()),
+    );
+  }
+
+  Future<void> _explainApproval(BuildContext context, String role) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Join as $role'),
+        content: Text(
+          'This account category requires Director approval. '
+          'Please contact the TAJIR Director to have your account created '
+          'or your existing account assigned to this role. '
+          'Your account must not receive service permissions before approval.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _openLogin(context);
+            },
+            child: const Text('I already have an account'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _accountCard(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onLogin,
+    required VoidCallback onJoin,
+  }) {
     return Card(
+      clipBehavior: Clip.antiAlias,
+      elevation: 1.5,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Icon(icon, size: 42, color: brandGreen),
-          const SizedBox(height: 8),
-          Text(title, textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 6),
-          Text(subtitle, textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 13, color: Colors.black54)),
-          const SizedBox(height: 12),
-          FilledButton(onPressed: onPressed, child: Text(button)),
-        ]),
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            CircleAvatar(
+              radius: 25,
+              backgroundColor: brandGreen.withOpacity(.12),
+              child: Icon(icon, size: 28, color: brandGreen),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 5),
+            Expanded(
+              child: Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            ),
+            const SizedBox(height: 10),
+            FilledButton(
+              onPressed: onLogin,
+              child: const Text('Sign in'),
+            ),
+            OutlinedButton(
+              onPressed: onJoin,
+              child: const Text('Join TAJIR'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(child: Center(child: SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 460),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const BrandMark(),
-          const SizedBox(height: 12),
-          const Text('Welcome to TAJIR',
-            style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 6),
-          const Text('Sign in or create your account.',
-            textAlign: TextAlign.center),
-          const SizedBox(height: 18),
-          _choice(context, icon: Icons.admin_panel_settings_outlined,
-            title: 'STAFF',
-            subtitle: 'Director and authorised staff accounts.',
-            button: 'Staff sign in',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const LoginPage()))),
-          const SizedBox(height: 10),
-          _choice(context, icon: Icons.agriculture,
-            title: 'CLIENTS & FARM SERVICES',
-            subtitle: 'Buyers, sellers, farmers, tractor owners, drivers and other service users.',
-            button: 'Client sign in / register',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const CustomerAuthPage()))),
-          const SizedBox(height: 8),
-          const Text('New to TAJIR? Choose Client to create an account. Staff accounts are created by the Director.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: Colors.black54)),
-        ]),
+    body: SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(18, 22, 18, 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const BrandMark(),
+                const SizedBox(height: 12),
+                const Text(
+                  'Welcome to TAJIR',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 27, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 5),
+                const Text(
+                  'Choose the account category you use to access TAJIR.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.black54),
+                ),
+                const SizedBox(height: 20),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final columns = constraints.maxWidth >= 430 ? 2 : 1;
+                    const spacing = 10.0;
+                    final cardWidth = (constraints.maxWidth -
+                        (columns - 1) * spacing) / columns;
+                    final accounts = <Widget>[
+                      SizedBox(
+                        width: cardWidth,
+                        height: 218,
+                        child: _accountCard(
+                          context,
+                          icon: Icons.person_outline,
+                          title: 'Client',
+                          subtitle: 'Buy and sell approved products and request tractor services.',
+                          onLogin: _openClient.bind(context),
+                          onJoin: _openClient.bind(context),
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        height: 218,
+                        child: _accountCard(
+                          context,
+                          icon: Icons.agriculture,
+                          title: 'Tractor Owner',
+                          subtitle: 'Manage tractors, receive client jobs and assign drivers.',
+                          onLogin: () => _openLogin(context),
+                          onJoin: () => _explainApproval(context, 'Tractor Owner'),
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        height: 218,
+                        child: _accountCard(
+                          context,
+                          icon: Icons.local_shipping_outlined,
+                          title: 'Tractor Driver',
+                          subtitle: 'View and complete jobs assigned by a tractor owner.',
+                          onLogin: () => _openLogin(context),
+                          onJoin: () => _explainApproval(context, 'Tractor Driver'),
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        height: 218,
+                        child: _accountCard(
+                          context,
+                          icon: Icons.handyman_outlined,
+                          title: 'Mechanic',
+                          subtitle: 'Manage tractor repair jobs and request required spare parts.',
+                          onLogin: () => _openLogin(context),
+                          onJoin: () => _explainApproval(context, 'Mechanic'),
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        height: 218,
+                        child: _accountCard(
+                          context,
+                          icon: Icons.settings_outlined,
+                          title: 'Auto-Spare Owner',
+                          subtitle: 'Manage spare-parts stock and fulfil authorised parts requests.',
+                          onLogin: () => _openLogin(context),
+                          onJoin: () => _explainApproval(context, 'Auto-Spare Owner'),
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        height: 218,
+                        child: _accountCard(
+                          context,
+                          icon: Icons.badge_outlined,
+                          title: 'Worker',
+                          subtitle: 'Access assigned branch duties and authorised work records.',
+                          onLogin: () => _openLogin(context),
+                          onJoin: () => _explainApproval(context, 'Worker'),
+                        ),
+                      ),
+                    ];
+                    return Wrap(
+                      spacing: spacing,
+                      runSpacing: spacing,
+                      children: accounts,
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+                Card(
+                  color: brandGreen.withOpacity(.08),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(color: brandGreen.withOpacity(.25)),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        const CircleAvatar(
+                          backgroundColor: brandGreen,
+                          child: Icon(Icons.admin_panel_settings_outlined,
+                              color: Colors.white),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Director',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16)),
+                              SizedBox(height: 3),
+                              Text(
+                                'Secure sign-in for authorised Directors only.',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.black54),
+                              ),
+                            ],
+                          ),
+                        ),
+                        FilledButton(
+                          onPressed: () => _openLogin(context),
+                          child: const Text('Sign in'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Service-provider and staff access is approved by the Director. '
+                  'Choosing a category does not grant permissions by itself.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11, color: Colors.black54),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
-    ))),
+    ),
   );
 }
 
