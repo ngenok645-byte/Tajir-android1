@@ -3907,8 +3907,8 @@ class _PurchasePageState extends State<PurchasePage> {
       }
       if (amount > 0) customExpenses.add({'cost_type': 'other', 'description': name, 'amount': amount});
     }
-    if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null || transport == null || loading == null || labour == null || drying == null || [transport,loading,labour,drying].any((v)=>v<0) || invalidCustomExpense) {
-      setState(() => message = 'Choose a product option and enter a valid quantity and buying price.');
+    if (q == null || c == null || q <= 0 || c < 0 || selectedVariantId == null || supplier.text.trim().isEmpty || transport == null || loading == null || labour == null || drying == null || [transport,loading,labour,drying].any((v)=>v<0) || invalidCustomExpense) {
+      setState(() => message = 'Enter the supplier name, choose a product option, and provide a valid quantity and buying price.');
       return;
     }
     setState(() { busy = true; message = ''; });
@@ -3920,6 +3920,7 @@ class _PurchasePageState extends State<PurchasePage> {
           'branch_id': branch['id'],
           'purchase_date': DateTime.now().toIso8601String().substring(0, 10),
           'payer': payer,
+          'supplier_name': supplier.text.trim(),
           'notes': notes.text,
           'items': [
             {
@@ -6106,7 +6107,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       final data = await Future.wait([
         db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,customer_id,customer:customers(full_name),sale_items(line_cost)').order('sale_date',ascending:false),
         db.from('purchase_costs').select('id,purchase_id,purchase_item_id,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
-        db.from('purchases').select('id,purchase_number,purchase_date,status,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
+        db.from('purchases').select('id,purchase_number,purchase_date,status,supplier_name,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
         db.from('customer_payments').select('id,payment_number,sale_id,amount,status,method,provider_reference,received_at,recorded_by,verified_by,recorder:profiles!customer_payments_recorded_by_fkey(display_name),verifier:profiles!customer_payments_verified_by_fkey(display_name)').order('received_at',ascending:false),
         db.from('supplier_payments').select('amount,status,method,payment_date,transaction_reference,recorded_by,verified_by,recorder:profiles!supplier_payments_recorded_by_fkey(display_name),verifier:profiles!supplier_payments_verified_by_fkey(display_name)').order('payment_date',ascending:false),
       ]);
@@ -6309,7 +6310,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       paymentBreakdowns(),
       section('Sales records',salesRows,'sale_date','total_amount','sale_number',extraField:'payment_mode'),
       section('Expenses attached to purchases',purchaseCostRows,'incurred_at','amount','cost_type'),
-      section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number'),
+      section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number',extraField:'supplier_name'),
       paymentAuditSection('Verified customer payments',customerPaymentRows,dateField:'received_at',nameField:'payment_number',referenceField:'provider_reference'),
       pendingPaymentsSection(),
       paymentAuditSection('Verified supplier payments',supplierPaymentRows,dateField:'payment_date',nameField:'transaction_reference',referenceField:'transaction_reference'),
