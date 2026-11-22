@@ -1116,11 +1116,11 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         throw const FormatException('Enter your four-digit PIN.');
       }
       if (createAccount) {
-        if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
+        if (name.text.trim().length < 2) throw const FormatException('Enter your full legal name as shown on your National ID.');
         if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
         final response = await db.functions.invoke(
           'tajir-customer-register',
-          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text},
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'national_id': nationalId.text.trim()},
         );
         final resultData = response.data;
         if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
@@ -1128,9 +1128,6 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
           throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'Customer registration failed.') : 'Customer registration failed.');
         }
         await signInCustomerWithPin(db, normalized, pin.text);
-        await db.rpc('register_my_national_id', params: {
-          'p_national_id': nationalId.text.trim(),
-        });
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
@@ -1182,7 +1179,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
               decoration: const InputDecoration(
                 labelText: 'National ID number',
                 hintText: 'Enter 7 or 8 digits',
-                helperText: 'Kept private. Only the last four digits are retained for account support.',
+                helperText: 'Required for registration. Protected and used to prevent duplicate accounts.',
                 border: OutlineInputBorder(),
                 counterText: '',
               ),
