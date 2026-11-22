@@ -3317,7 +3317,7 @@ class _HomeShellState extends State<HomeShell> {
     return [
       DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9), onOpenMarketplacePrices: () => selectPage(10), onOpenTractorRates: () => selectPage(11)),
       const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(),
-      if (director || accountant) const FinancialRecordsPage(),
+      if (director || accountant || branchManager) const FinancialRecordsPage(),
       if (director) const StaffAccountsPage(),
       if (director) const DirectorPriceManagementPage(),
       if (director) const DirectorCustomProductRequestsPage(),
@@ -3328,10 +3328,10 @@ class _HomeShellState extends State<HomeShell> {
   }
   List<String> get labels => accountant && !director && !branchManager
     ? ['Dashboard','Stock','Financial Records']
-    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices', if (director) 'Tractor Rates', if (director) 'Director Oversight'];
+    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant || branchManager) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices', if (director) 'Tractor Rates', if (director) 'Director Oversight'];
   List<IconData> get icons => accountant && !director && !branchManager
     ? [Icons.dashboard,Icons.inventory_2,Icons.account_balance]
-    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture, if (director) Icons.admin_panel_settings];
+    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant || branchManager) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture, if (director) Icons.admin_panel_settings];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -3347,7 +3347,7 @@ class _HomeShellState extends State<HomeShell> {
     showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
       ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
-      if (director || accountant) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
+      if (director || accountant || branchManager) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       if (director) ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
       if (director) ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Custom Requests'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
@@ -6088,7 +6088,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   String error = '';
   String period = 'This month';
   double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, pendingCustomerReceipts = 0, supplierPayments = 0, pendingSupplierPayments = 0, outstandingSupplierBalance = 0, outstandingBalance = 0;
-  bool isDirector = false;
+  bool isDirector = false, isAccountant = false;
   Map<String,double> salesByPaymentMode = {}, verifiedReceiptsByMethod = {}, pendingReceiptsByMethod = {};
   List<Map<String,dynamic>> salesRows = [], purchaseCostRows = [], purchaseRows = [], customerPaymentRows = [], pendingCustomerPaymentRows = [], supplierPaymentRows = [], pendingSupplierPaymentRows = [], supplierPurchaseRows = [], supplierRows = [];
   double numVal(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
@@ -6111,9 +6111,10 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     try {
       final db = Supabase.instance.client;
       final roles = await db.from('user_role_assignments').select('app_roles(code)').eq('user_id', db.auth.currentUser!.id).eq('is_active', true);
-      final hasFinanceAccess = roles.any((r) => r['app_roles'] is Map && ['director','accountant'].contains((r['app_roles'] as Map)['code']));
+      final hasFinanceAccess = roles.any((r) => r['app_roles'] is Map && ['director','accountant','branch_manager'].contains((r['app_roles'] as Map)['code']));
       final directorAccess = roles.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='director');
-      if (!hasFinanceAccess) throw Exception('This financial report is available to Director and Accountant accounts only.');
+      final accountantAccess = roles.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='accountant');
+      if (!hasFinanceAccess) throw Exception('This financial workspace is available to Director, Accountant and authorised Branch Manager accounts.');
       final data = await Future.wait<dynamic>([
         db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,customer_id,customer:customers(full_name),sale_items(line_cost)').order('sale_date',ascending:false),
         db.from('purchase_costs').select('id,purchase_id,purchase_item_id,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
@@ -6160,7 +6161,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       }
       if(!mounted)return;
       setState(() {
-        salesRows=sr; purchaseCostRows=pcr; purchaseRows=pr; customerPaymentRows=cr; pendingCustomerPaymentRows=pendingCr; supplierPaymentRows=spr; pendingSupplierPaymentRows=pendingSpr; supplierPurchaseRows=supplierPurchases; supplierRows=supplierRecords; isDirector=directorAccess;
+        salesRows=sr; purchaseCostRows=pcr; purchaseRows=pr; customerPaymentRows=cr; pendingCustomerPaymentRows=pendingCr; supplierPaymentRows=spr; pendingSupplierPaymentRows=pendingSpr; supplierPurchaseRows=supplierPurchases; supplierRows=supplierRecords; isDirector=directorAccess; isAccountant=accountantAccess;
         revenue=rev; costOfGoods=cogs; purchaseCostsTotal=pcr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         purchaseTotal=buy; customerReceipts=cr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         pendingCustomerReceipts=pendingCr.fold(0.0,(v,r)=>v+numVal(r['amount']));
@@ -6444,7 +6445,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       dense:true,
       title:Text((p['payment_number']??'Payment').toString()+' • '+(p['method']??'').toString()),
       subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['received_at']??'Awaiting confirmation').toString()+'\nRecorded by: '+(((p['recorder'] as Map?)?['display_name'])??'Account not identified').toString()+' • Reference: '+(p['provider_reference']??'Not supplied').toString()),
-      trailing:FilledButton.tonal(onPressed:loading?null:()=>verifyCustomerPayment(p),child:const Text('Verify')),
+      trailing:(isDirector||isAccountant)?FilledButton.tonal(onPressed:loading?null:()=>verifyCustomerPayment(p),child:const Text('Verify')):const Text('Awaiting Director / Accountant'),
     )),
   ]);
 
@@ -6536,7 +6537,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         OutlinedButton.icon(onPressed:loading?null:recordCustomerPayment,icon:const Icon(Icons.payments_outlined),label:const Text('Record customer payment')),
         OutlinedButton.icon(onPressed:loading?null:recordSupplierPayment,icon:const Icon(Icons.store_mall_directory_outlined),label:const Text('Record supplier payment')),
       ]),
-      const Text('Director & Accountant reports • amounts in Kenya shillings'),
+      const Text('Director, Accountant & authorised Branch Manager reports • amounts in Kenya shillings'),
       const SizedBox(height:12),
       DropdownButtonFormField<String>(value:period,decoration:const InputDecoration(labelText:'Reporting period',border:OutlineInputBorder()),
         items:const ['Today','This week','This month','This year','All time'].map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),
