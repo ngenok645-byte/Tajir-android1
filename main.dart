@@ -6056,8 +6056,8 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,customer_id,customer:customers(full_name),sale_items(line_cost)').order('sale_date',ascending:false),
         db.from('purchase_costs').select('id,purchase_id,purchase_item_id,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
         db.from('purchases').select('id,purchase_number,purchase_date,status,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
-        db.from('customer_payments').select('id,payment_number,sale_id,amount,status,method,received_at').order('received_at',ascending:false),
-        db.from('supplier_payments').select('amount,status,method,payment_date,transaction_reference').order('payment_date',ascending:false),
+        db.from('customer_payments').select('id,payment_number,sale_id,amount,status,method,provider_reference,received_at,recorded_by,verified_by,recorder:profiles!customer_payments_recorded_by_fkey(display_name),verifier:profiles!customer_payments_verified_by_fkey(display_name)').order('received_at',ascending:false),
+        db.from('supplier_payments').select('amount,status,method,payment_date,transaction_reference,recorded_by,verified_by,recorder:profiles!supplier_payments_recorded_by_fkey(display_name),verifier:profiles!supplier_payments_verified_by_fkey(display_name)').order('payment_date',ascending:false),
       ]);
       final sr = List<Map<String,dynamic>>.from(data[0]).where((r)=>within(r['sale_date'])).toList();
       final pcr = List<Map<String,dynamic>>.from(data[1]).where((r)=>within(r['incurred_at'])).toList();
@@ -6186,9 +6186,19 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     ...pendingCustomerPaymentRows.take(40).map((p)=>ListTile(
       dense:true,
       title:Text((p['payment_number']??'Payment').toString()+' • '+(p['method']??'').toString()),
-      subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['received_at']??'Awaiting confirmation').toString()),
+      subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['received_at']??'Awaiting confirmation').toString()+'\nRecorded by: '+(((p['recorder'] as Map?)?['display_name'])??'Account not identified').toString()+' • Reference: '+(p['provider_reference']??'Not supplied').toString()),
       trailing:FilledButton.tonal(onPressed:loading?null:()=>verifyCustomerPayment(p),child:const Text('Verify')),
     )),
+  ]);
+
+  String _paymentPerson(dynamic value) {
+    if (value is Map && value['display_name'] != null) return value['display_name'].toString();
+    return 'Not recorded';
+  }
+  Widget paymentAuditSection(String title, List<Map<String,dynamic>> rows, {required String dateField, required String nameField, required String referenceField}) => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Divider(height:24),Text(title,style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    if(rows.isEmpty) const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('No records for this period.')),
+    ...rows.take(40).map((r)=>ListTile(dense:true,title:Text((r[nameField]??title).toString()),subtitle:Text((r[dateField]??'').toString()+' • '+(r['method']??'').toString()+' • '+(r['status']??'').toString()+'\nRecorded by: '+_paymentPerson(r['recorder'])+' • Verified by: '+_paymentPerson(r['verifier'])+'\nReference: '+(r[referenceField]??'Not supplied').toString()),trailing:Text(cash(numVal(r['amount']))))),
   ]);
 
   String cash(double v) => 'KSh ' + v.toStringAsFixed(2);
@@ -6224,9 +6234,9 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       section('Sales records',salesRows,'sale_date','total_amount','sale_number',extraField:'payment_mode'),
       section('Expenses attached to purchases',purchaseCostRows,'incurred_at','amount','cost_type'),
       section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number'),
-      section('Verified customer payments',customerPaymentRows,'received_at','amount','payment_number'),
+      paymentAuditSection('Verified customer payments',customerPaymentRows,dateField:'received_at',nameField:'payment_number',referenceField:'provider_reference'),
       pendingPaymentsSection(),
-      section('Verified supplier payments',supplierPaymentRows,'payment_date','amount','transaction_reference'),
+      paymentAuditSection('Verified supplier payments',supplierPaymentRows,dateField:'payment_date',nameField:'transaction_reference',referenceField:'transaction_reference'),
       const Padding(padding:EdgeInsets.only(top:14),child:Text('Profit method: trading profit = recorded sales revenue less the cost of goods sold. Purchase-related costs such as transport, loading, labour and drying are attached to each purchase and included in landed stock cost, so they are not deducted a second time. This is trading profit before any separate business overheads. Figures depend on complete and correctly approved records.',style:TextStyle(fontSize:12,color:Colors.black54))),
       Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:loading?null:load,icon:const Icon(Icons.refresh),label:const Text('Refresh'))),
     ]));
