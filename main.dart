@@ -2077,6 +2077,47 @@ class _LandBoundaryPainter extends CustomPainter{
  @override bool shouldRepaint(covariant _LandBoundaryPainter old)=>old.points!=points;
 }
 
+class DirectorTractorRatesPage extends StatefulWidget{const DirectorTractorRatesPage({super.key});@override State<DirectorTractorRatesPage> createState()=>_DirectorTractorRatesPageState();}
+class _DirectorTractorRatesPageState extends State<DirectorTractorRatesPage>{
+ final db=Supabase.instance.client;final rate=TextEditingController();final county=TextEditingController(),region=TextEditingController(),village=TextEditingController();
+ String service='ploughing',unit='per_acre';bool loading=true,saving=false;List<Map<String,dynamic>> rows=[];
+ @override void initState(){super.initState();load();}
+ @override void dispose(){rate.dispose();county.dispose();region.dispose();village.dispose();super.dispose();}
+ Future<void> load()async{try{final r=await db.from('tractor_service_rates').select().eq('is_active',true).order('service_type').order('county');if(mounted)setState(()=>rows=List<Map<String,dynamic>>.from(r));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}if(mounted)setState(()=>loading=false);}
+ Future<void> save()async{
+  final value=double.tryParse(rate.text.trim());if(value==null||value<0){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid rate.')));return;}
+  if(county.text.trim().isEmpty&&region.text.trim().isEmpty&&village.text.trim().isEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Set at least a County, Region or Village for this rate.')));return;}
+  if(service!='transport'&&unit!='per_acre'){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ploughing, harrowing and planting must be priced per acre.')));return;}
+  setState(()=>saving=true);
+  try{
+   final c=county.text.trim(),r=region.text.trim(),v=village.text.trim();
+   final match=rows.where((x)=>x['service_type']==service&&x['pricing_unit']==unit&&(x['county']??'')==c&&(x['region']??'')==r&&(x['village']??'')==v).toList();
+   final payload={'service_type':service,'pricing_unit':unit,'rate':value,'county':c.isEmpty?null:c,'region':r.isEmpty?null:r,'village':v.isEmpty?null:v,'is_active':true,'updated_by':db.auth.currentUser!.id,'updated_at':DateTime.now().toUtc().toIso8601String()};
+   if(match.isEmpty){await db.from('tractor_service_rates').insert(payload);}else{await db.from('tractor_service_rates').update(payload).eq('id',match.first['id']);}
+   rate.clear();if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Tractor service rate saved.')));await load();
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+  if(mounted)setState(()=>saving=false);
+ }
+ @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(16),children:[
+  const Text('Tractor Service Rates',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
+  const Text('Set separate Director-approved rates for each service and location. Village rates override Region rates, which override County rates. These are not TAJIR product prices or company branches.'),
+  DropdownButtonFormField<String>(value:service,decoration:const InputDecoration(labelText:'Service'),items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v)=>setState(()=>{service=v??'ploughing';if(service!='transport')unit='per_acre';})),
+  if(service=='transport')DropdownButtonFormField<String>(value:unit=='per_acre'?'per_trip':unit,decoration:const InputDecoration(labelText:'Transport charge basis'),items:const [DropdownMenuItem(value:'per_trip',child:Text('Per trip')),DropdownMenuItem(value:'per_km',child:Text('Per kilometre')),DropdownMenuItem(value:'per_tonne',child:Text('Per tonne'))],onChanged:(v)=>setState(()=>unit=v??'per_trip')),
+  if(service!='transport'&&service!='other')const ListTile(contentPadding:EdgeInsets.zero,title:Text('Rate unit: per acre')),
+  if(service=='other')DropdownButtonFormField<String>(value:unit,decoration:const InputDecoration(labelText:'Pricing unit'),items:const [DropdownMenuItem(value:'per_acre',child:Text('Per acre')),DropdownMenuItem(value:'per_trip',child:Text('Per trip')),DropdownMenuItem(value:'per_km',child:Text('Per kilometre')),DropdownMenuItem(value:'per_tonne',child:Text('Per tonne'))],onChanged:(v)=>setState(()=>unit=v??'per_acre')),
+  TextField(controller:rate,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Rate (KES)')),
+  const SizedBox(height:8),const Text('Location scope (at least one required)',style:TextStyle(fontWeight:FontWeight.w600)),
+  TextField(controller:county,decoration:const InputDecoration(labelText:'County (optional)')),
+  TextField(controller:region,decoration:const InputDecoration(labelText:'Region (optional)')),
+  TextField(controller:village,decoration:const InputDecoration(labelText:'Village (optional)')),
+  FilledButton(onPressed:saving?null:save,child:Text(saving?'Saving…':'Save Director-approved rate')),
+  const Divider(),const Text('Active rates',style:TextStyle(fontWeight:FontWeight.bold)),
+  if(loading)const LinearProgressIndicator(),
+  if(!loading&&rows.isEmpty)const Text('No tractor rates have been configured yet.'),
+  ...rows.map((r)=>Card(child:ListTile(leading:const Icon(Icons.agriculture,color:brandGreen),title:Text('${r['service_type']} • KES ${r['rate']} / ${r['pricing_unit'].toString().replaceAll('per_','')}'),subtitle:Text([r['county'],r['region'],r['village']].where((x)=>x!=null&&x.toString().isNotEmpty).join(' › ')),trailing:TextButton(onPressed:()async{await db.from('tractor_service_rates').update({'is_active':false,'updated_at':DateTime.now().toUtc().toIso8601String()}).eq('id',r['id']);await load();},child:const Text('Deactivate'))))),
+ ]);
+}
+
 class CustomerTractorPage extends StatefulWidget{@override State<CustomerTractorPage> createState()=>_CustomerTractorPageState();}
 class _CustomerTractorPageState extends State<CustomerTractorPage>{
  List<Map<String,dynamic>> tractors=[];bool busy=true,saving=false,quoting=false;
@@ -2859,21 +2900,22 @@ class _HomeShellState extends State<HomeShell> {
       ];
     }
     return [
-      DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9), onOpenMarketplacePrices: () => selectPage(10)),
+      DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9), onOpenMarketplacePrices: () => selectPage(10), onOpenTractorRates: () => selectPage(11)),
       const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(),
       if (director || accountant) const FinancialRecordsPage(),
       if (director) const StaffAccountsPage(),
       if (director) const DirectorPriceManagementPage(),
       if (director) const DirectorCustomProductRequestsPage(),
       if (director) const DirectorMarketplacePricesPage(),
+      if (director) const DirectorTractorRatesPage(),
     ];
   }
   List<String> get labels => accountant && !director && !branchManager
     ? ['Dashboard','Stock','Financial Records']
-    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices'];
+    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices', if (director) 'Tractor Rates'];
   List<IconData> get icons => accountant && !director && !branchManager
     ? [Icons.dashboard,Icons.inventory_2,Icons.account_balance]
-    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined];
+    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture];
   @override void initState() { super.initState(); loadAccess(); WidgetsBinding.instance.addPostFrameCallback((_) => checkUpdates()); }
   Future<void> loadAccess() async {
     try {
@@ -2939,7 +2981,8 @@ class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenPrices;
   final VoidCallback? onOpenCustomRequests;
   final VoidCallback? onOpenMarketplacePrices;
-  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices, this.onOpenCustomRequests, this.onOpenMarketplacePrices});
+  final VoidCallback? onOpenTractorRates;
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices, this.onOpenCustomRequests, this.onOpenMarketplacePrices, this.onOpenTractorRates});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -3054,6 +3097,16 @@ class _DashboardPageState extends State<DashboardPage> {
         subtitle: const Text('Review unlisted product requests and offers, set the agreed price, or decline'),
         trailing: const Icon(Icons.chevron_right),
         onTap: widget.onOpenCustomRequests,
+      )),
+    ],
+    if(director) ...[
+      const SizedBox(height: 8),
+      Card(child: ListTile(
+        leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.agriculture, color: brandGreen)),
+        title: const Text('Tractor Service Rates', style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('Set separate ploughing, harrowing, planting and transport rates by County, Region and Village'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: widget.onOpenTractorRates,
       )),
     ],
     if(director) ...[
