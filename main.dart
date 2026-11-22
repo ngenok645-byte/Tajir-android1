@@ -1617,7 +1617,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    title:Text('Request $title'),
    content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
     Text('Branch: '+(item['branch_name']??'TAJIR branch').toString(),style:const TextStyle(fontWeight:FontWeight.w600)),
-    Text('Official TAJIR price: KES '+price.toStringAsFixed(2)+' per KG'),
+    Text('Official TAJIR selling price: KES '+price.toStringAsFixed(2)+' per KG'),
     const SizedBox(height:12),
     DropdownButtonFormField<String>(
      value:unit,
@@ -1635,7 +1635,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     const SizedBox(height:8),
     TextField(controller:note,maxLines:2,decoration:const InputDecoration(labelText:'Note (optional)')),
     const SizedBox(height:6),
-    const Text('The Director controls the official price. TAJIR verifies the price and total again when your request is saved.',style:TextStyle(fontSize:12,color:Colors.black54)),
+    const Text('The Director controls the official selling price. You may submit an order request even when stock is low or not currently displayed. TAJIR will confirm fulfilment and timing after receiving your request; the official price and total are checked again when saved.',style:TextStyle(fontSize:12,color:Colors.black54)),
    ])),
    actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Send request'))],
   )));
@@ -1652,7 +1652,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      'quantity_unit':unit,
      'note':note.text.trim().isEmpty?null:note.text.trim(),
     });
-    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your request was sent. TAJIR has applied the official branch price and calculated the total.')));
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your order request was sent. TAJIR has applied the official branch price and calculated the total. The branch will confirm fulfilment and timing.')));
     await load();
    }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
   }
@@ -1856,7 +1856,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    if(widget.mode=='sell')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('SELL_TO_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Offer unlisted product to TAJIR'))),
    if(busy)const LinearProgressIndicator(),
    if(error!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(error!,style:const TextStyle(color:Colors.red))),
-   if(!busy&&rows.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(widget.mode=='buy'?'No TAJIR stock is currently available. Please check again or contact your branch.':widget.mode=='marketplace_buy'?'No farmer offers are available at the moment.':'No marketplace records yet.')),
+   if(!busy&&rows.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(widget.mode=='buy'?'No products are currently listed in the TAJIR catalogue. Please contact your branch if you expected to see a product.':widget.mode=='marketplace_buy'?'No farmer offers are available at the moment.':'No marketplace records yet.')),
    ...rows.map((r){
     if(widget.mode=='buy'){
      final variant=(r['variant_name']??'').toString();
@@ -1867,9 +1867,9 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      return Card(child:ListTile(
       leading:const CircleAvatar(child:Icon(Icons.inventory_2_outlined)),
       title:Text(title),
-      subtitle:Text(branch+'\n'+(price==null?'Official price not set':'Official TAJIR price: KES '+price.toStringAsFixed(2)+' / KG')),
+      subtitle:Text(branch+'\n'+(price==null?'Official selling price is awaiting Director approval':'Official TAJIR selling price: KES '+price.toStringAsFixed(2)+' / KG')),
       isThreeLine:true,
-      trailing:FilledButton.tonal(onPressed:price==null?null:()=>requestTajirProduct(r),child:const Text('Select'))
+      trailing:FilledButton.tonal(onPressed:price==null?null:()=>requestTajirProduct(r),child:Text(price==null?'Price pending':'Order'))
      ));
     }
     if(widget.mode=='marketplace_buy'){
