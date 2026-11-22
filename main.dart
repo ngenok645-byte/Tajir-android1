@@ -5894,11 +5894,30 @@ class _CustomersPageState extends State<CustomersPage> {
     try {
       final id=customer['id'];
       final results=await Future.wait<dynamic>([
-        db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode').eq('customer_id',id).order('sale_date',ascending:false),
-        db.from('customer_payments').select('id,payment_number,sale_id,amount,method,status,received_at,created_at').eq('customer_id',id).order('created_at',ascending:false),
+        db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,sale_items(quantity,unit,unit_selling_price,line_revenue,product_serials,product_variant_id)').eq('customer_id',id).order('sale_date',ascending:false),
+        db.from('customer_payments').select('id,payment_number,sale_id,amount,method,status,product_serials,received_at,created_at').eq('customer_id',id).order('created_at',ascending:false),
       ]);
       final sales=List<Map<String,dynamic>>.from(results[0]);
       final payments=List<Map<String,dynamic>>.from(results[1]);
+      final productSerials=<String>{};
+      for(final sale in sales){
+        for(final item in List<dynamic>.from(sale['sale_items']??const [])){
+          if(item is Map && item['product_serials'] is List){
+            productSerials.addAll((item['product_serials'] as List).map((v)=>v.toString()).where((v)=>v.trim().isNotEmpty));
+          }
+        }
+      }
+      for(final payment in payments){
+        if(payment['product_serials'] is List){
+          productSerials.addAll((payment['product_serials'] as List).map((v)=>v.toString()).where((v)=>v.trim().isNotEmpty));
+        }
+      }
+      final relatedExpenses=productSerials.isEmpty
+        ? <Map<String,dynamic>>[]
+        : List<Map<String,dynamic>>.from(await db.from('expenses')
+          .select('id,expense_number,expense_date,category,description,amount,status,product_serials')
+          .overlaps('product_serials',productSerials.toList())
+          .order('expense_date',ascending:false));
       final roleRows=await db.from('user_role_assignments').select('app_roles(code)').eq('user_id',db.auth.currentUser!.id).eq('is_active',true);
       final canVerifyPayments=roleRows.any((r)=>r['app_roles'] is Map && ['director','accountant'].contains((r['app_roles'] as Map)['code']));
       final totalSales=sales.fold<double>(0,(s,r)=>s+((r['total_amount'] as num?)?.toDouble()??0));
@@ -5938,7 +5957,24 @@ class _CustomersPageState extends State<CustomersPage> {
           const Divider(),
           const Text('Purchase history',style:TextStyle(fontWeight:FontWeight.bold)),
           if(sales.isEmpty)const Text('No sales recorded for this customer.'),
-          ...sales.map((s)=>ListTile(contentPadding:EdgeInsets.zero,title:Text('${s['sale_number']}'),subtitle:Text('${s['sale_date']} • Payment: ${s['payment_mode']??'credit'}'),trailing:Text('KES ${((s['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'))),
+          ...sales.map((s){
+            final items=List<dynamic>.from(s['sale_items']??const []);
+            final serials=<String>{};
+            for(final item in items){
+              if(item is Map && item['product_serials'] is List){
+                serials.addAll((item['product_serials'] as List).map((v)=>v.toString()));
+              }
+            }
+            return ListTile(contentPadding:EdgeInsets.zero,
+              leading:const Icon(Icons.inventory_2_outlined,color:brandGreen),
+              title:Text('${s['sale_number']}'),
+              subtitle:Text('${s['sale_date']} • ${items.length} product line(s) • Payment: ${s['payment_mode']??'credit'}\nProduct serial(s): ${serials.isEmpty?'Pending / not assigned':serials.join(', ')}'),
+              isThreeLine:true,
+              trailing:Text('KES ${((s['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'));
+          }),
+          const Divider(),
+          const Text('Product serial tracking',style:TextStyle(fontWeight:FontWeight.bold)),
+          Text(productSerials.isEmpty?'No product serials have been assigned to this customer yet.':'Serials linked to this customer: ${productSerials.join(', ')}'),
           const Divider(),
           const Text('Payments',style:TextStyle(fontWeight:FontWeight.bold)),
           if(payments.isEmpty)const Text('No payments recorded.'),
@@ -5950,7 +5986,7 @@ class _CustomersPageState extends State<CustomersPage> {
             return ListTile(
               contentPadding:EdgeInsets.zero,
               title:Text('KES ${((p['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)} • ${p['method']}'),
-              subtitle:Text('${p['status']} • ${p['payment_number']}'),
+              subtitle:Text('${p['status']} • ${p['payment_number']}\nProduct serial(s): ${(p['product_serials'] is List && (p['product_serials'] as List).isNotEmpty)?(p['product_serials'] as List).join(', '):'Not linked'}'),
               onTap:()=>showTajirReceipt(context,
                 receiptNumber:(p['payment_number']??'—').toString(),
                 receiptType:'Customer payment receipt',
@@ -5965,6 +6001,16 @@ class _CustomersPageState extends State<CustomersPage> {
               trailing:p['status']=='pending'&&canVerifyPayments?TextButton(onPressed:(){Navigator.pop(context);verifyCustomerPayment(p['id'].toString(),customer);},child:const Text('Verify')):null,
             );
           }),
+          const Divider(),
+          const Text('Related product expenses',style:TextStyle(fontWeight:FontWeight.bold)),
+          if(relatedExpenses.isEmpty)const Text('No expenses are linked to this customer’s sold product batches yet.'),
+          ...relatedExpenses.map((expense)=>ListTile(
+            contentPadding:EdgeInsets.zero,
+            leading:const Icon(Icons.receipt_long_outlined),
+            title:Text('${expense['expense_number']??expense['category']??'Product expense'} • KES ${((expense['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'),
+            subtitle:Text('${expense['expense_date']??''} • ${expense['status']??'recorded'}\n${expense['description']??''}\nSerial(s): ${expense['product_serials'] is List?(expense['product_serials'] as List).join(', '):'Not linked'}'),
+            isThreeLine:true,
+          )),
         ]))),
         actions:[
           if(unallocatedBalance>0.009) OutlinedButton.icon(onPressed:(){Navigator.pop(context);recordCustomerPayment(customer,sales,payments);},icon:const Icon(Icons.payments_outlined),label:const Text('Record payment')),
