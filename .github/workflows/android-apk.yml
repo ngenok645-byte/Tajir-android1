@@ -13,7 +13,8 @@ name: Build TAJIR Android APK
       - main
 
 concurrency:
-  group: tajir-android-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
+  # Keep one build per PR/ref. A new commit cancels the older, stale build.
+  group: tajir-android-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
