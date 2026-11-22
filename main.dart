@@ -6774,11 +6774,11 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       final accountantAccess = roles.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='accountant');
       if (!hasFinanceAccess) throw Exception('This financial workspace is available to Director, Accountant and authorised Branch Manager accounts.');
       final data = await Future.wait<dynamic>([
-        db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,customer_id,customer:customers(full_name),sale_items(line_cost)').order('sale_date',ascending:false),
-        db.from('purchase_costs').select('id,purchase_id,purchase_item_id,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
-        db.from('purchases').select('id,purchase_number,purchase_date,status,supplier_id,supplier_name,invoice_total,payment_mode,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
-        db.from('customer_payments').select('id,payment_number,sale_id,amount,status,method,provider_reference,received_at,recorded_by,verified_by,recorder:profiles!customer_payments_recorded_by_fkey(display_name),verifier:profiles!customer_payments_verified_by_fkey(display_name)').order('received_at',ascending:false),
-        db.from('supplier_payments').select('id,purchase_id,supplier_id,amount,status,method,payment_date,transaction_reference,notes,recorded_by,verified_by,recorder:profiles!supplier_payments_recorded_by_fkey(display_name),verifier:profiles!supplier_payments_verified_by_fkey(display_name),supplier:suppliers(business_name),purchase:purchases(purchase_number)').order('payment_date',ascending:false),
+        db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,customer_id,customer:customers(full_name),sale_items(line_cost,product_serials)').order('sale_date',ascending:false),
+        db.from('purchase_costs').select('id,purchase_id,purchase_item_id,product_serial,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
+        db.from('purchases').select('id,purchase_number,purchase_date,status,supplier_id,supplier_name,invoice_total,payment_mode,purchase_items(quantity,quantity_accepted,buying_price_per_unit,product_serial)').order('purchase_date',ascending:false),
+        db.from('customer_payments').select('id,payment_number,sale_id,amount,status,method,provider_reference,product_serials,received_at,recorded_by,verified_by,recorder:profiles!customer_payments_recorded_by_fkey(display_name),verifier:profiles!customer_payments_verified_by_fkey(display_name)').order('received_at',ascending:false),
+        db.from('supplier_payments').select('id,purchase_id,supplier_id,amount,status,method,payment_date,transaction_reference,product_serials,notes,recorded_by,verified_by,recorder:profiles!supplier_payments_recorded_by_fkey(display_name),verifier:profiles!supplier_payments_verified_by_fkey(display_name),supplier:suppliers(business_name),purchase:purchases(purchase_number)').order('payment_date',ascending:false),
         db.from('supplier_purchase_payment_summary').select('*').order('purchase_date',ascending:false),
         db.from('suppliers').select('id,business_name,approval_status,is_active,contact_name,phone,created_at').order('created_at',ascending:false),
       ]);
@@ -7180,7 +7180,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
           date:(r[dateField]??'').toString(),amount:amount,totalPaid:r['status']=='verified'?amount:0,
           balance:r['status']=='verified'?0:amount,method:(r['method']??'—').toString(),
           status:(r['status']??'pending').toString(),reference:(r[referenceField]??'').toString(),
-          details:['Invoice: '+((r['purchase'] as Map?)?['purchase_number']??'—').toString()],
+          details:['Invoice: '+((r['purchase'] as Map?)?['purchase_number']??'—').toString(),'Product serial(s): '+((r['product_serials'] as List?)?.join(', ')??'Not linked')],
         ),
       );
     }),
@@ -7213,9 +7213,11 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         final hasQuantity=row.containsKey('quantity_accepted')||row.containsKey('quantity');
         final quantity=numVal(row['quantity_accepted']??row['quantity']);
         final unitPrice=numVal(row['buying_price_per_unit']??row['line_cost']);
+        final serials=row['product_serials'] is List ? (row['product_serials'] as List).join(', ') : (row['product_serial']??'').toString();
+        final serialLabel=serials.isEmpty?'Serial pending':'Serial: '+serials;
         return hasQuantity
-          ? 'Item: Qty '+quantity.toStringAsFixed(2)+' • Unit price KSh '+unitPrice.toStringAsFixed(2)
-          : 'Item line amount: KSh '+unitPrice.toStringAsFixed(2);
+          ? 'Item: Qty '+quantity.toStringAsFixed(2)+' • Unit price KSh '+unitPrice.toStringAsFixed(2)+' • '+serialLabel
+          : 'Item line amount: KSh '+unitPrice.toStringAsFixed(2)+' • '+serialLabel;
       }).toList();
       return ListTile(dense:true,title:Text((r[nameField]??title).toString()),
         subtitle:Text((r[dateField]??'').toString()+(extraField==null?'':' • '+(r[extraField]??'').toString())),
@@ -7227,7 +7229,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
           partyName:isSale?(customer['full_name']??'Customer').toString():isPurchase?(r['supplier_name']??'Supplier').toString():(r[nameField]??title).toString(),
           date:(r[dateField]??'').toString(),amount:amount,method:(r['payment_mode']??'—').toString(),
           status:(r['status']??'recorded').toString(),showSettlement:false,
-          details:[...itemDetails,if(extraField!=null)'Type: '+(r[extraField]??'—').toString()],
+          details:[...itemDetails,if(extraField!=null)'Type: '+(r[extraField]??'—').toString(),if(isPurchase&&r['product_serial']!=null)'Product serial: '+r['product_serial'].toString()],
         ),
       );
     }),
