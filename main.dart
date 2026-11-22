@@ -3279,14 +3279,18 @@ class _HomeShellState extends State<HomeShell> {
     if (found != null) {
       showDialog<void>(context: context, builder: (ctx) => AlertDialog(
         title: const Text('TAJIR update available'),
-        content: Text('A newer version (${found['version']}) is ready. Update to get the latest improvements and fixes.'),
+        content: Text('A newer version (${found['version']}) is ready. TAJIR will download it and open Android’s installer. Choose Update to replace the existing app; you should not need to uninstall or clear your data.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
           FilledButton.icon(onPressed: () async {
             Navigator.pop(ctx);
-            try { await openTajirUpdate(found['url'].toString()); }
-            catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open the update link. Please try again.'))); }
-          }, icon: const Icon(Icons.download), label: const Text('Download update')),
+            try {
+              await openTajirUpdate(found['url'].toString());
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('TAJIR update download started. Android will ask you to install it when the download finishes.')));
+            } catch (_) {
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start the update. Check your internet connection and try again.')));
+            }
+          }, icon: const Icon(Icons.download), label: const Text('Download and install')),
         ],
       ));
     } else if (showCurrent) {
