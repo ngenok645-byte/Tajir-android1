@@ -114,3 +114,51 @@ end;
 $function$;
 
 grant execute on function public.customer_book_tractor_service(uuid,text,text,numeric,timestamptz,text) to authenticated;
+
+-- Only the Director may allocate a fleet tractor to an unassigned customer request.
+create or replace function public.director_assign_tractor_to_service_job(
+  p_job_id uuid,
+  p_tractor_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path to ''
+as $function$
+declare
+  v_job public.tractor_service_jobs%rowtype;
+  v_tractor public.tractor_assets%rowtype;
+begin
+  if not private.has_app_role('director'::text) then
+    raise exception 'Only the TAJIR Director can assign a tractor to this booking.';
+  end if;
+
+  select * into v_job
+  from public.tractor_service_jobs
+  where id=p_job_id
+    and status='awaiting_director_assignment'
+    and tractor_id is null
+  for update;
+
+  if v_job.id is null then
+    raise exception 'This booking is no longer awaiting tractor assignment.';
+  end if;
+
+  select * into v_tractor
+  from public.tractor_assets
+  where id=p_tractor_id
+    and branch_id=v_job.branch_id
+    and status='available'
+  for update;
+
+  if v_tractor.id is null then
+    raise exception 'Choose an available tractor assigned to this branch.';
+  end if;
+
+  update public.tractor_service_jobs
+  set tractor_id=v_tractor.id,status='booked',updated_at=now()
+  where id=v_job.id;
+end;
+$function$;
+
+grant execute on function public.director_assign_tractor_to_service_job(uuid,uuid) to authenticated;
