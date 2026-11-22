@@ -1616,12 +1616,10 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     // One row per branch/product variant so the customer sees the price for the selected branch.
     r=await db.rpc('customer_list_tajir_products');
    }else if(widget.mode=='sell'){
-    final results=await Future.wait([
-     db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status,total_value_kes,quantity_kg,branch_id,branches(name),marketplace_listing_buying_prices(buying_price_kes)').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false),
-     db.rpc('customer_list_tajir_sell_products'),
-    ]);
-    r=results[0];
-    sellCatalogue=List<Map<String,dynamic>>.from(results[1]);
+    final listings = await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,price_per_unit,location,status,total_value_kes,quantity_kg,branch_id,branches(name),marketplace_listing_buying_prices(buying_price_kes)').eq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final catalogue = await db.rpc('customer_list_tajir_sell_products');
+    r = listings;
+    sellCatalogue = List<Map<String,dynamic>>.from(catalogue);
    }else if(widget.mode=='marketplace_buy'){
     r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status,total_value_kes,branch_id,branches(name),marketplace_listing_selling_prices(selling_price_kes)').eq('status','active').neq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
    }else{
