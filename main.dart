@@ -3168,7 +3168,21 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     final id=a['id'].toString();final name=(a['display_name']??'TAJIR account').toString();
     try{
       await db.from('audit_logs').insert({'actor_user_id':uid,'action':'director_account_viewed','entity_schema':'public','entity_table':'profiles','entity_id':id,'reason':'Director opened read-only account overview: '+name,'after_data':{'view_mode':'read_only'}});
-      final events=await db.from('audit_logs').select('id,action,entity_table,entity_id,reason,created_at').eq('actor_user_id',id).order('created_at',ascending:false).limit(15);
+      final results = await Future.wait([
+        db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':id}),
+        db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('actor_user_id',id).order('created_at',ascending:false).limit(15),
+        db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('entity_table','profiles').eq('entity_id',id).order('created_at',ascending:false).limit(15),
+        db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at,before_data,after_data').inFilter('entity_table',['user_role_assignments','user_branch_assignments']).order('created_at',ascending:false).limit(250),
+      ]);
+      final activityRows=List<Map<String,dynamic>>.from(results[0]);
+      final events=List<Map<String,dynamic>>.from(results[1]);
+      final profileChanges=List<Map<String,dynamic>>.from(results[2]);
+      final assignmentLogs=List<Map<String,dynamic>>.from(results[3]).where((e){
+        final before=e['before_data'];final after=e['after_data'];
+        return (before is Map && before['user_id']?.toString()==id) || (after is Map && after['user_id']?.toString()==id);
+      }).toList();
+      final changeEvents=<Map<String,dynamic>>[...profileChanges,...assignmentLogs]
+        ..sort((x,y)=>DateTime.tryParse((y['created_at']??'').toString())?.compareTo(DateTime.tryParse((x['created_at']??'').toString())??DateTime.fromMillisecondsSinceEpoch(0))??0);
       if(!mounted)return;
       final status=(a['status']??'unknown').toString();final assigned=roleCodes(a);
       await showDialog<void>(context:context,builder:(ctx)=>AlertDialog(
@@ -3177,9 +3191,15 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
           Text('Phone: '+(a['phone']??'Not provided').toString()),
           Text('Status: '+status.replaceAll('_',' ')),
           Text('Assigned roles: '+(assigned.isEmpty?'None':assigned.join(', '))),
-          const SizedBox(height:12),const Text('Recent recorded activity',style:TextStyle(fontWeight:FontWeight.bold)),
+          const SizedBox(height:12),const Text('Orders, payments and operational activity',style:TextStyle(fontWeight:FontWeight.bold)),
+          if(activityRows.isEmpty)const Text('No linked operational records were found for this account.'),
+          ...activityRows.take(12).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.receipt_long_outlined,size:18),title:Text((e['activity_type']??'Activity').toString()+' • '+(e['reference']??'Record').toString()),subtitle:Text((e['status']??'').toString().replaceAll('_',' ')+' • '+(e['activity_at']??'').toString()+'\n'+(e['details']??'').toString()),trailing:e['amount']==null?null:Text('KES '+(e['amount'] as num).toStringAsFixed(2)))),
+          const SizedBox(height:10),const Text('Changes to this account and its access',style:TextStyle(fontWeight:FontWeight.bold)),
+          if(changeEvents.isEmpty)const Text('No account or role changes have been recorded.'),
+          ...changeEvents.take(10).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.manage_history,size:18),title:Text((e['action']??'Change').toString().replaceAll('_',' ')+' • '+(e['entity_table']??'account').toString()),subtitle:Text((e['reason']??'Account access or profile change').toString()+'\n'+(e['created_at']??'').toString()))),
+          const SizedBox(height:10),const Text('Activity performed by this account',style:TextStyle(fontWeight:FontWeight.bold)),
           if(events.isEmpty)const Text('No activity is recorded for this account yet.'),
-          ...List<Map<String,dynamic>>.from(events).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.history,size:18),title:Text((e['action']??'Activity').toString().replaceAll('_',' ')),subtitle:Text((e['entity_table']??'Account').toString()+' • '+(e['created_at']??'').toString()))),
+          ...events.take(10).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.history,size:18),title:Text((e['action']??'Activity').toString().replaceAll('_',' ')),subtitle:Text((e['entity_table']??'Account').toString()+' • '+(e['created_at']??'').toString()))),
           const SizedBox(height:8),const Text('PINs remain private. This view does not impersonate the user or change their credentials.',style:TextStyle(fontSize:12,color:Colors.black54)),
         ]))),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Close'))]));
       await load();
