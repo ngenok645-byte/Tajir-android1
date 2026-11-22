@@ -6264,6 +6264,177 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     }
   }
 
+
+  Future<void> approveSupplier(Map<String,dynamic> supplier) async {
+    final uid=Supabase.instance.client.auth.currentUser?.id;
+    if(!isDirector||uid==null)return;
+    try{
+      await Supabase.instance.client.from('suppliers').update({
+        'approval_status':'active','is_active':true,'approved_by':uid,
+        'approved_at':DateTime.now().toUtc().toIso8601String(),
+      }).eq('id',supplier['id'].toString()).eq('approval_status','pending');
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text((supplier['business_name']??'Supplier').toString()+' approved.')));
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not approve supplier: '+friendlyError(e))));
+    }
+  }
+
+  Future<void> verifySupplierPayment(Map<String,dynamic> payment) async {
+    final referenceController=TextEditingController(text:(payment['transaction_reference']??'').toString());
+    final supplier=(payment['supplier'] as Map?)?.cast<String,dynamic>()??{};
+    final accepted=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+      title:const Text('Verify supplier payment'),
+      content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Text((supplier['business_name']??'Supplier').toString(),style:const TextStyle(fontWeight:FontWeight.bold)),
+        Text('KES '+numVal(payment['amount']).toStringAsFixed(2)+' • '+(payment['method']??'').toString()),
+        const SizedBox(height:8),
+        const Text('Verify against the actual cash receipt, M-Pesa/bank transaction or manual receipt evidence.'),
+        const SizedBox(height:8),
+        TextField(controller:referenceController,decoration:const InputDecoration(labelText:'Transaction reference / receipt note',border:OutlineInputBorder())),
+      ]),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Confirm verification')),
+      ],
+    ));
+    if(accepted!=true){referenceController.dispose();return;}
+    try{
+      await Supabase.instance.client.rpc('verify_supplier_purchase_payment',params:{
+        'p_payment_id':payment['id'].toString(),
+        'p_transaction_reference':referenceController.text.trim(),
+      });
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Supplier payment verified.')));
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not verify supplier payment: '+friendlyError(e))));
+    }finally{referenceController.dispose();}
+  }
+
+  Future<void> recordSupplierPayment([String? requestedPurchaseId]) async {
+    final eligible=supplierPurchaseRows.where((purchase){
+      final supplierId=(purchase['supplier_id']??'').toString();
+      final supplier=supplierRows.where((r)=>r['id'].toString()==supplierId).toList();
+      return numVal(purchase['uncommitted_balance'])>0.009 &&
+        supplier.isNotEmpty && supplier.first['approval_status']=='active' && supplier.first['is_active']==true;
+    }).toList();
+    if(eligible.isEmpty){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('No supplier invoice is ready for payment. Approve its supplier first, or record a purchase.')));
+      return;
+    }
+    String selectedPurchaseId=eligible.any((r)=>r['purchase_id'].toString()==requestedPurchaseId)
+      ?requestedPurchaseId!:eligible.first['purchase_id'].toString();
+    String mode='cash';
+    final amountController=TextEditingController();
+    final referenceController=TextEditingController();
+    final splitEntries=<_SaleSplitPaymentEntry>[_SaleSplitPaymentEntry(),_SaleSplitPaymentEntry(method:'mpesa')];
+    final accepted=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(dialogContext,setDialogState)=>AlertDialog(
+      title:const Text('Record supplier payment'),
+      content:SizedBox(width:520,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+        DropdownButtonFormField<String>(
+          value:selectedPurchaseId,isExpanded:true,
+          items:eligible.map((purchase)=>DropdownMenuItem<String>(
+            value:purchase['purchase_id'].toString(),
+            child:Text((purchase['purchase_number']??'Purchase').toString()+' • '+(purchase['supplier_name']??'Supplier').toString()+' • Due KES '+numVal(purchase['uncommitted_balance']).toStringAsFixed(2),overflow:TextOverflow.ellipsis),
+          )).toList(),
+          onChanged:(v)=>setDialogState(()=>selectedPurchaseId=v??selectedPurchaseId),
+          decoration:const InputDecoration(labelText:'Supplier invoice'),
+        ),
+        DropdownButtonFormField<String>(
+          value:mode,
+          items:const [
+            DropdownMenuItem(value:'cash',child:Text('Cash')),
+            DropdownMenuItem(value:'mpesa',child:Text('M-Pesa')),
+            DropdownMenuItem(value:'bank_transfer',child:Text('Bank transfer')),
+            DropdownMenuItem(value:'credit',child:Text('Credit / pay later')),
+            DropdownMenuItem(value:'split',child:Text('Split / multiple methods')),
+            DropdownMenuItem(value:'other',child:Text('Other / manual payment')),
+          ],
+          onChanged:(v)=>setDialogState(()=>mode=v??'cash'),
+          decoration:const InputDecoration(labelText:'Payment mode'),
+        ),
+        if(mode=='credit')
+          const Padding(padding:EdgeInsets.only(top:8),child:Text('No payment is recorded now. The full supplier invoice remains outstanding until payments are entered.',style:TextStyle(fontSize:12,color:Colors.black54))),
+        if(mode=='split')...[
+          const Padding(padding:EdgeInsets.only(top:8,bottom:4),child:Text('Add at least two different payment methods. Each entry is linked to this same supplier invoice.',style:TextStyle(fontSize:12,color:Colors.black54))),
+          ...List.generate(splitEntries.length,(index){
+            final entry=splitEntries[index];
+            return Card(child:Padding(padding:const EdgeInsets.all(8),child:Column(children:[
+              Row(children:[
+                Expanded(child:DropdownButtonFormField<String>(
+                  value:entry.method,
+                  items:const [
+                    DropdownMenuItem(value:'cash',child:Text('Cash')),
+                    DropdownMenuItem(value:'mpesa',child:Text('M-Pesa')),
+                    DropdownMenuItem(value:'bank_transfer',child:Text('Bank transfer')),
+                    DropdownMenuItem(value:'other',child:Text('Other / manual')),
+                  ],
+                  onChanged:(v)=>setDialogState(()=>entry.method=v??'cash'),
+                  decoration:InputDecoration(labelText:'Payment '+(index+1).toString()+' method'),
+                )),
+                IconButton(onPressed:splitEntries.length<=2?null:()=>setDialogState(()=>splitEntries.removeAt(index)),icon:const Icon(Icons.delete_outline)),
+              ]),
+              TextField(controller:entry.amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Amount (KES)')),
+              if(entry.method!='cash')TextField(controller:entry.reference,decoration:InputDecoration(labelText:entry.method=='other'?'Manual receipt note':'Transaction reference')),
+            ])));
+          }),
+          Align(alignment:Alignment.centerLeft,child:TextButton.icon(onPressed:()=>setDialogState(()=>splitEntries.add(_SaleSplitPaymentEntry())),icon:const Icon(Icons.add),label:const Text('Add payment entry'))),
+        ],
+        if(mode!='credit'&&mode!='split')...[
+          TextField(controller:amountController,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Payment amount (KES)')),
+          if(mode!='cash')TextField(controller:referenceController,decoration:InputDecoration(labelText:mode=='other'?'Manual receipt note':'Transaction reference')),
+        ],
+      ]))),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Save supplier payment')),
+      ],
+    )));
+    if(accepted!=true){
+      amountController.dispose();referenceController.dispose();for(final e in splitEntries)e.dispose();return;
+    }
+    try{
+      final selected=eligible.firstWhere((r)=>r['purchase_id'].toString()==selectedPurchaseId);
+      final payments=<Map<String,dynamic>>[];
+      if(mode=='split'){
+        final methods=<String>{};double total=0;
+        if(splitEntries.length<2)throw const FormatException('Split payment needs at least two entries.');
+        for(final entry in splitEntries){
+          final amount=double.tryParse(entry.amount.text.trim());
+          final reference=entry.reference.text.trim();
+          if(amount==null||amount<=0)throw const FormatException('Enter a positive amount for every split payment entry.');
+          if(entry.method!='cash'&&reference.isEmpty)throw const FormatException('Add a reference or manual receipt note for every non-cash split entry.');
+          methods.add(entry.method);total+=amount;
+          payments.add({'method':entry.method,'amount':amount,'reference':reference,'notes':entry.method=='other'?reference:null});
+        }
+        if(methods.length<2)throw const FormatException('Split payment must use at least two different methods.');
+        if(total>numVal(selected['uncommitted_balance'])+0.009)throw const FormatException('Supplier payments exceed the remaining invoice balance.');
+      }else if(mode!='credit'){
+        final amount=double.tryParse(amountController.text.trim());
+        final reference=referenceController.text.trim();
+        if(amount==null||amount<=0)throw const FormatException('Enter a positive supplier payment amount.');
+        if(mode!='cash'&&reference.isEmpty)throw const FormatException('Enter the transaction reference or manual receipt note.');
+        if(amount>numVal(selected['uncommitted_balance'])+0.009)throw const FormatException('Supplier payment exceeds the remaining invoice balance.');
+        payments.add({'method':mode,'amount':amount,'reference':reference,'notes':mode=='other'?reference:null});
+      }else if(numVal(selected['verified_paid'])+numVal(selected['pending_paid'])>0.009){
+        throw const FormatException('This invoice already has payment entries. Add another payment instead of changing it to credit.');
+      }
+      final result=await Supabase.instance.client.rpc('record_supplier_purchase_payments',params:{
+        'p_purchase_id':selectedPurchaseId,'p_payment_mode':mode,'p_payments':payments,
+      });
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(
+        'Supplier payment saved. Verified: KES '+numVal(result['verified_paid']).toStringAsFixed(2)+
+        ' • Pending: KES '+numVal(result['pending_paid']).toStringAsFixed(2)+
+        ' • Balance due: KES '+numVal(result['outstanding_balance']).toStringAsFixed(2),
+      )));
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not record supplier payment: '+friendlyError(e))));
+    }finally{
+      amountController.dispose();referenceController.dispose();for(final e in splitEntries)e.dispose();
+    }
+  }
+
   Widget pendingPaymentsSection() => Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Divider(height:24),
     const Text('Pending customer payments',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
