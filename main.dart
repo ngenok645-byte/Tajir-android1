@@ -2449,7 +2449,7 @@ class _TajirLandMeasurePageState extends State<TajirLandMeasurePage>{
   if(p==LocationPermission.denied||p==LocationPermission.deniedForever){setState(()=>message='Location permission is required. Enable it in Android settings.');return;}
   if(!await Geolocator.isLocationServiceEnabled()){setState(()=>message='Turn on phone GPS/location services.');return;}
   setState(() { points.clear();measuring=true;message=measurementType=='area'?'Recording farm boundary. Walk slowly around the field edge.':'Recording route distance. Walk or travel along the route you want to measure.'; });
-  tracking=Geolocator.getPositionStream(locationSettings:const LocationSettings(accuracy:LocationAccuracy.bestForNavigation,distanceFilter:3)).listen((p){if(mounted)setState(()=>points.add(p));},onError:(e){if(mounted)setState(()=>message='GPS tracking stopped: $e');});
+  tracking=Geolocator.getPositionStream(locationSettings:const LocationSettings(accuracy:LocationAccuracy.bestForNavigation,distanceFilter:3)).listen((p){if(mounted)setState(()=>points.add(p));},onError:(e){if(mounted)setState(()=>message='GPS tracking stopped: ${friendlyError(e)}');});
  }
  Future<void> finish()async{
   await tracking?.cancel();tracking=null;
