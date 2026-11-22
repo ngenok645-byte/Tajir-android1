@@ -5056,10 +5056,10 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     }
     setState(() => saving = true);
     try {
-      await db.from('tractor_service_jobs').update({
-        'tractor_id': selectedTractor,
-        'status': 'booked',
-      }).eq('id', selectedJob!);
+      await db.rpc('director_assign_tractor_to_service_job', params: {
+        'p_job_id': selectedJob,
+        'p_tractor_id': selectedTractor,
+      });
       setState(() => message = 'Tractor assigned. The booking is now in the job schedule.');
       await loadBranchData();
     } catch (e) {
