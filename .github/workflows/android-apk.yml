@@ -250,10 +250,9 @@ jobs:
           TAJIR_KEYSTORE_BASE64: ${{ secrets.TAJIR_KEYSTORE_BASE64 }}
           TAJIR_KEYSTORE_PASSWORD: ${{ secrets.TAJIR_KEYSTORE_PASSWORD }}
           TAJIR_KEY_ALIAS: ${{ secrets.TAJIR_KEY_ALIAS }}
-          TAJIR_KEY_PASSWORD: ${{ secrets.TAJIR_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          for name in TAJIR_KEYSTORE_BASE64 TAJIR_KEYSTORE_PASSWORD TAJIR_KEY_ALIAS TAJIR_KEY_PASSWORD; do
+          for name in TAJIR_KEYSTORE_BASE64 TAJIR_KEYSTORE_PASSWORD TAJIR_KEY_ALIAS; do
             if [ -z "${!name:-}" ]; then
               echo "Missing GitHub Actions secret: $name. Refusing to publish an unsigned APK."
               exit 1
@@ -289,7 +288,7 @@ jobs:
           fi
           APK="build/app/outputs/flutter-apk/app-release.apk"
           SIGNED="build/app/outputs/flutter-apk/TAJIR-Android-v${GITHUB_RUN_NUMBER}-signed.apk"
-          "$APKSIGNER" sign --ks "$KEYSTORE" --ks-key-alias "$TAJIR_KEY_ALIAS" --ks-pass "pass:$TAJIR_KEYSTORE_PASSWORD" --key-pass "pass:$TAJIR_KEY_PASSWORD" --out "$SIGNED" "$APK"
+          "$APKSIGNER" sign --ks "$KEYSTORE" --ks-key-alias "$TAJIR_KEY_ALIAS" --ks-pass "pass:$TAJIR_KEYSTORE_PASSWORD" --key-pass "pass:$TAJIR_KEYSTORE_PASSWORD" --out "$SIGNED" "$APK"
           "$APKSIGNER" verify --verbose --print-certs "$SIGNED"
           cp "$SIGNED" "$APK"
           rm -f "$KEYSTORE"
