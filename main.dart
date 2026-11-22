@@ -2208,8 +2208,39 @@ class CustomerTractorBookingsPage extends StatefulWidget{@override State<Custome
 class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPage>{
  List<Map<String,dynamic>> rows=[];bool busy=true;
  @override void initState(){super.initState();load();}
- Future<void> load()async{try{final r=await Supabase.instance.client.rpc('customer_list_tractor_bookings');if(mounted)setState(()=>rows=List<Map<String,dynamic>>.from(r));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}if(mounted)setState(()=>busy=false);}
- @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[const Text('Tractor booking history',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(!busy&&rows.isEmpty)const Text('No bookings yet.'),...rows.map((r){final status=r['status'].toString();final statusText=status=='awaiting_director_assignment'?'The Director is arranging a tractor':status.replaceAll('_',' ');return Card(child:ListTile(leading:const Icon(Icons.agriculture,color:brandGreen),title:Text(r['service_type'].toString()+' • '+r['job_number'].toString()),subtitle:Text(r['service_location'].toString()+' • '+statusText),trailing:Text('KES '+r['total_charge'].toString())));})]));
+ Future<void> load()async{
+  try{
+   final results=await Future.wait([
+    Supabase.instance.client.rpc('customer_list_tractor_bookings'),
+    Supabase.instance.client.rpc('customer_get_tractor_driver_contacts'),
+   ]);
+   final contacts=<String,Map<String,dynamic>>{};
+   for(final item in List<Map<String,dynamic>>.from(results[1])){contacts[item['job_id'].toString()]=Map<String,dynamic>.from(item);}
+   final bookingRows=List<Map<String,dynamic>>.from(results[0]);
+   for(final row in bookingRows){row['driver_contact']=contacts[row['id'].toString()];}
+   if(mounted)setState(()=>rows=bookingRows);
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+  if(mounted)setState(()=>busy=false);
+ }
+ @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+  const Text('Tractor booking history',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+  const Text('Once a driver is assigned, their registered contact becomes available here.',style:TextStyle(fontSize:12,color:Colors.black54)),
+  if(busy)const LinearProgressIndicator(),
+  if(!busy&&rows.isEmpty)const Text('No bookings yet.'),
+  ...rows.map((r){
+   final status=r['status'].toString();
+   final statusText=status=='awaiting_director_assignment'?'The Director is arranging a tractor':status.replaceAll('_',' ');
+   final driver=r['driver_contact'] is Map?Map<String,dynamic>.from(r['driver_contact'] as Map):null;
+   return Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.agriculture,color:brandGreen),title:Text(r['service_type'].toString()+' • '+r['job_number'].toString()),subtitle:Text(r['service_location'].toString()+' • '+statusText),trailing:Text('KES '+r['total_charge'].toString())),
+    if(driver!=null)...[
+     const Divider(),
+     ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.person_outline),title:Text((driver['driver_name']??'Assigned driver').toString()),subtitle:Text((driver['driver_phone']??'').toString()),trailing:driver['driver_profile_id']==null?const SizedBox.shrink():TajirCallButton(profileId:driver['driver_profile_id'].toString(),label:'Call driver')),
+    ] else if(status!='awaiting_director_assignment')
+     const Padding(padding:EdgeInsets.only(left:8),child:Text('Driver contact will appear here once the driver is assigned.',style:TextStyle(fontSize:12,color:Colors.black54))),
+   ])));
+  })
+ ]));
 }
 
 class AccountRouter extends StatelessWidget {
@@ -2314,7 +2345,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           break;
         case 'driver':
           final jobs = await db.from('tractor_service_jobs')
-            .select('id,job_number,service_type,service_location,booked_for,status,total_charge,tractor_id,operator_id')
+            .select('id,job_number,service_type,service_location,booked_for,status,total_charge,tractor_id,operator_id,farmer_name,farmer_phone')
             .eq('operator_id', uid).order('booked_for', ascending: false);
           primary = List<Map<String,dynamic>>.from(jobs);
           break;
@@ -2580,8 +2611,18 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           } else if (jobStatus == 'in_progress') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateDriverJob(r, 'completed'), child: const Text('Complete job')));
           }
+          final clientPhone = (r['farmer_phone'] ?? '').toString().trim();
+          if (clientPhone.isNotEmpty) {
+            jobActions.add(OutlinedButton.icon(
+              onPressed: busy ? null : () async {
+                try { await callTajirPhone(clientPhone); }
+                catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+              },
+              icon: const Icon(Icons.call), label: const Text('Call client'),
+            ));
+          }
           out.add(recordCard('${r['job_number'] ?? 'Job'} • ${r['service_type'] ?? ''}',
-            '${r['service_location'] ?? ''} • ${r['booked_for'] ?? ''} • ' + jobStatus,
+            '${r['farmer_name'] ?? 'Client'} • ${r['service_location'] ?? ''} • ${r['booked_for'] ?? ''} • ' + jobStatus,
             trailing: money(r['total_charge']),
             actions: jobActions.isEmpty ? null : Wrap(spacing: 8, children: jobActions)));
         }
