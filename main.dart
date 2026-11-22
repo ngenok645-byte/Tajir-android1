@@ -9,6 +9,44 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:math' as math;
 import 'dart:async';
 
+
+const String tajirSupabaseUrl = String.fromEnvironment('SUPABASE_URL');
+const String tajirSupabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+
+bool get tajirBackendConfigured =>
+    tajirSupabaseUrl.isNotEmpty && tajirSupabaseAnonKey.isNotEmpty;
+
+String friendlyError(Object? error) {
+  if (error is AuthException) {
+    return error.message.isNotEmpty ? error.message : 'Authentication failed.';
+  }
+  if (error is PostgrestException) {
+    return error.message.isNotEmpty ? error.message : 'The request could not be completed.';
+  }
+  if (error is SocketException) {
+    return 'Network connection unavailable. Check your internet and try again.';
+  }
+  if (error is TimeoutException) {
+    return 'The request timed out. Please try again.';
+  }
+  final message = error?.toString().trim() ?? '';
+  return message.isEmpty ? 'Something went wrong. Please try again.' :
+      message.replaceFirst(RegExp(r'^(Exception|Error):\\s*'), '');
+}
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (tajirBackendConfigured) {
+    await Supabase.initialize(
+      url: tajirSupabaseUrl,
+      anonKey: tajirSupabaseAnonKey,
+    );
+    runApp(const TajirApp());
+  } else {
+    runApp(const SetupRequiredApp());
+  }
+}
+
 const double kgPerBag = 90.0;
 
 IconData productIconFor(String value) {
