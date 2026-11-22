@@ -2551,7 +2551,7 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
 
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Worker dashboard'), actions: [
-      IconButton(tooltip: 'Check for updates', onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update)),
+      TextButton.icon(onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update), label: const Text('Update')),
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
