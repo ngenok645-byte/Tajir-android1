@@ -3548,6 +3548,16 @@ class _HomeShellState extends State<HomeShell> {
       appBar: AppBar(
         title: const Text('TAJIR'),
         actions: [
+          // Keep update access visible on the main dashboard instead of hiding
+          // it inside the overflow menu. Users can check and install without
+          // navigating through More.
+          TextButton.icon(
+            onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true),
+            icon: checkingUpdate
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.system_update_alt),
+            label: Text(checkingUpdate ? 'Checking…' : 'Update'),
+          ),
           PopupMenuButton<String>(
             tooltip: 'More options',
             icon: const Icon(Icons.more_vert),
