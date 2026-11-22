@@ -304,8 +304,24 @@ class _TajirDirectorContactsState extends State<TajirDirectorContacts> {
   @override void initState() { super.initState(); loadLinkedContacts(); }
   Future<void> loadLinkedContacts() async {
     try {
-      final result = await Supabase.instance.client.rpc('tajir_get_linked_contact_profiles');
-      if (mounted) setState(() => linkedContacts = List<Map<String,dynamic>>.from(result));
+      final db = Supabase.instance.client;
+      final uid = db.auth.currentUser?.id;
+      if (uid == null) return;
+      final roles = await db.from('user_role_assignments').select('app_roles(code)').eq('user_id', uid).eq('is_active', true);
+      final isDirector = roles.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
+      final base = await db.rpc('tajir_get_linked_contact_profiles');
+      final rows = <Map<String,dynamic>>[];
+      rows.addAll(List<Map<String,dynamic>>.from(base));
+      if (isDirector) {
+        final management = await db.rpc('tajir_get_director_contact_profiles');
+        rows.addAll(List<Map<String,dynamic>>.from(management));
+      }
+      final unique = <String,Map<String,dynamic>>{};
+      for (final row in rows) {
+        final id = (row['profile_id'] ?? '').toString();
+        if (id.isNotEmpty) unique[id] = row;
+      }
+      if (mounted) setState(() => linkedContacts = unique.values.toList());
     } catch (_) {
       // Keep the dashboard usable if linked contacts cannot be loaded.
     } finally {
