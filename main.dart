@@ -70,6 +70,8 @@ String friendlyError(Object? error) {
   return 'We could not complete your request. Please try again. If the problem continues, contact your TAJIR administrator.';
 }
 
+String tajirLabelCase(String value) => value.replaceAll('_', ' ').split(' ').map((part) => part.isEmpty ? part : part[0].toUpperCase() + part.substring(1)).join(' ');
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (tajirBackendConfigured) {
@@ -130,8 +132,8 @@ Future<void> showTajirReceipt(
     if (invoiceTotal != null) 'Invoice / service total: ${fmt(invoiceTotal)}',
     if (showSettlement) 'Verified amount paid: ${fmt(confirmedPaid)}',
     if (showSettlement) 'Outstanding balance: ${fmt(outstanding)}',
-    'Payment method: ${labelCase(method)}',
-    'Payment status: ${labelCase(status)}',
+    'Payment method: ${tajirLabelCase(method)}',
+    'Payment status: ${tajirLabelCase(status)}',
     if (reference.trim().isNotEmpty) 'Reference: $reference',
     'Thank you for doing business with TAJIR.',
   ];
@@ -175,8 +177,8 @@ Future<void> showTajirReceipt(
                 if (showSettlement) _TajirReceiptAmountRow(label: 'Verified amount paid', value: fmt(confirmedPaid)),
                 if (showSettlement) _TajirReceiptAmountRow(label: 'Outstanding balance', value: fmt(outstanding), emphasize: true),
                 const Divider(height: 20),
-                Text('Payment method: ${labelCase(method)}'),
-                Text('Payment status: ${labelCase(status)}',
+                Text('Payment method: ${tajirLabelCase(method)}'),
+                Text('Payment status: ${tajirLabelCase(status)}',
                   style: TextStyle(fontWeight: FontWeight.bold,
                     color: status.toLowerCase() == 'pending' ? Colors.deepOrange : brandGreen)),
                 if (reference.trim().isNotEmpty) Text('Reference: $reference'),
@@ -2205,6 +2207,38 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    if(mounted)setState(()=>{rows=List<Map<String,dynamic>>.from(r),error=null});
   }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
   if(mounted)setState(()=>busy=false);
+ }
+
+ Future<void> openListingChat(Map<String,dynamic> listing) async {
+  try {
+   final db=Supabase.instance.client;
+   final buyerId=widget.customer['id'].toString();
+   final sellerId=(listing['seller_customer_id']??'').toString();
+   if(sellerId.isEmpty||sellerId==buyerId) {
+    throw const FormatException('This listing is not available for a conversation.');
+   }
+   var thread=await db.from('marketplace_chat_threads')
+    .select('id')
+    .eq('listing_id',listing['id'])
+    .eq('buyer_customer_id',buyerId)
+    .maybeSingle();
+   if(thread==null) {
+    thread=await db.from('marketplace_chat_threads')
+     .insert({'listing_id':listing['id'],'buyer_customer_id':buyerId,'seller_customer_id':sellerId})
+     .select('id').single();
+   }
+   if(!mounted)return;
+   await Navigator.push(context,MaterialPageRoute(
+    builder:(_)=>MarketplaceChatPage(
+     threadId:thread!['id'].toString(),
+     title:'Chat • '+(listing['product_name']??'Marketplace listing').toString(),
+    ),
+   ));
+  } catch(e) {
+   if(mounted) ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content:Text(friendlyError(e))),
+   );
+  }
  }
 
  Future<void> requestTajirProduct(Map<String,dynamic> item)async{
