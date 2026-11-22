@@ -294,7 +294,7 @@ jobs:
           print("Android network permissions verified.")
           PY
 
-          flutter pub add geolocator shared_preferences connectivity_plus
+          flutter pub add geolocator shared_preferences connectivity_plus image_picker
           flutter pub get
           # Work around an Android Lint detector crash in the current toolchain.
           # This skips only the release lint analysis task; APK compilation remains enabled.
