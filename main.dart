@@ -7102,7 +7102,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     ...pendingCustomerPaymentRows.take(40).map((p)=>ListTile(
       dense:true,
       title:Text((p['payment_number']??'Payment').toString()+' • '+(p['method']??'').toString()),
-      subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['received_at']??'Awaiting confirmation').toString()+'\nRecorded by: '+(((p['recorder'] as Map?)?['display_name'])??'Account not identified').toString()+' • Reference: '+(p['provider_reference']??'Not supplied').toString()),
+      subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['received_at']??'Awaiting confirmation').toString()+'\nRecorded by: '+(((p['recorder'] as Map?)?['display_name'])??'Account not identified').toString()+' • Reference: '+(p['provider_reference']??'Not supplied').toString()+'\nProduct serial(s): '+((p['product_serials'] as List?)?.join(', ')??'Not linked')),
       trailing:(isDirector||isAccountant)?FilledButton.tonal(onPressed:loading?null:()=>verifyCustomerPayment(p),child:const Text('Verify')):const Text('Awaiting Director / Accountant'),
     )),
   ]);
@@ -7117,7 +7117,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       return ListTile(
         dense:true,
         title:Text((supplier['business_name']??'Supplier').toString()+' • '+(purchase['purchase_number']??'Purchase').toString()),
-        subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['method']??'').toString()+' • Reference: '+(p['transaction_reference']??'Not supplied').toString()+'\nRecorded by: '+_paymentPerson(p['recorder'])),
+        subtitle:Text('KES '+numVal(p['amount']).toStringAsFixed(2)+' • '+(p['method']??'').toString()+' • Reference: '+(p['transaction_reference']??'Not supplied').toString()+'\nRecorded by: '+_paymentPerson(p['recorder'])+'\nProduct serial(s): '+((p['product_serials'] as List?)?.join(', ')??'Not linked')),
         trailing:FilledButton.tonal(onPressed:loading?null:()=>verifySupplierPayment(p),child:const Text('Verify')),
       );
     }),
