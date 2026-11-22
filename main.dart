@@ -3667,7 +3667,7 @@ class _HomeShellState extends State<HomeShell> {
       ];
     }
     return [
-      DashboardPage(onOpenTractor: () => selectPage(5), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9), onOpenMarketplacePrices: () => selectPage(10), onOpenTractorRates: () => selectPage(11), onOpenOversight: () => selectPage(12)),
+      DashboardPage(onOpenTractor: () => selectPage(5), onOpenCustomers: () => selectPage(4), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9), onOpenMarketplacePrices: () => selectPage(10), onOpenTractorRates: () => selectPage(11), onOpenOversight: () => selectPage(12)),
       const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(),
       if (director || accountant || branchManager) const FinancialRecordsPage(),
       if (director) const StaffAccountsPage(),
@@ -3715,8 +3715,6 @@ class _HomeShellState extends State<HomeShell> {
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
   void openMoreMenu() {
     showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-      if (!director) ListTile(leading: const Icon(Icons.people), title: const Text('Customers'), selected: index == 4, onTap: () { Navigator.pop(sheetContext); selectPage(4); }),
-      ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director || accountant || branchManager) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       if (director) ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
@@ -3878,6 +3876,7 @@ void _noDashboardAction() {}
 
 class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenTractor;
+  final VoidCallback? onOpenCustomers;
   final VoidCallback? onOpenItems;
   final VoidCallback? onOpenFinancial;
   final VoidCallback? onOpenStaff;
@@ -3886,7 +3885,7 @@ class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenMarketplacePrices;
   final VoidCallback? onOpenTractorRates;
   final VoidCallback? onOpenOversight;
-  const DashboardPage({super.key, this.onOpenTractor, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices, this.onOpenCustomRequests, this.onOpenMarketplacePrices, this.onOpenTractorRates, this.onOpenOversight});
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenCustomers, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices, this.onOpenCustomRequests, this.onOpenMarketplacePrices, this.onOpenTractorRates, this.onOpenOversight});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -3965,6 +3964,16 @@ class _DashboardPageState extends State<DashboardPage> {
       large:true,
       onTap:widget.onOpenTractor ?? _noDashboardAction,
     ),
+    if(!accountant || branchManager || director) ...[
+      const SizedBox(height:12),
+      Card(child:ListTile(
+        leading:const CircleAvatar(backgroundColor:Color(0xFFEAF4EC),child:Icon(Icons.people_outline,color:brandGreen)),
+        title:const Text('CUSTOMERS',style:TextStyle(fontWeight:FontWeight.bold)),
+        subtitle:const Text('Open customer records, contacts and buying or selling activity'),
+        trailing:const Icon(Icons.chevron_right,color:brandGreen),
+        onTap:widget.onOpenCustomers ?? _noDashboardAction,
+      )),
+    ],
     if(director || accountant) ...[
       const SizedBox(height: 18),
       Card(child: ListTile(
