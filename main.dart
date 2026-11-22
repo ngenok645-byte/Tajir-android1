@@ -6086,9 +6086,10 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
   bool loading = false;
   String error = '';
   String period = 'This month';
-  double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, pendingCustomerReceipts = 0, supplierPayments = 0, outstandingBalance = 0;
+  double revenue = 0, costOfGoods = 0, purchaseCostsTotal = 0, purchaseTotal = 0, customerReceipts = 0, pendingCustomerReceipts = 0, supplierPayments = 0, pendingSupplierPayments = 0, outstandingSupplierBalance = 0, outstandingBalance = 0;
+  bool isDirector = false;
   Map<String,double> salesByPaymentMode = {}, verifiedReceiptsByMethod = {}, pendingReceiptsByMethod = {};
-  List<Map<String,dynamic>> salesRows = [], purchaseCostRows = [], purchaseRows = [], customerPaymentRows = [], pendingCustomerPaymentRows = [], supplierPaymentRows = [];
+  List<Map<String,dynamic>> salesRows = [], purchaseCostRows = [], purchaseRows = [], customerPaymentRows = [], pendingCustomerPaymentRows = [], supplierPaymentRows = [], pendingSupplierPaymentRows = [], supplierPurchaseRows = [], supplierRows = [];
   double numVal(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
   DateTime? get startDate {
     final now = DateTime.now();
@@ -6110,13 +6111,16 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       final db = Supabase.instance.client;
       final roles = await db.from('user_role_assignments').select('app_roles(code)').eq('user_id', db.auth.currentUser!.id).eq('is_active', true);
       final hasFinanceAccess = roles.any((r) => r['app_roles'] is Map && ['director','accountant'].contains((r['app_roles'] as Map)['code']));
+      final directorAccess = roles.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='director');
       if (!hasFinanceAccess) throw Exception('This financial report is available to Director and Accountant accounts only.');
       final data = await Future.wait<dynamic>([
         db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode,customer_id,customer:customers(full_name),sale_items(line_cost)').order('sale_date',ascending:false),
         db.from('purchase_costs').select('id,purchase_id,purchase_item_id,cost_type,amount,description,incurred_at').order('incurred_at',ascending:false),
-        db.from('purchases').select('id,purchase_number,purchase_date,status,supplier_name,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
+        db.from('purchases').select('id,purchase_number,purchase_date,status,supplier_id,supplier_name,invoice_total,payment_mode,purchase_items(quantity,quantity_accepted,buying_price_per_unit)').order('purchase_date',ascending:false),
         db.from('customer_payments').select('id,payment_number,sale_id,amount,status,method,provider_reference,received_at,recorded_by,verified_by,recorder:profiles!customer_payments_recorded_by_fkey(display_name),verifier:profiles!customer_payments_verified_by_fkey(display_name)').order('received_at',ascending:false),
-        db.from('supplier_payments').select('amount,status,method,payment_date,transaction_reference,recorded_by,verified_by,recorder:profiles!supplier_payments_recorded_by_fkey(display_name),verifier:profiles!supplier_payments_verified_by_fkey(display_name)').order('payment_date',ascending:false),
+        db.from('supplier_payments').select('id,purchase_id,supplier_id,amount,status,method,payment_date,transaction_reference,notes,recorded_by,verified_by,recorder:profiles!supplier_payments_recorded_by_fkey(display_name),verifier:profiles!supplier_payments_verified_by_fkey(display_name),supplier:suppliers(business_name),purchase:purchases(purchase_number)').order('payment_date',ascending:false),
+        db.from('supplier_purchase_payment_summary').select('*').order('purchase_date',ascending:false),
+        db.from('suppliers').select('id,business_name,approval_status,is_active,contact_name,phone,created_at').order('created_at',ascending:false),
       ]);
       final sr = List<Map<String,dynamic>>.from(data[0]).where((r)=>within(r['sale_date'])).toList();
       final pcr = List<Map<String,dynamic>>.from(data[1]).where((r)=>within(r['incurred_at'])).toList();
@@ -6138,7 +6142,11 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       for(final payment in cr){final method=(payment['method']??'other').toString();verifiedMethods[method]=(verifiedMethods[method]??0)+numVal(payment['amount']);}
       final pendingMethods=<String,double>{};
       for(final payment in pendingCr){final method=(payment['method']??'other').toString();pendingMethods[method]=(pendingMethods[method]??0)+numVal(payment['amount']);}
-      final spr = List<Map<String,dynamic>>.from(data[4]).where((r)=>within(r['payment_date']) && r['status']=='verified').toList();
+      final allSupplierPayments = List<Map<String,dynamic>>.from(data[4]).where((r)=>within(r['payment_date'])).toList();
+      final spr = allSupplierPayments.where((r)=>r['status']=='verified').toList();
+      final pendingSpr = allSupplierPayments.where((r)=>r['status']=='pending').toList();
+      final supplierPurchases = List<Map<String,dynamic>>.from(data[5]).where((r)=>within(r['purchase_date'])).toList();
+      final supplierRecords = List<Map<String,dynamic>>.from(data[6]);
       double rev=0,cogs=0,buy=0;
       for(final row in sr) {
         rev += numVal(row['total_amount']);
@@ -6151,11 +6159,13 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       }
       if(!mounted)return;
       setState(() {
-        salesRows=sr; purchaseCostRows=pcr; purchaseRows=pr; customerPaymentRows=cr; pendingCustomerPaymentRows=pendingCr; supplierPaymentRows=spr;
+        salesRows=sr; purchaseCostRows=pcr; purchaseRows=pr; customerPaymentRows=cr; pendingCustomerPaymentRows=pendingCr; supplierPaymentRows=spr; pendingSupplierPaymentRows=pendingSpr; supplierPurchaseRows=supplierPurchases; supplierRows=supplierRecords; isDirector=directorAccess;
         revenue=rev; costOfGoods=cogs; purchaseCostsTotal=pcr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         purchaseTotal=buy; customerReceipts=cr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         pendingCustomerReceipts=pendingCr.fold(0.0,(v,r)=>v+numVal(r['amount']));
         supplierPayments=spr.fold(0.0,(v,r)=>v+numVal(r['amount']));
+        pendingSupplierPayments=pendingSpr.fold(0.0,(v,r)=>v+numVal(r['amount']));
+        outstandingSupplierBalance=supplierPurchases.fold(0.0,(v,r)=>v+numVal(r['outstanding_balance']));
         outstandingBalance=outstanding; salesByPaymentMode=modeTotals; verifiedReceiptsByMethod=verifiedMethods; pendingReceiptsByMethod=pendingMethods;
       });
     } catch(e) { if(mounted)setState(()=>error=friendlyError(e)); }
