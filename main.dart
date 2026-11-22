@@ -2101,7 +2101,7 @@ class _DirectorTractorRatesPageState extends State<DirectorTractorRatesPage>{
  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(16),children:[
   const Text('Tractor Service Rates',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
   const Text('Set separate Director-approved rates for each service and location. Village rates override Region rates, which override County rates. These are not TAJIR product prices or company branches.'),
-  DropdownButtonFormField<String>(value:service,decoration:const InputDecoration(labelText:'Service'),items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v)=>setState(()=>{service=v??'ploughing';if(service!='transport')unit='per_acre';})),
+  DropdownButtonFormField<String>(value:service,decoration:const InputDecoration(labelText:'Service'),items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v)=>setState((){service=v??'ploughing';if(service!='transport')unit='per_acre';})),
   if(service=='transport')DropdownButtonFormField<String>(value:unit=='per_acre'?'per_trip':unit,decoration:const InputDecoration(labelText:'Transport charge basis'),items:const [DropdownMenuItem(value:'per_trip',child:Text('Per trip')),DropdownMenuItem(value:'per_km',child:Text('Per kilometre')),DropdownMenuItem(value:'per_tonne',child:Text('Per tonne'))],onChanged:(v)=>setState(()=>unit=v??'per_trip')),
   if(service!='transport'&&service!='other')const ListTile(contentPadding:EdgeInsets.zero,title:Text('Rate unit: per acre')),
   if(service=='other')DropdownButtonFormField<String>(value:unit,decoration:const InputDecoration(labelText:'Pricing unit'),items:const [DropdownMenuItem(value:'per_acre',child:Text('Per acre')),DropdownMenuItem(value:'per_trip',child:Text('Per trip')),DropdownMenuItem(value:'per_km',child:Text('Per kilometre')),DropdownMenuItem(value:'per_tonne',child:Text('Per tonne'))],onChanged:(v)=>setState(()=>unit=v??'per_acre')),
@@ -2145,7 +2145,7 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
    });
    if(!mounted||request!=quoteRequest)return;
    final row=(r as List).first;
-   setState(()=>{quote=Map<String,dynamic>.from(row)..['quantity']=q;quoteError=null;});
+   setState((){quote=Map<String,dynamic>.from(row)..['quantity']=q;quoteError=null;});
   }catch(e){if(!mounted||request!=quoteRequest)return;setState((){quote=null;quoteError=friendlyError(e);});}
   if(mounted&&request==quoteRequest)setState(()=>quoting=false);
  }
