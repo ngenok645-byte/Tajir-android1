@@ -6532,7 +6532,10 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
     final net = gross;
     return RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
       const Text('Financial Records & Profit',style:TextStyle(fontSize:23,fontWeight:FontWeight.bold)),
-      Align(alignment:Alignment.centerLeft,child:OutlinedButton.icon(onPressed:loading?null:recordCustomerPayment,icon:const Icon(Icons.payments_outlined),label:const Text('Record customer payment'))),
+      Wrap(spacing:8,runSpacing:8,children:[
+        OutlinedButton.icon(onPressed:loading?null:recordCustomerPayment,icon:const Icon(Icons.payments_outlined),label:const Text('Record customer payment')),
+        OutlinedButton.icon(onPressed:loading?null:recordSupplierPayment,icon:const Icon(Icons.store_mall_directory_outlined),label:const Text('Record supplier payment')),
+      ]),
       const Text('Director & Accountant reports • amounts in Kenya shillings'),
       const SizedBox(height:12),
       DropdownButtonFormField<String>(value:period,decoration:const InputDecoration(labelText:'Reporting period',border:OutlineInputBorder()),
@@ -6545,7 +6548,7 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
         metric('Sales revenue',revenue),metric('Cost of goods sold',costOfGoods),
         metric('Trading profit (including landed stock cost)',gross,highlight:true),metric('Purchase-related expenses',purchaseCostsTotal),
         metric('Net trading result before other overheads',net,highlight:true),metric('Accepted purchases / stock cost',purchaseTotal),
-        metric('Verified customer receipts',customerReceipts),metric('Pending customer payments',pendingCustomerReceipts),metric('Outstanding customer balances',outstandingBalance),metric('Verified supplier payments',supplierPayments),
+        metric('Verified customer receipts',customerReceipts),metric('Pending customer payments',pendingCustomerReceipts),metric('Outstanding customer balances',outstandingBalance),metric('Verified supplier payments',supplierPayments),metric('Pending supplier payments',pendingSupplierPayments),metric('Outstanding supplier balances',outstandingSupplierBalance),
       ]),
       paymentBreakdowns(),
       section('Sales records',salesRows,'sale_date','total_amount','sale_number',extraField:'payment_mode'),
@@ -6553,6 +6556,9 @@ class _FinancialRecordsPageState extends State<FinancialRecordsPage> {
       section('Accepted purchases',purchaseRows,'purchase_date','id','purchase_number',extraField:'supplier_name'),
       paymentAuditSection('Verified customer payments',customerPaymentRows,dateField:'received_at',nameField:'payment_number',referenceField:'provider_reference'),
       pendingPaymentsSection(),
+      pendingSupplierApprovalsSection(),
+      supplierPurchaseSection(),
+      pendingSupplierPaymentsSection(),
       paymentAuditSection('Verified supplier payments',supplierPaymentRows,dateField:'payment_date',nameField:'transaction_reference',referenceField:'transaction_reference'),
       const Padding(padding:EdgeInsets.only(top:14),child:Text('Profit method: trading profit = recorded sales revenue less the cost of goods sold. Purchase-related costs such as transport, loading, labour and drying are attached to each purchase and included in landed stock cost, so they are not deducted a second time. This is trading profit before any separate business overheads. Figures depend on complete and correctly approved records.',style:TextStyle(fontSize:12,color:Colors.black54))),
       Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:loading?null:load,icon:const Icon(Icons.refresh),label:const Text('Refresh'))),
