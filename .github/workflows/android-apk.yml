@@ -240,7 +240,7 @@ jobs:
                               installUpdate(uri)
                               prefs.edit().remove("download_id").apply()
                           }}
-                      }} else if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_PAUSED) {{
+                      }} else if (status == DownloadManager.STATUS_FAILED) {{
                           prefs.edit().remove("download_id").apply()
                       }}
                   }}
