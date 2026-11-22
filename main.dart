@@ -3557,7 +3557,18 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
             const Row(children: [Icon(Icons.visibility_outlined, color: brandGreen), SizedBox(width: 8), Text('DIRECTOR READ-ONLY ACCOUNT DASHBOARD', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))]),
             const SizedBox(height: 12),
             Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            Text('Phone: '+(a['phone']??'Not provided').toString()),
+            Row(children: [
+              Expanded(child: Text('Phone: '+((a['phone']??'Not provided').toString()))),
+              if ((a['phone']??'').toString().trim().isNotEmpty)
+                IconButton(
+                  tooltip: 'Call registered number',
+                  icon: const Icon(Icons.call, color: brandGreen),
+                  onPressed: () async {
+                    try { await callTajirPhone(a['phone'].toString()); }
+                    catch (e) { if (pageContext.mounted) ScaffoldMessenger.of(pageContext).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+                  },
+                ),
+            ]),
             Text('Account status: '+status.replaceAll('_',' ')),
             const SizedBox(height: 8),
             Wrap(spacing: 6, runSpacing: 6, children: assigned.isEmpty
@@ -3610,7 +3621,31 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
       ])))).toList()),
       const SizedBox(height:12),const Text('Account directory',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
       const Text('Latest 500 accounts are shown here. Tap an account to inspect its status, assigned roles and recorded activity. This does not sign in as that user.'),
-      ...accounts.map((a){final assigned=roleCodes(a);return Card(child:ListTile(leading:CircleAvatar(child:Icon(assigned.isEmpty?Icons.person_outline:roleIcon(assigned.first))),title:Text((a['display_name']??'Unnamed account').toString()),subtitle:Text((assigned.isEmpty?'No active role':assigned.join(', '))+' • '+(a['status']??'unknown').toString()),trailing:const Icon(Icons.visibility_outlined),onTap:()=>inspectAccount(a)));}),
+      ...accounts.map((a){
+        final assigned=roleCodes(a);
+        final phone=(a['phone']??'').toString().trim();
+        return Card(child:ListTile(
+          leading:CircleAvatar(child:Icon(assigned.isEmpty?Icons.person_outline:roleIcon(assigned.first))),
+          title:Text((a['display_name']??'Unnamed account').toString()),
+          subtitle:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
+            Text((assigned.isEmpty?'No active role':assigned.join(', '))+' • '+(a['status']??'unknown').toString()),
+            if(phone.isNotEmpty) Row(children:[
+              Expanded(child:Text(phone,style:const TextStyle(fontWeight:FontWeight.w500))),
+              IconButton(
+                tooltip:'Call registered number',
+                visualDensity:VisualDensity.compact,
+                icon:const Icon(Icons.call,color:brandGreen),
+                onPressed:() async {
+                  try { await callTajirPhone(phone); }
+                  catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e)))); }
+                },
+              ),
+            ]) else const Text('No registered phone number',style:TextStyle(fontSize:12,color:Colors.black54)),
+          ]),
+          trailing:const Icon(Icons.visibility_outlined),
+          onTap:()=>inspectAccount(a),
+        ));
+      }),
       const SizedBox(height:12),const Text('Recent audit trail',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
       if(audit.isEmpty)const Text('No audit events recorded yet.'),
       ...audit.map((e)=>ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.history,color:brandGreen),title:Text((e['action']??'Activity').toString().replaceAll('_',' ')),subtitle:Text((e['entity_table']??'Record').toString()+' • '+(e['entity_id']??'').toString()+'\n'+(e['reason']??'').toString()),isThreeLine:true,trailing:Text((e['created_at']??'').toString().replaceFirst('T','\n').split('.').first,style:const TextStyle(fontSize:10)))),
