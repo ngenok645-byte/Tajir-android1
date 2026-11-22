@@ -272,19 +272,173 @@ class TajirNotificationCenter extends StatelessWidget {
                 title: Text((row['title'] ?? 'TAJIR update').toString(),
                   style: TextStyle(fontWeight: isUnread ? FontWeight.bold : FontWeight.normal)),
                 subtitle: Text((row['body'] ?? '').toString()),
-                trailing: isUnread ? IconButton(
-                  tooltip: 'Mark as read',
-                  icon: const Icon(Icons.done),
-                  onPressed: id.isEmpty ? null : () async {
-                    try { await _markRead(id, userId); }
-                    catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
-                  },
-                ) : null,
+                trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if ((row['sender_user_id'] ?? '').toString().isNotEmpty &&
+                      (row['sender_user_id'] ?? '').toString() != userId)
+                    IconButton(
+                      tooltip: 'Reply to sender',
+                      icon: const Icon(Icons.reply, color: brandGreen),
+                      onPressed: id.isEmpty ? null : () {
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => TajirNotificationConversationPage(
+                            notificationId: id,
+                            otherUserId: row['sender_user_id'].toString(),
+                            conversationTitle: (row['title'] ?? 'TAJIR conversation').toString(),
+                          ),
+                        ));
+                      },
+                    ),
+                  if (isUnread) IconButton(
+                    tooltip: 'Mark as read',
+                    icon: const Icon(Icons.done),
+                    onPressed: id.isEmpty ? null : () async {
+                      try { await _markRead(id, userId); }
+                      catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+                    },
+                  ),
+                ],
+              ),
               );
             }),
           ],
         );
       },
+    );
+  }
+}
+
+
+class TajirNotificationConversationPage extends StatefulWidget {
+  final String notificationId;
+  final String otherUserId;
+  final String conversationTitle;
+  const TajirNotificationConversationPage({
+    super.key,
+    required this.notificationId,
+    required this.otherUserId,
+    required this.conversationTitle,
+  });
+
+  @override
+  State<TajirNotificationConversationPage> createState() => _TajirNotificationConversationPageState();
+}
+
+class _TajirNotificationConversationPageState extends State<TajirNotificationConversationPage> {
+  final TextEditingController replyController = TextEditingController();
+  bool sending = false;
+
+  Future<void> sendReply() async {
+    final message = replyController.text.trim();
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (message.isEmpty || userId == null || sending) return;
+    setState(() => sending = true);
+    try {
+      await Supabase.instance.client.from('notification_replies').insert({
+        'notification_id': widget.notificationId,
+        'sender_user_id': userId,
+        'recipient_user_id': widget.otherUserId,
+        'message': message,
+      });
+      replyController.clear();
+      if (mounted) FocusScope.of(context).unfocus();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not send reply: ${friendlyError(e)}')),
+      );
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    replyController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return const Scaffold(body: Center(child: Text('Please sign in again.')));
+    final stream = Supabase.instance.client.from('notification_replies')
+      .stream(primaryKey: ['id'])
+      .eq('notification_id', widget.notificationId)
+      .order('created_at', ascending: true);
+    return Scaffold(
+      appBar: AppBar(title: Text('Reply', maxLines: 1, overflow: TextOverflow.ellipsis)),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(widget.conversationTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ),
+        Expanded(child: StreamBuilder<List<Map<String, dynamic>>>(
+          stream: stream,
+          builder: (context, snapshot) {
+            final rows = snapshot.data ?? const <Map<String, dynamic>>[];
+            if (snapshot.hasError) return const Center(child: Text('Could not load this conversation.'));
+            if (snapshot.connectionState == ConnectionState.waiting && rows.isEmpty) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (rows.isEmpty) return const Center(child: Text('No replies yet. Start the conversation below.'));
+            return ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: rows.length,
+              itemBuilder: (context, index) {
+                final row = rows[index];
+                final mine = row['sender_user_id']?.toString() == userId;
+                return Align(
+                  alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 320),
+                    margin: const EdgeInsets.symmetric(vertical: 5),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: mine ? brandGreen.withValues(alpha: 0.12) : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(mine ? 'You' : 'Other participant',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      const SizedBox(height: 4),
+                      Text((row['message'] ?? '').toString()),
+                      const SizedBox(height: 4),
+                      Text((row['created_at'] ?? '').toString(),
+                        style: const TextStyle(fontSize: 10, color: Colors.black54)),
+                    ]),
+                  ),
+                );
+              },
+            );
+          },
+        )),
+        SafeArea(top: false, child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: Row(children: [
+            Expanded(child: TextField(
+              controller: replyController,
+              minLines: 1,
+              maxLines: 4,
+              maxLength: 3000,
+              decoration: const InputDecoration(
+                hintText: 'Write a reply...',
+                border: OutlineInputBorder(),
+                counterText: '',
+              ),
+              onSubmitted: (_) => sendReply(),
+            )),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              onPressed: sending ? null : sendReply,
+              icon: sending
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.send),
+              tooltip: 'Send reply',
+            ),
+          ]),
+        )),
+      ]),
     );
   }
 }
