@@ -96,6 +96,129 @@ IconData productIconFor(String value) {
 
 const brandGreen = Color(0xFF176B3A);
 const brandGold = Color(0xFFD6A52D);
+
+Future<void> showTajirReceipt(
+  BuildContext context, {
+  required String receiptNumber,
+  required String receiptType,
+  required String partyLabel,
+  required String partyName,
+  required String date,
+  required double amount,
+  double? invoiceTotal,
+  double? totalPaid,
+  double? balance,
+  required String method,
+  required String status,
+  String reference = '',
+  List<String> details = const [],
+}) async {
+  final fmt = (double value) => 'KSh ' + value.toStringAsFixed(2);
+  final confirmedPaid = totalPaid ?? (status.toLowerCase() == 'verified' || status.toLowerCase() == 'paid' ? amount : 0);
+  final outstanding = balance ?? ((invoiceTotal ?? amount) - confirmedPaid).clamp(0, double.infinity).toDouble();
+  final lines = <String>[
+    'TAJIR GROUP LIMITED',
+    'Connecting Markets. Empowering Businesses.',
+    receiptType.toUpperCase(),
+    'Receipt: $receiptNumber',
+    'Date: $date',
+    '$partyLabel: $partyName',
+    ...details,
+    'Transaction amount: ${fmt(amount)}',
+    if (invoiceTotal != null) 'Invoice / service total: ${fmt(invoiceTotal)}',
+    'Verified amount paid: ${fmt(confirmedPaid)}',
+    'Outstanding balance: ${fmt(outstanding)}',
+    'Payment method: ${labelCase(method)}',
+    'Payment status: ${labelCase(status)}',
+    if (reference.trim().isNotEmpty) 'Reference: $reference',
+    'Thank you for doing business with TAJIR.',
+  ];
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              border: Border.all(color: brandGreen, width: 1.5),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Icon(Icons.receipt_long, color: brandGreen, size: 34),
+                const SizedBox(height: 6),
+                const Text('TAJIR GROUP LIMITED', textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: brandGreen)),
+                const Text('Connecting Markets. Empowering Businesses.',
+                  textAlign: TextAlign.center, style: TextStyle(fontSize: 11)),
+                const Divider(height: 22),
+                Text(receiptType.toUpperCase(), textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.1)),
+                const SizedBox(height: 10),
+                ...[
+                  'Receipt: $receiptNumber',
+                  'Date: $date',
+                  '$partyLabel: $partyName',
+                  ...details,
+                ].map((line) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(line, style: const TextStyle(fontSize: 13)),
+                )),
+                const Divider(height: 20),
+                _TajirReceiptAmountRow(label: 'Transaction amount', value: fmt(amount)),
+                if (invoiceTotal != null) _TajirReceiptAmountRow(label: 'Invoice / service total', value: fmt(invoiceTotal)),
+                _TajirReceiptAmountRow(label: 'Verified amount paid', value: fmt(confirmedPaid)),
+                _TajirReceiptAmountRow(label: 'Outstanding balance', value: fmt(outstanding), emphasize: true),
+                const Divider(height: 20),
+                Text('Payment method: ${labelCase(method)}'),
+                Text('Payment status: ${labelCase(status)}',
+                  style: TextStyle(fontWeight: FontWeight.bold,
+                    color: status.toLowerCase() == 'pending' ? Colors.deepOrange : brandGreen)),
+                if (reference.trim().isNotEmpty) Text('Reference: $reference'),
+                const SizedBox(height: 14),
+                const Text('Thank you for doing business with TAJIR.',
+                  textAlign: TextAlign.center, style: TextStyle(fontStyle: FontStyle.italic, fontSize: 12)),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: lines.join('\n')));
+            if (dialogContext.mounted) {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                const SnackBar(content: Text('Receipt copied. You can paste it into a message or document.')),
+              );
+            }
+          },
+          icon: const Icon(Icons.copy), label: const Text('Copy receipt'),
+        ),
+        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+      ],
+    ),
+  );
+}
+
+class _TajirReceiptAmountRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool emphasize;
+  const _TajirReceiptAmountRow({required this.label, required this.value, this.emphasize = false});
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(children: [
+      Expanded(child: Text(label, style: TextStyle(fontWeight: emphasize ? FontWeight.bold : FontWeight.normal))),
+      Text(value, style: TextStyle(fontWeight: emphasize ? FontWeight.bold : FontWeight.w600)),
+    ]),
+  );
+}
+
 const tajirUpdateChannel = MethodChannel('tajir/update');
 const tajirVersion = String.fromEnvironment('TAJIR_VERSION', defaultValue: '0');
 
@@ -5762,12 +5885,29 @@ class _CustomersPageState extends State<CustomersPage> {
           const Divider(),
           const Text('Payments',style:TextStyle(fontWeight:FontWeight.bold)),
           if(payments.isEmpty)const Text('No payments recorded.'),
-          ...payments.map((p)=>ListTile(
-            contentPadding:EdgeInsets.zero,
-            title:Text('KES ${((p['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)} • ${p['method']}'),
-            subtitle:Text('${p['status']} • ${p['payment_number']}'),
-            trailing:p['status']=='pending'&&canVerifyPayments?TextButton(onPressed:(){Navigator.pop(context);verifyCustomerPayment(p['id'].toString(),customer);},child:const Text('Verify')):null,
-          )),
+          ...payments.map((p){
+            final saleRows=sales.where((sale)=>sale['id'].toString()==(p['sale_id']??'').toString()).toList();
+            final sale=saleRows.isEmpty?<String,dynamic>{}:saleRows.first;
+            final related=payments.where((x)=>x['sale_id'].toString()==(p['sale_id']??'').toString()&&x['status']=='verified').fold<double>(0,(sum,x)=>sum+((x['amount'] as num?)?.toDouble()??0));
+            final invoice=(sale['total_amount'] as num?)?.toDouble()??0;
+            return ListTile(
+              contentPadding:EdgeInsets.zero,
+              title:Text('KES ${((p['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)} • ${p['method']}'),
+              subtitle:Text('${p['status']} • ${p['payment_number']}'),
+              onTap:()=>showTajirReceipt(context,
+                receiptNumber:(p['payment_number']??'—').toString(),
+                receiptType:'Customer payment receipt',
+                partyLabel:'Customer',partyName:(customer['full_name']??'Customer').toString(),
+                date:(p['received_at']??p['created_at']??'').toString(),
+                amount:((p['amount'] as num?)?.toDouble()??0),
+                invoiceTotal:invoice>0?invoice:null,totalPaid:related,
+                balance:invoice>0?(invoice-related).clamp(0,double.infinity).toDouble():null,
+                method:(p['method']??'—').toString(),status:(p['status']??'pending').toString(),
+                details:['Sale: ${sale['sale_number']??'—'}'],
+              ),
+              trailing:p['status']=='pending'&&canVerifyPayments?TextButton(onPressed:(){Navigator.pop(context);verifyCustomerPayment(p['id'].toString(),customer);},child:const Text('Verify')):null,
+            );
+          }),
         ]))),
         actions:[
           if(unallocatedBalance>0.009) OutlinedButton.icon(onPressed:(){Navigator.pop(context);recordCustomerPayment(customer,sales,payments);},icon:const Icon(Icons.payments_outlined),label:const Text('Record payment')),
@@ -6277,18 +6417,26 @@ class _TractorServicesPageState extends State<TractorServicesPage> with SingleTi
     return rows.where((x){final d=DateTime.tryParse((x['created_at']??'').toString());return d!=null&&!d.isBefore(start);}).toList();
   }
   void showReceipt(Map<String,dynamic> p) {
-    final job=jobs.where((x)=>x['id'].toString()==p['job_id'].toString()).toList();
-    showDialog(context:context,builder:(ctx)=>AlertDialog(
-      title:const Text('TAJIR tractor service receipt'),
-      content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Text('Receipt: '+p['payment_number'].toString()),Text('Date: '+(p['created_at']??'').toString()),
-        Text('Customer: '+(job.isEmpty?'Service customer':job.first['farmer_name'].toString())),
-        Text('Job: '+(job.isEmpty?'—':job.first['job_number'].toString())),
-        Text('Amount: '+money(numberOf(p,'amount'))),Text('Method: '+labelCase(p['method'].toString())),
-        Text('Status: '+labelCase(p['status'].toString()))
-      ]),
-      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Close'))]
-    ));
+    final found=jobs.where((x)=>x['id'].toString()==p['job_id'].toString()).toList();
+    final job=found.isEmpty?<String,dynamic>{}:found.first;
+    final jobPayments=payments.where((x)=>x['job_id'].toString()==p['job_id'].toString()).toList();
+    final verified=jobPayments.where((x)=>x['status']=='verified').fold<double>(0,(sum,x)=>sum+numberOf(x,'amount'));
+    final total=numberOf(job,'total_charge');
+    showTajirReceipt(context,
+      receiptNumber:(p['payment_number']??'—').toString(),
+      receiptType:'Tractor service payment receipt',
+      partyLabel:'Customer',
+      partyName:(job['farmer_name']??'Service customer').toString(),
+      date:(p['created_at']??'').toString(),
+      amount:numberOf(p,'amount'),
+      invoiceTotal:total,
+      totalPaid:verified,
+      balance:(total-verified).clamp(0,double.infinity).toDouble(),
+      method:(p['method']??'—').toString(),
+      status:(p['status']??'pending').toString(),
+      reference:(p['provider_reference']??'').toString(),
+      details:['Job: ${job['job_number']??'—'}','Service: ${job['service_type']??'Tractor service'}'],
+    );
   }
 
   Widget field(TextEditingController c,String label,{bool number=false,int lines=1})=>Padding(
