@@ -220,6 +220,75 @@ class TajirCallButton extends StatelessWidget {
 }
 
 
+
+class TajirNotificationCenter extends StatelessWidget {
+  const TajirNotificationCenter({super.key});
+
+  Future<void> _markRead(String id, String userId) async {
+    await Supabase.instance.client.from('notifications')
+      .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+      .eq('id', id)
+      .eq('recipient_user_id', userId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return const SizedBox.shrink();
+    final stream = Supabase.instance.client.from('notifications')
+      .stream(primaryKey: ['id'])
+      .eq('recipient_user_id', userId)
+      .order('created_at', ascending: false);
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        final rows = snapshot.data ?? const <Map<String, dynamic>>[];
+        final unread = rows.where((r) => r['read_at'] == null).length;
+        return ExpansionTile(
+          initiallyExpanded: false,
+          leading: Stack(clipBehavior: Clip.none, children: [
+            const Icon(Icons.notifications_active_outlined, color: brandGreen),
+            if (unread > 0) Positioned(right: -7, top: -7, child: CircleAvatar(
+              radius: 9, backgroundColor: Colors.red,
+              child: Text(unread > 9 ? '9+' : '$unread', style: const TextStyle(color: Colors.white, fontSize: 9)),
+            )),
+          ]),
+          title: const Text('Notifications', style: TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(snapshot.hasError ? 'Notifications temporarily unavailable' : '$unread unread • ${rows.length} total'),
+          children: [
+            if (snapshot.connectionState == ConnectionState.waiting && rows.isEmpty)
+              const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
+            if (snapshot.hasError)
+              const Padding(padding: EdgeInsets.all(12), child: Text('Could not load notifications. Please check your connection.')),
+            if (!snapshot.hasError && rows.isEmpty)
+              const Padding(padding: EdgeInsets.all(12), child: Text('You have no notifications yet.')),
+            ...rows.take(8).map((row) {
+              final id = (row['id'] ?? '').toString();
+              final isUnread = row['read_at'] == null;
+              return ListTile(
+                dense: true,
+                leading: Icon(isUnread ? Icons.mark_email_unread_outlined : Icons.drafts_outlined,
+                  color: isUnread ? brandGreen : Colors.grey),
+                title: Text((row['title'] ?? 'TAJIR update').toString(),
+                  style: TextStyle(fontWeight: isUnread ? FontWeight.bold : FontWeight.normal)),
+                subtitle: Text((row['body'] ?? '').toString()),
+                trailing: isUnread ? IconButton(
+                  tooltip: 'Mark as read',
+                  icon: const Icon(Icons.done),
+                  onPressed: id.isEmpty ? null : () async {
+                    try { await _markRead(id, userId); }
+                    catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+                  },
+                ) : null,
+              );
+            }),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class TajirDirectorContacts extends StatefulWidget {
   const TajirDirectorContacts({super.key});
   static const List<Map<String, String>> directors = [
@@ -257,6 +326,8 @@ class _TajirDirectorContactsState extends State<TajirDirectorContacts> {
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const TajirNotificationCenter(),
+        const Divider(),
         const Row(children: [
           Icon(Icons.support_agent, color: brandGreen),
           SizedBox(width: 8),
@@ -1672,7 +1743,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    }else{
     final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
     final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').order('created_at',ascending:false);
-    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,status,created_at').order('created_at',ascending:false);
+    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').order('created_at',ascending:false);
     r=[
      ...List<Map<String,dynamic>>.from(marketplaceRows),
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
@@ -1784,6 +1855,13 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   try{
    await Supabase.instance.client.rpc('customer_confirm_custom_product_request',params:{'p_request_id':row['id']});
    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('You confirmed the Director-approved offer. TAJIR can now proceed with the request.')));
+   await load();
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+ }
+ Future<void> declineCustomRequest(Map<String,dynamic> row)async{
+  try{
+   await Supabase.instance.client.rpc('customer_decline_custom_product_counteroffer',params:{'p_request_id':row['id']});
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('You declined the Director counteroffer. The Director has been notified.')));
    await load();
   }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
  }
@@ -1980,11 +2058,16 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
        title:Text((r['product_name']??'Custom product').toString()),
        subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\n'+((r['request_direction']??'BUY_FROM_TAJIR')=='SELL_TO_TAJIR'?'Offer to sell to TAJIR':'Request to buy from TAJIR')+'\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • Director agreed: KES '+agreed.toString()+'/'+unit)+'\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\nDirector: '+response)),
        isThreeLine:true,
-       trailing:r['customer_confirmed_at']!=null
-        ? const Icon(Icons.verified,color:brandGreen)
-        : r['status']=='approved'
-         ? FilledButton.tonal(onPressed:()=>confirmCustomRequest(r),child:const Text('Confirm offer'))
-         : const Icon(Icons.hourglass_top),
+       trailing:r['customer_response']=='declined'
+        ? const Text('Declined')
+        : r['customer_confirmed_at']!=null || r['customer_response']=='accepted'
+         ? const Icon(Icons.verified,color:brandGreen)
+         : r['status']=='approved'
+          ? PopupMenuButton<String>(tooltip:'Respond to Director offer',onSelected:(v){if(v=='accept')confirmCustomRequest(r);if(v=='decline')declineCustomRequest(r);},itemBuilder:(_)=>const [
+             PopupMenuItem(value:'accept',child:Text('Accept offer')),
+             PopupMenuItem(value:'decline',child:Text('Decline offer')),
+            ])
+          : const Icon(Icons.hourglass_top),
       ));
      }
      if(r['_is_tajir_request']==true){
