@@ -45,7 +45,7 @@ create policy marketplace_chat_messages_send on public.marketplace_chat_messages
 create or replace function public.tajir_block_marketplace_phone_numbers()
 returns trigger language plpgsql set search_path='' as $$
 begin
- if coalesce(new.body,'') ~* '(^|[^0-9])(?:\\+?254|0)?[ -]?(?:7|1)[0-9 -]{7,12}($|[^0-9])' then
+ if coalesce(new.body,'') ~* '(?:[+]254|254|0)?[ -]?[17][0-9](?:[ -]?[0-9]){7,8}' then
   raise exception 'Phone numbers cannot be shared in marketplace chat. Use TAJIR chat instead.' using errcode='22023';
  end if;
  return new;
@@ -67,3 +67,18 @@ create policy tajir_marketplace_chat_image_upload on storage.objects for insert 
  select 1 from public.marketplace_chat_threads t join public.customers c on c.id in (t.buyer_customer_id,t.seller_customer_id)
  where t.id=(storage.foldername(name))[1]::uuid and c.profile_id=auth.uid() and c.active=true and c.deleted_at is null))
 );
+
+create or replace function public.tajir_touch_marketplace_chat_thread()
+returns trigger language plpgsql set search_path='' as $$
+begin
+ update public.marketplace_chat_threads set last_message_at=new.created_at where id=new.thread_id;
+ return new;
+end; $$;
+drop trigger if exists tajir_touch_marketplace_chat_thread on public.marketplace_chat_messages;
+create trigger tajir_touch_marketplace_chat_thread after insert on public.marketplace_chat_messages for each row execute function public.tajir_touch_marketplace_chat_thread();
+do $$
+begin
+ if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='marketplace_chat_messages') then
+  alter publication supabase_realtime add table public.marketplace_chat_messages;
+ end if;
+end $$;
