@@ -417,7 +417,14 @@ class _TajirContactsPageState extends State<TajirContactsPage> {
                 leading: const CircleAvatar(child: Icon(Icons.person_outline)),
                 title: Text((contact['display_name'] ?? 'TAJIR account').toString()),
                 subtitle: Text((contact['relationship'] ?? 'Linked task').toString() + ((contact['reference'] ?? '').toString().isEmpty ? '' : ' • ${contact['reference']}')),
-                trailing: const Icon(Icons.chevron_right),
+                trailing: IconButton(
+                  tooltip: 'Call '+(contact['display_name'] ?? 'contact').toString(),
+                  onPressed: (contact['phone'] ?? '').toString().trim().isEmpty ? null : () async {
+                    try { await callTajirPhone(contact['phone'].toString()); }
+                    catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+                  },
+                  icon: const Icon(Icons.call, color: brandGreen),
+                ),
                 onTap: () => openContact(contact),
               ),
             )),
