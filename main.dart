@@ -2482,7 +2482,16 @@ class AccountRouter extends StatelessWidget {
       }
     }
 
-    const staffRoles = {'director','branch_manager','accountant','worker'};
+    // Resolve internal management access before external service-provider
+    // workspaces. Multi-role staff must never be routed away from Director or
+    // management controls simply because they also hold a provider role.
+    if (roleCodes.contains('director') ||
+        roleCodes.contains('branch_manager') ||
+        roleCodes.contains('accountant')) {
+      return const HomeShell();
+    }
+    if (roleCodes.contains('worker')) return const WorkerWorkspacePage();
+
     const serviceRoles = {
       'tractor_owner': 'Tractor Owner',
       'driver': 'Driver',
@@ -2494,8 +2503,6 @@ class AccountRouter extends StatelessWidget {
         return RoleWorkspacePage(roleCode: entry.key, roleName: entry.value);
       }
     }
-    if (roleCodes.contains('worker')) return const WorkerWorkspacePage();
-    if (roleCodes.any(staffRoles.contains)) return const HomeShell();
 
     // Accounts without an operational role may continue to the client portal.
     // This also preserves the client side of a multi-role account.
