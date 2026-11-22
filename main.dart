@@ -472,24 +472,48 @@ class AuthChoicePage extends StatelessWidget {
     required IconData icon,
     required String title,
     required String subtitle,
+    required Color roleColor,
     required VoidCallback onLogin,
     required VoidCallback onJoin,
   }) {
     return Card(
       clipBehavior: Clip.antiAlias,
-      elevation: 1.5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(11),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            CircleAvatar(
-              radius: 25,
-              backgroundColor: brandGreen.withOpacity(.12),
-              child: Icon(icon, size: 28, color: brandGreen),
+            // Lightweight, locally rendered role artwork: no remote image loading
+            // or network dependency on the sign-in screen.
+            Container(
+              height: 76,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [roleColor.withOpacity(.16), roleColor.withOpacity(.045)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned(right: 16, top: -17,
+                    child: Icon(icon, size: 92, color: roleColor.withOpacity(.08))),
+                  Container(
+                    width: 56, height: 56,
+                    decoration: BoxDecoration(
+                      color: roleColor.withOpacity(.13),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 34, color: roleColor),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 9),
             Text(
               title,
               textAlign: TextAlign.center,
@@ -557,6 +581,7 @@ class AuthChoicePage extends StatelessWidget {
                           context,
                           icon: Icons.person_outline,
                           title: 'Client',
+                          roleColor: const Color(0xFF168B72),
                           subtitle: 'Buy and sell approved products and request tractor services.',
                           onLogin: () => _openClient(context, createAccount: false),
                           onJoin: () => _openClient(context, createAccount: true),
@@ -569,6 +594,7 @@ class AuthChoicePage extends StatelessWidget {
                           context,
                           icon: Icons.agriculture,
                           title: 'Tractor Owner',
+                          roleColor: const Color(0xFF8B6B35),
                           subtitle: 'Manage tractors, receive client jobs and assign drivers.',
                           onLogin: () => _openLogin(context),
                           onJoin: () => _explainApproval(context, 'Tractor Owner'),
@@ -581,6 +607,7 @@ class AuthChoicePage extends StatelessWidget {
                           context,
                           icon: Icons.local_shipping_outlined,
                           title: 'Tractor Driver',
+                          roleColor: const Color(0xFF3276A8),
                           subtitle: 'View and complete jobs assigned by a tractor owner.',
                           onLogin: () => _openLogin(context),
                           onJoin: () => _explainApproval(context, 'Tractor Driver'),
@@ -593,6 +620,7 @@ class AuthChoicePage extends StatelessWidget {
                           context,
                           icon: Icons.handyman_outlined,
                           title: 'Mechanic',
+                          roleColor: const Color(0xFF697386),
                           subtitle: 'Manage tractor repair jobs and request required spare parts.',
                           onLogin: () => _openLogin(context),
                           onJoin: () => _explainApproval(context, 'Mechanic'),
@@ -605,6 +633,7 @@ class AuthChoicePage extends StatelessWidget {
                           context,
                           icon: Icons.settings_outlined,
                           title: 'Auto-Spare Owner',
+                          roleColor: const Color(0xFF9A633F),
                           subtitle: 'Manage spare-parts stock and fulfil authorised parts requests.',
                           onLogin: () => _openLogin(context),
                           onJoin: () => _explainApproval(context, 'Auto-Spare Owner'),
@@ -617,6 +646,7 @@ class AuthChoicePage extends StatelessWidget {
                           context,
                           icon: Icons.badge_outlined,
                           title: 'Worker',
+                          roleColor: const Color(0xFF687C42),
                           subtitle: 'Access assigned branch duties and authorised work records.',
                           onLogin: () => _openLogin(context),
                           onJoin: () => _explainApproval(context, 'Worker'),
@@ -641,10 +671,19 @@ class AuthChoicePage extends StatelessWidget {
                     padding: const EdgeInsets.all(14),
                     child: Row(
                       children: [
-                        const CircleAvatar(
-                          backgroundColor: brandGreen,
-                          child: Icon(Icons.admin_panel_settings_outlined,
-                              color: Colors.white),
+                        Container(
+                          width: 68,
+                          height: 68,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [brandGreen.withOpacity(.22), brandGreen.withOpacity(.07)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Icon(Icons.admin_panel_settings_outlined,
+                              size: 40, color: brandGreen),
                         ),
                         const SizedBox(width: 12),
                         const Expanded(
