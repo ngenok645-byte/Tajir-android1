@@ -1941,12 +1941,66 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
 }
 class CustomerTractorPage extends StatefulWidget{@override State<CustomerTractorPage> createState()=>_CustomerTractorPageState();}
 class _CustomerTractorPageState extends State<CustomerTractorPage>{
- List<Map<String,dynamic>> tractors=[];bool busy=true;String? tractor;String service='ploughing';final location=TextEditingController(),acres=TextEditingController();DateTime date=DateTime.now().add(const Duration(days:1));
+ List<Map<String,dynamic>> tractors=[];bool busy=true,saving=false;String? tractor;String service='ploughing';final location=TextEditingController(),acres=TextEditingController();DateTime date=DateTime.now().add(const Duration(days:1));
  @override void initState(){super.initState();load();}
  @override void dispose(){location.dispose();acres.dispose();super.dispose();}
- Future<void> load()async{try{final r=await Supabase.instance.client.rpc('customer_list_tractor_services');tractors=List<Map<String,dynamic>>.from(r);tractor=tractors.isEmpty?null:tractors.first['tractor_id'].toString();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}if(mounted)setState(()=>busy=false);}
- Future<void> book()async{try{if(tractor==null)throw const FormatException('No tractor available.');if(location.text.trim().length<3)throw const FormatException('Enter farm location.');final r=await Supabase.instance.client.rpc('customer_book_tractor_service',params:{'p_tractor_id':tractor,'p_service_type':service,'p_service_location':location.text.trim(),'p_area_acres':acres.text.trim().isEmpty?null:double.parse(acres.text),'p_booked_for':date.toUtc().toIso8601String(),'p_notes':null});if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Booking submitted: '+(r as List).first['job_number'].toString())));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
- @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(18),children:[const Text('Book tractor service',style:TextStyle(fontSize:21,fontWeight:FontWeight.bold)),if(busy)const LinearProgressIndicator(),if(tractors.isNotEmpty)DropdownButtonFormField<String>(value:tractor,items:tractors.map((t)=>DropdownMenuItem(value:t['tractor_id'].toString(),child:Text(t['selection_label'].toString()))).toList(),onChanged:(v)=>setState(()=>tractor=v),decoration:const InputDecoration(labelText:'Available tractor')),if(tractors.isEmpty&&!busy)const Text('No tractors available.'),DropdownButtonFormField<String>(value:service,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v)=>setState(()=>service=v??'ploughing'),decoration:const InputDecoration(labelText:'Service')),TextField(controller:location,decoration:const InputDecoration(labelText:'Farm location')),TextField(controller:acres,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Acres')),ListTile(title:Text('Booking date: '+date.toLocal().toString().split(' ')[0]),trailing:TextButton(onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)setState(()=>date=d);},child:const Text('Choose'))),FilledButton(onPressed:busy||tractors.isEmpty?null:book,child:const Text('Book service'))]);
+ Future<void> load()async{
+  try{final r=await Supabase.instance.client.rpc('customer_list_tractor_services');tractors=List<Map<String,dynamic>>.from(r);tractor=tractors.isEmpty?null:tractors.first['tractor_id'].toString();}
+  catch(_){tractors=[];tractor=null;}
+  if(mounted)setState(()=>busy=false);
+ }
+ Future<void> book()async{
+  if(location.text.trim().length<3){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter your farm location.')));return;}
+  final area=acres.text.trim().isEmpty?null:double.tryParse(acres.text.trim());
+  if(acres.text.trim().isNotEmpty&&(area==null||area<=0)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid area in acres.')));return;}
+  setState(()=>saving=true);
+  try{
+   final r=await Supabase.instance.client.rpc('customer_book_tractor_service',params:{
+    'p_tractor_id':tractor,
+    'p_service_type':service,
+    'p_service_location':location.text.trim(),
+    'p_area_acres':area,
+    'p_booked_for':date.toUtc().toIso8601String(),
+    'p_notes':null
+   });
+   final job=(r as List).first['job_number'].toString();
+   if(mounted){
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(tractor==null?'Request sent to the TAJIR Director. Assignment reference: '+job:'Booking request submitted. Reference: '+job)));
+    location.clear();acres.clear();
+   }
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+  if(mounted)setState(()=>saving=false);
+ }
+ @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(18),children:[
+  const Text('Book tractor service',style:TextStyle(fontSize:21,fontWeight:FontWeight.bold)),
+  if(busy)const LinearProgressIndicator(),
+  if(tractors.isNotEmpty)DropdownButtonFormField<String>(
+   value:tractor,
+   items:tractors.map((t)=>DropdownMenuItem(value:t['tractor_id'].toString(),child:Text(t['selection_label'].toString()))).toList(),
+   onChanged:(v)=>setState(()=>tractor=v),
+   decoration:const InputDecoration(labelText:'Preferred available tractor (optional)')
+  ),
+  if(!busy&&tractors.isEmpty)Container(
+   padding:const EdgeInsets.all(12),
+   margin:const EdgeInsets.only(bottom:8),
+   decoration:BoxDecoration(color:brandGreen.withOpacity(.08),borderRadius:BorderRadius.circular(12)),
+   child:const Row(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    Icon(Icons.support_agent,color:brandGreen),
+    SizedBox(width:10),
+    Expanded(child:Text('You can still place your booking. Your request will be sent to the TAJIR Director, who will arrange and assign a tractor for you.'))
+   ])
+  ),
+  DropdownButtonFormField<String>(
+   value:service,
+   items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],
+   onChanged:(v)=>setState(()=>service=v??'ploughing'),
+   decoration:const InputDecoration(labelText:'Service')
+  ),
+  TextField(controller:location,decoration:const InputDecoration(labelText:'Farm location')),
+  TextField(controller:acres,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Acres')),
+  ListTile(title:Text('Booking date: '+date.toLocal().toString().split(' ')[0]),trailing:TextButton(onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)setState(()=>date=d);},child:const Text('Choose'))),
+  FilledButton(onPressed:busy||saving?null:book,child:Text(saving?'Sending request…':'Submit booking request'))
+ ]);
 }
 class CustomerTractorBookingsPage extends StatefulWidget{@override State<CustomerTractorBookingsPage> createState()=>_CustomerTractorBookingsPageState();}
 class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPage>{
