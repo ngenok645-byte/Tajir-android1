@@ -1406,7 +1406,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
     ):null,
     title:Text(onSection?sectionTitle(selectedSection!):'TAJIR - '+c!['full_name'].toString()),
     actions:[
-     IconButton(tooltip:'Check for updates',onPressed:checkCustomerUpdates,icon:const Icon(Icons.system_update)),
+     TextButton.icon(onPressed:checkCustomerUpdates,icon:const Icon(Icons.system_update),label:const Text('Update')),
      IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
      IconButton(tooltip:'Refresh',onPressed:onSection?()=>setState((){}):load,icon:const Icon(Icons.refresh)),
      IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
@@ -2430,7 +2430,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
 
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(widget.roleName), actions: [
-      IconButton(tooltip: 'Check for updates', onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update)),
+      TextButton.icon(onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update), label: const Text('Update')),
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
@@ -2748,7 +2748,7 @@ class _HomeShellState extends State<HomeShell> {
     if (accessError != null) return const AccountAccessIssuePage();
     final wide = MediaQuery.of(context).size.width >= 800;
     return Scaffold(
-      appBar: AppBar(title: const Text('TAJIR'), actions: [IconButton(tooltip: checkingUpdate ? 'Checking for updates' : 'Check for updates', onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update)), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      appBar: AppBar(title: const Text('TAJIR'), actions: [TextButton.icon(onPressed: checkingUpdate ? null : () => checkUpdates(showCurrent: true), icon: Icon(checkingUpdate ? Icons.hourglass_top : Icons.system_update), label: Text(checkingUpdate ? 'Checking…' : 'Update')), IconButton(tooltip: 'Account security', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.lock_reset)), IconButton(tooltip: 'Sign out', onPressed: () => Supabase.instance.client.auth.signOut(), icon: const Icon(Icons.logout))]),
       body: Column(children: [
         const TajirDirectorContacts(),
         Expanded(child: Row(children: [
