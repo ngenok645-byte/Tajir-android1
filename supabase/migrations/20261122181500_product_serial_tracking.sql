@@ -11,6 +11,7 @@ create or replace function public.tajir_sync_purchase_item_serial()
 returns trigger language plpgsql set search_path='' as $$
 begin
  update public.purchase_items set product_serial=new.batch_code where id=new.purchase_item_id;
+ update public.purchase_costs set product_serial=new.batch_code where purchase_item_id=new.purchase_item_id;
  return new;
 end; $$;
 drop trigger if exists tajir_sync_purchase_item_serial on public.stock_batches;
