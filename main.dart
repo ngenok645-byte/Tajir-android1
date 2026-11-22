@@ -1128,6 +1128,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
           throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'Customer registration failed.') : 'Customer registration failed.');
         }
         await signInCustomerWithPin(db, normalized, pin.text);
+        await db.rpc('register_my_national_id', params: {'p_national_id': nationalId.text.trim()});
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
