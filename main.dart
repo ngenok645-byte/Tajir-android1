@@ -2454,12 +2454,14 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status,total_value_kes,branch_id,branches(name),marketplace_listing_selling_prices(selling_price_kes)').eq('status','active').neq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
    }else{
     final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
-    final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').order('created_at',ascending:false);
-    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').order('created_at',ascending:false);
+    final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final salesRows=await db.from('sales_orders').select('id,order_number,status,total_amount,created_at,updated_at,delivery_address,payment_mode,fulfilment_method').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
     r=[
      ...List<Map<String,dynamic>>.from(marketplaceRows),
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
      ...List<Map<String,dynamic>>.from(customRows).map((x)=>{...x,'_is_custom_request':true}),
+     ...List<Map<String,dynamic>>.from(salesRows).map((x)=>{...x,'_is_sales_order':true}),
     ]..sort((a,b)=>DateTime.parse(b['created_at'].toString()).compareTo(DateTime.parse(a['created_at'].toString())));
    }
    if(widget.mode=='requests'){
@@ -2478,6 +2480,11 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
  bool _isClearedOrder(Map<String,dynamic> row){
   final status=(row['status']??'').toString().toLowerCase();
   return const {'delivered','completed','fulfilled'}.contains(status);
+ }
+ String _orderDate(dynamic value){
+  final date=DateTime.tryParse((value??'').toString())?.toLocal();
+  if(date==null)return 'Date unavailable';
+  return '${date.day.toString().padLeft(2,'0')}/${date.month.toString().padLeft(2,'0')}/${date.year} ${date.hour.toString().padLeft(2,'0')}:${date.minute.toString().padLeft(2,'0')}';
  }
  String _reviewType(Map<String,dynamic> row){
   if(row['_is_custom_request']==true)return 'customer_custom_product_request';
@@ -2840,6 +2847,8 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    if(widget.mode=='buy')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('BUY_FROM_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Request unlisted product'))),
    if(widget.mode=='sell')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('SELL_TO_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Offer unlisted product to TAJIR'))),
    if(widget.mode=='requests') ...[
+    const SizedBox(height:6),
+    const Text('Track your orders here. Refresh this page to see the latest status, order reference and delivery information.',style:TextStyle(fontSize:12,color:Colors.black54)),
     const SizedBox(height:8),
     CheckboxListTile(value:orderFilter=='pending',onChanged:(_)=>setState(()=>orderFilter='pending'),title:const Text('Pending Orders',style:TextStyle(fontWeight:FontWeight.w600)),controlAffinity:ListTileControlAffinity.leading,contentPadding:EdgeInsets.zero),
     CheckboxListTile(value:orderFilter=='cleared',onChanged:(_)=>setState(()=>orderFilter='cleared'),title:const Text('Cleared Orders',style:TextStyle(fontWeight:FontWeight.w600)),controlAffinity:ListTileControlAffinity.leading,contentPadding:EdgeInsets.zero),
@@ -2878,6 +2887,18 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      ));
     }
     if(widget.mode=='requests'){
+     if(r['_is_sales_order']==true){
+      final status=(r['status']??'pending').toString().replaceAll('_',' ');
+      final address=(r['delivery_address']??'').toString();
+      final updatedAt=DateTime.tryParse((r['updated_at']??'').toString());
+      return Card(child:ListTile(
+       leading:const CircleAvatar(child:Icon(Icons.local_shipping_outlined)),
+       title:Text('Order ${r['order_number']??r['id'].toString().substring(0,8).toUpperCase()}'),
+       subtitle:Text('Order total: KES ${((r['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}\\nStatus: ${status.toUpperCase()} • Placed: ${_orderDate(r['created_at'])}${updatedAt==null?'':'\nLast update: '+_orderDate(updatedAt.toIso8601String())}${address.isEmpty?'':'\\nDelivery: '+address}'),
+       isThreeLine:true,
+       trailing:Chip(label:Text(status)),
+      ));
+     }
      if(r['_is_custom_request']==true){
       final unit=(r['quantity_unit']??'KG').toString();
       final response=(r['director_response']??'').toString();
@@ -2885,7 +2906,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
       return Card(child:ListTile(
        leading:const Icon(Icons.assignment_late_outlined,color:Colors.deepOrange),
        title:Text((r['product_name']??'Custom product').toString()),
-       subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\n'+((r['request_direction']??'BUY_FROM_TAJIR')=='SELL_TO_TAJIR'?'Offer to sell to TAJIR':'Request to buy from TAJIR')+'\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • TAJIR agreed: KES '+agreed.toString()+'/'+unit)+'\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\nDirector: '+response)),
+       subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\n'+((r['request_direction']??'BUY_FROM_TAJIR')=='SELL_TO_TAJIR'?'Offer to sell to TAJIR':'Request to buy from TAJIR')+'\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • TAJIR agreed: KES '+agreed.toString()+'/'+unit)+'\nOrder reference: '+r['id'].toString().substring(0,8).toUpperCase()+' • Placed: '+_orderDate(r['created_at'])+'\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\nDirector: '+response)),
        isThreeLine:true,
        trailing:_isClearedOrder(r)?_reviewAction(r):r['customer_response']=='declined'
         ? const Text('Declined')
@@ -2915,7 +2936,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      final seller=l['seller_customer_id']==widget.customer['id'];
      return Card(child:ListTile(
       title:Text((l['product_name']??'Purchase request').toString()),
-      subtitle:Text('Quantity: '+r['quantity'].toString()+' '+(l['unit']??'').toString()+' • Official price: KES '+(r['unit_price_kes']??'Pending').toString()+' / '+(l['unit']??'unit').toString()+' • Total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()),
+      subtitle:Text('Quantity: '+r['quantity'].toString()+' '+(l['unit']??'').toString()+' • Official price: KES '+(r['unit_price_kes']??'Pending').toString()+' / '+(l['unit']??'unit').toString()+' • Total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()+'\nOrder reference: '+r['id'].toString().substring(0,8).toUpperCase()+' • Placed: '+_orderDate(r['created_at'])),
       trailing:seller&&!_isClearedOrder(r)&&!['declined','cancelled'].contains((r['status']??'').toString())?PopupMenuButton<String>(tooltip:'Update order progress',onSelected:(v)=>change(r,v,false),itemBuilder:(_)=>[
        if(r['status']=='pending')const PopupMenuItem(value:'accepted',child:Text('Accept order')),
        if(r['status']=='pending')const PopupMenuItem(value:'declined',child:Text('Decline order')),
@@ -4288,7 +4309,7 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
   final db = Supabase.instance.client;
   bool loading = true, busy = false;
   String? error;
-  bool showCleared = false;
+  bool showCleared = false, showCancelled = false;
   List<Map<String,dynamic>> orders = [];
   Map<String,String> customerNames = {};
   Map<String,double> paidByOrder = {};
@@ -4310,7 +4331,7 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
           .select('id,customer_id,quantity_requested,quantity_unit,line_total_kes,status,created_at,products(name),branches(name)')
           .order('created_at', ascending: false),
         db.from('sales_orders')
-          .select('id,order_number,customer_id,status,total_amount,created_at,delivery_address,payment_mode')
+          .select('id,order_number,customer_id,status,total_amount,created_at,updated_at,delivery_address,payment_mode,staff_notes')
           .order('created_at', ascending: false),
         db.from('customers').select('id,full_name'),
         db.from('customer_payments')
@@ -4398,6 +4419,64 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
     }
   }
 
+  Future<void> editOrderDetails(Map<String,dynamic> row) async {
+    final source=row['_source'].toString();
+    final field=source=='sales_orders'?'staff_notes':source=='marketplace_purchase_requests'?'message':'note';
+    final controller=TextEditingController(text:(row[field]??'').toString());
+    final accepted=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
+      title:const Text('Edit order details'),
+      content:TextField(
+        controller:controller,
+        maxLines:4,
+        decoration:InputDecoration(
+          labelText:field=='staff_notes'?'TAJIR internal note':field=='message'?'Buyer message':'Order note',
+          border:const OutlineInputBorder(),
+        ),
+      ),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Save changes')),
+      ],
+    ));
+    if(accepted==true){
+      try{
+        await db.from(source).update({field:controller.text.trim().isEmpty?null:controller.text.trim()}).eq('id',row['id']);
+        await load();
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Order details updated.')));
+      }catch(e){
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not edit order: ${friendlyError(e)}')));
+      }
+    }
+    controller.dispose();
+  }
+
+  Future<void> cancelOrder(Map<String,dynamic> row) async {
+    final id=row['id'].toString();
+    final source=row['_source'].toString();
+    final status=(row['status']??'').toString().toLowerCase();
+    final paid=paidByOrder[id]??0;
+    if(isCleared(row)||paid>0.009||status=='paid'||status=='completed'){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('This order has been paid or fulfilled. Keep it in the records and use the appropriate status controls instead of deleting it.')));
+      return;
+    }
+    final confirmed=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
+      title:const Text('Remove this order?'),
+      content:const Text('The order will be marked Cancelled and hidden from the active order list. Its record is retained for audit and customer history; no financial record is erased.'),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Keep order')),
+        FilledButton(style:FilledButton.styleFrom(backgroundColor:Colors.red),onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Cancel order')),
+      ],
+    ));
+    if(confirmed!=true)return;
+    try{
+      await db.from(source).update({'status':'cancelled'}).eq('id',row['id']);
+      await load();
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Order cancelled. The audit record has been retained.')));
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not cancel order: ${friendlyError(e)}')));
+    }
+  }
+
   List<String> nextStatuses(Map<String,dynamic> row) {
     final status = (row['status'] ?? '').toString().toLowerCase();
     if (row['_source'] == 'sales_orders') {
@@ -4430,15 +4509,22 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
         const Text('New orders are approved automatically and appear here for TAJIR to monitor. Move each order through processing, dispatch, transit and delivery. Delivered orders move to Cleared Orders.', style:TextStyle(color:Colors.black54)),
         CheckboxListTile(
           value: !showCleared,
-          onChanged: (_) => setState(() => showCleared = false),
+          onChanged: (_) => setState(() { showCleared = false; showCancelled = false; }),
           title: const Text('Pending Orders', style:TextStyle(fontWeight:FontWeight.w600)),
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
         ),
         CheckboxListTile(
           value: showCleared,
-          onChanged: (_) => setState(() => showCleared = true),
+          onChanged: (_) => setState(() { showCleared = true; showCancelled = false; }),
           title: const Text('Cleared Orders', style:TextStyle(fontWeight:FontWeight.w600)),
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
+        ),
+        CheckboxListTile(
+          value: showCancelled,
+          onChanged: (_) => setState(() { showCancelled = true; }),
+          title: const Text('Cancelled Orders', style:TextStyle(fontWeight:FontWeight.w600)),
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
         ),
@@ -4477,12 +4563,25 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
               ],
               if ((r['delivery_address'] ?? '').toString().isNotEmpty) Text('Delivery: ${r['delivery_address']}'),
               const SizedBox(height:8),
-              if (actions.isNotEmpty) Align(
-                alignment:Alignment.centerRight,
-                child: Wrap(spacing:6, children: actions.map((next) => OutlinedButton(
-                  onPressed:busy?null:()=>updateStatus(r,next),
-                  child:Text(next.replaceAll('_',' ').toUpperCase()),
-                )).toList()),
+              if (!showCancelled) Wrap(
+                spacing:6,runSpacing:6,alignment:WrapAlignment.end,
+                children:[
+                  OutlinedButton.icon(
+                    onPressed:busy?null:()=>editOrderDetails(r),
+                    icon:const Icon(Icons.edit_outlined,size:17),
+                    label:const Text('Edit details'),
+                  ),
+                  if(!isCleared(r)&&(paid<=0.009)&&!['paid','completed','cancelled'].contains(status.toLowerCase()))
+                    TextButton.icon(
+                      onPressed:busy?null:()=>cancelOrder(r),
+                      icon:const Icon(Icons.delete_outline,color:Colors.red,size:17),
+                      label:const Text('Cancel order',style:TextStyle(color:Colors.red)),
+                    ),
+                  ...actions.map((next) => OutlinedButton(
+                    onPressed:busy?null:()=>updateStatus(r,next),
+                    child:Text(next.replaceAll('_',' ').toUpperCase()),
+                  )),
+                ],
               ),
               if (showCleared) const Text('DELIVERED • CLEARED', style:TextStyle(color:brandGreen,fontWeight:FontWeight.bold)),
             ]),
@@ -7021,6 +7120,12 @@ class _CustomersPageState extends State<CustomersPage> {
               ]),
             ],
           ]))),
+          const SizedBox(height:10),
+          SizedBox(width:double.infinity,child:OutlinedButton.icon(
+            onPressed:()=>editCustomer(customer),
+            icon:const Icon(Icons.tune),
+            label:const Text('Manage Buyer / Seller access'),
+          )),
           const SizedBox(height:12),
           GridView.count(crossAxisCount:MediaQuery.of(pageContext).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:2.15,children:[
             _customerMetric('Total sales','KES ${totalSales.toStringAsFixed(2)}',Icons.shopping_bag_outlined),
@@ -7159,44 +7264,6 @@ class _CustomersPageState extends State<CustomersPage> {
     }
   }
 
-  Future<void> permanentlyDeleteCustomerAccount(Map<String,dynamic> customer) async {
-    final name=customer['full_name']?.toString()??'this customer';
-    final confirmed=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
-      title:const Text('Permanently delete customer?'),
-      content:Text('This action cannot be undone. It will permanently remove $name\'s login and personal contact details. The customer history record will remain as an anonymized reference so sales, orders, payments and audit history are preserved.'),
-      actions:[
-        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
-        FilledButton(
-          style:FilledButton.styleFrom(backgroundColor:Colors.red),
-          onPressed:()=>Navigator.pop(dialogContext,true),
-          child:const Text('Permanently delete'),
-        ),
-      ],
-    ));
-    if(confirmed!=true)return;
-    try{
-      final session=Supabase.instance.client.auth.currentSession;
-      final accessToken=session?.accessToken;
-      if(accessToken==null||accessToken.isEmpty){
-        throw Exception('Your TAJIR session is missing or expired. Sign out and sign in again, then retry.');
-      }
-      final response=await Supabase.instance.client.functions.invoke(
-        'tajir-director-permanently-delete-customer',
-        headers:{'Authorization':'Bearer $accessToken'},
-        body:{'customer_id':customer['id'],'confirm_permanent_delete':true},
-      );
-      final data=response.data;
-      if(response.status!=200||data is! Map||data['success']!=true){
-        throw FormatException(data is Map?(friendlyError(data['error'] ?? 'Something went wrong.')??'Could not permanently delete customer.'):'Could not permanently delete customer.');
-      }
-      if(!mounted)return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personal details permanently removed. Financial and transaction history retained.')));
-      await load();
-    }catch(e){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not permanently delete customer: ${friendlyError(e)}')));
-    }
-  }
-
   Future<void> setActive(Map<String,dynamic> row,bool active) async {
     try {
       final db = Supabase.instance.client;
@@ -7215,7 +7282,7 @@ class _CustomersPageState extends State<CustomersPage> {
 
   @override Widget build(BuildContext context) {
     final query=search.text.trim().toLowerCase();
-    // Permanently deleted customers are removed from this list; anonymized transaction history remains in the database.
+    // Customer records can be archived and restored, but never permanently deleted from the app.
     final deletedCount=rows.where((r)=>r['deleted_at']!=null&&r['permanently_deleted_at']==null).length;
     final filtered=rows.where((r)=>(showDeleted?(r['deleted_at']!=null&&r['permanently_deleted_at']==null):r['deleted_at']==null)&&((r['full_name']??'').toString().toLowerCase().contains(query)||(r['phone']??'').toString().toLowerCase().contains(query))).toList();
     return ListView(padding:const EdgeInsets.all(18),children:[
@@ -7243,7 +7310,6 @@ class _CustomersPageState extends State<CustomersPage> {
           if(v=='activate')setActive(r,true);
           if(v=='delete')deleteCustomerAccount(r);
           if(v=='restore')restoreCustomerAccount(r);
-          if(v=='permanent')permanentlyDeleteCustomerAccount(r);
         },
           itemBuilder:(context)=>[
             if(!showDeleted)const PopupMenuItem(value:'edit',child:Text('Edit details')),
@@ -7251,7 +7317,6 @@ class _CustomersPageState extends State<CustomersPage> {
             if(!showDeleted&&r['active']==false)const PopupMenuItem(value:'activate',child:Text('Reactivate suspended account')),
             if(!showDeleted)const PopupMenuItem(value:'delete',child:Text('Move to Deleted Accounts',style:TextStyle(color:Colors.red))),
             if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'restore',child:Text('Restore account')),
-            if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'permanent',child:Text('Permanently delete',style:TextStyle(color:Colors.red))),
           ]),
           ]),
       ))),
