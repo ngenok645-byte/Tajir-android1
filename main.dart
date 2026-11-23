@@ -2454,8 +2454,8 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status,total_value_kes,branch_id,branches(name),marketplace_listing_selling_prices(selling_price_kes)').eq('status','active').neq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
    }else{
     final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
-    final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').order('created_at',ascending:false);
-    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').order('created_at',ascending:false);
+    final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
     r=[
      ...List<Map<String,dynamic>>.from(marketplaceRows),
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
@@ -2478,6 +2478,11 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
  bool _isClearedOrder(Map<String,dynamic> row){
   final status=(row['status']??'').toString().toLowerCase();
   return const {'delivered','completed','fulfilled'}.contains(status);
+ }
+ String _orderDate(dynamic value){
+  final date=DateTime.tryParse((value??'').toString())?.toLocal();
+  if(date==null)return 'Date unavailable';
+  return '${date.day.toString().padLeft(2,'0')}/${date.month.toString().padLeft(2,'0')}/${date.year} ${date.hour.toString().padLeft(2,'0')}:${date.minute.toString().padLeft(2,'0')}';
  }
  String _reviewType(Map<String,dynamic> row){
   if(row['_is_custom_request']==true)return 'customer_custom_product_request';
@@ -2885,7 +2890,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
       return Card(child:ListTile(
        leading:const Icon(Icons.assignment_late_outlined,color:Colors.deepOrange),
        title:Text((r['product_name']??'Custom product').toString()),
-       subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\n'+((r['request_direction']??'BUY_FROM_TAJIR')=='SELL_TO_TAJIR'?'Offer to sell to TAJIR':'Request to buy from TAJIR')+'\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • TAJIR agreed: KES '+agreed.toString()+'/'+unit)+'\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\nDirector: '+response)),
+       subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\n'+((r['request_direction']??'BUY_FROM_TAJIR')=='SELL_TO_TAJIR'?'Offer to sell to TAJIR':'Request to buy from TAJIR')+'\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • TAJIR agreed: KES '+agreed.toString()+'/'+unit)+'\nOrder reference: '+r['id'].toString().substring(0,8).toUpperCase()+' • Placed: '+_orderDate(r['created_at'])+'\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\nDirector: '+response)),
        isThreeLine:true,
        trailing:_isClearedOrder(r)?_reviewAction(r):r['customer_response']=='declined'
         ? const Text('Declined')
@@ -2915,7 +2920,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      final seller=l['seller_customer_id']==widget.customer['id'];
      return Card(child:ListTile(
       title:Text((l['product_name']??'Purchase request').toString()),
-      subtitle:Text('Quantity: '+r['quantity'].toString()+' '+(l['unit']??'').toString()+' • Official price: KES '+(r['unit_price_kes']??'Pending').toString()+' / '+(l['unit']??'unit').toString()+' • Total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()),
+      subtitle:Text('Quantity: '+r['quantity'].toString()+' '+(l['unit']??'').toString()+' • Official price: KES '+(r['unit_price_kes']??'Pending').toString()+' / '+(l['unit']??'unit').toString()+' • Total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()+'\nOrder reference: '+r['id'].toString().substring(0,8).toUpperCase()+' • Placed: '+_orderDate(r['created_at'])),
       trailing:seller&&!_isClearedOrder(r)&&!['declined','cancelled'].contains((r['status']??'').toString())?PopupMenuButton<String>(tooltip:'Update order progress',onSelected:(v)=>change(r,v,false),itemBuilder:(_)=>[
        if(r['status']=='pending')const PopupMenuItem(value:'accepted',child:Text('Accept order')),
        if(r['status']=='pending')const PopupMenuItem(value:'declined',child:Text('Decline order')),
@@ -7021,6 +7026,12 @@ class _CustomersPageState extends State<CustomersPage> {
               ]),
             ],
           ]))),
+          const SizedBox(height:10),
+          SizedBox(width:double.infinity,child:OutlinedButton.icon(
+            onPressed:()=>editCustomer(customer),
+            icon:const Icon(Icons.tune),
+            label:const Text('Manage Buyer / Seller access'),
+          )),
           const SizedBox(height:12),
           GridView.count(crossAxisCount:MediaQuery.of(pageContext).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:2.15,children:[
             _customerMetric('Total sales','KES ${totalSales.toStringAsFixed(2)}',Icons.shopping_bag_outlined),
@@ -7159,44 +7170,6 @@ class _CustomersPageState extends State<CustomersPage> {
     }
   }
 
-  Future<void> permanentlyDeleteCustomerAccount(Map<String,dynamic> customer) async {
-    final name=customer['full_name']?.toString()??'this customer';
-    final confirmed=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
-      title:const Text('Permanently delete customer?'),
-      content:Text('This action cannot be undone. It will permanently remove $name\'s login and personal contact details. The customer history record will remain as an anonymized reference so sales, orders, payments and audit history are preserved.'),
-      actions:[
-        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
-        FilledButton(
-          style:FilledButton.styleFrom(backgroundColor:Colors.red),
-          onPressed:()=>Navigator.pop(dialogContext,true),
-          child:const Text('Permanently delete'),
-        ),
-      ],
-    ));
-    if(confirmed!=true)return;
-    try{
-      final session=Supabase.instance.client.auth.currentSession;
-      final accessToken=session?.accessToken;
-      if(accessToken==null||accessToken.isEmpty){
-        throw Exception('Your TAJIR session is missing or expired. Sign out and sign in again, then retry.');
-      }
-      final response=await Supabase.instance.client.functions.invoke(
-        'tajir-director-permanently-delete-customer',
-        headers:{'Authorization':'Bearer $accessToken'},
-        body:{'customer_id':customer['id'],'confirm_permanent_delete':true},
-      );
-      final data=response.data;
-      if(response.status!=200||data is! Map||data['success']!=true){
-        throw FormatException(data is Map?(friendlyError(data['error'] ?? 'Something went wrong.')??'Could not permanently delete customer.'):'Could not permanently delete customer.');
-      }
-      if(!mounted)return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personal details permanently removed. Financial and transaction history retained.')));
-      await load();
-    }catch(e){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not permanently delete customer: ${friendlyError(e)}')));
-    }
-  }
-
   Future<void> setActive(Map<String,dynamic> row,bool active) async {
     try {
       final db = Supabase.instance.client;
@@ -7215,7 +7188,7 @@ class _CustomersPageState extends State<CustomersPage> {
 
   @override Widget build(BuildContext context) {
     final query=search.text.trim().toLowerCase();
-    // Permanently deleted customers are removed from this list; anonymized transaction history remains in the database.
+    // Customer records can be archived and restored, but never permanently deleted from the app.
     final deletedCount=rows.where((r)=>r['deleted_at']!=null&&r['permanently_deleted_at']==null).length;
     final filtered=rows.where((r)=>(showDeleted?(r['deleted_at']!=null&&r['permanently_deleted_at']==null):r['deleted_at']==null)&&((r['full_name']??'').toString().toLowerCase().contains(query)||(r['phone']??'').toString().toLowerCase().contains(query))).toList();
     return ListView(padding:const EdgeInsets.all(18),children:[
@@ -7243,7 +7216,6 @@ class _CustomersPageState extends State<CustomersPage> {
           if(v=='activate')setActive(r,true);
           if(v=='delete')deleteCustomerAccount(r);
           if(v=='restore')restoreCustomerAccount(r);
-          if(v=='permanent')permanentlyDeleteCustomerAccount(r);
         },
           itemBuilder:(context)=>[
             if(!showDeleted)const PopupMenuItem(value:'edit',child:Text('Edit details')),
@@ -7251,7 +7223,6 @@ class _CustomersPageState extends State<CustomersPage> {
             if(!showDeleted&&r['active']==false)const PopupMenuItem(value:'activate',child:Text('Reactivate suspended account')),
             if(!showDeleted)const PopupMenuItem(value:'delete',child:Text('Move to Deleted Accounts',style:TextStyle(color:Colors.red))),
             if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'restore',child:Text('Restore account')),
-            if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'permanent',child:Text('Permanently delete',style:TextStyle(color:Colors.red))),
           ]),
           ]),
       ))),
