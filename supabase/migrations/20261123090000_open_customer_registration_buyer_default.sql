@@ -1,11 +1,11 @@
--- Open customer self-registration: buyer access is automatic; seller access remains Director-controlled.
+-- Open customer registration: users choose buyer or seller; only Directors grant both.
 alter table public.customers
   alter column active set default true,
   alter column marketplace_can_buy set default true,
   alter column marketplace_can_sell set default false;
 
--- Release existing pending customer accounts without reviving accounts deliberately suspended
--- by a Director or accounts that have been archived/permanently anonymized.
+-- Activate only pending/non-suspended customer accounts; preserve deliberately suspended,
+-- disabled, archived, and permanently anonymized accounts.
 update public.customers c
    set active = true,
        marketplace_can_buy = true,
@@ -17,7 +17,8 @@ update public.customers c
  where p.id = c.profile_id
    and c.deleted_at is null
    and c.permanently_deleted_at is null
-   and p.status is distinct from 'suspended';
+   and p.status is distinct from 'suspended'::public.account_status
+   and p.status is distinct from 'disabled'::public.account_status;
 
 update public.profiles p
    set status = 'active',
@@ -33,6 +34,6 @@ update public.profiles p
    );
 
 comment on column public.customers.marketplace_can_buy is
-  'Buyer access is granted automatically at customer registration; Directors may manage access.';
+  'Buyer access is selected at registration or granted by an authorised Director.';
 comment on column public.customers.marketplace_can_sell is
-  'Seller access is granted only by an authorised Director; true enables both buyer and seller access.';
+  'Seller access is selected at registration or granted by an authorised Director; only a Director may grant both.';
