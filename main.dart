@@ -248,32 +248,59 @@ Future<Map<String, dynamic>?> readTajirOfflineData(String name) async {
   }
 }
 
-Future<Map<String, dynamic>?> checkTajirUpdate() async {
+Future<Map<String, dynamic>> checkTajirUpdate() async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
   try {
-    final request = await client.getUrl(Uri.parse('https://api.github.com/repos/ngenok645-byte/Tajir-android1/releases/latest'));
+    final request = await client.getUrl(Uri.parse(
+      'https://api.github.com/repos/ngenok645-byte/Tajir-android1/releases/latest',
+    ));
     request.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
     request.headers.set(HttpHeaders.userAgentHeader, 'TAJIR-Android');
-    final response = await request.close();
-    if (response.statusCode != 200) return null;
-    final payload = jsonDecode(await response.transform(utf8.decoder).join());
-    if (payload is! Map) return null;
-    final tag = (payload['tag_name'] ?? '').toString().replaceFirst(RegExp(r'^[vV]'), '');
-    final remote = int.tryParse(tag) ?? 0;
-    final local = int.tryParse(tajirVersion) ?? 0;
-    if (remote <= local) return null;
+    final response = await request.close().timeout(const Duration(seconds: 15));
+    if (response.statusCode != HttpStatus.ok) {
+      return {
+        'status': 'error',
+        'message': 'The update service returned HTTP ${response.statusCode}.',
+      };
+    }
+
+    final payload = jsonDecode(
+      await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 15)),
+    );
+    if (payload is! Map) {
+      return {'status': 'error', 'message': 'The update response was invalid.'};
+    }
+
+    final tag = (payload['tag_name'] ?? '')
+        .toString()
+        .replaceFirst(RegExp(r'^[vV]'), '');
+    final remote = int.tryParse(tag);
+    final local = int.tryParse(tajirVersion);
+    if (remote == null || remote <= 0 || local == null || local < 0) {
+      return {'status': 'error', 'message': 'The app or release version is invalid.'};
+    }
+    if (remote <= local) {
+      return {'status': 'current', 'version': tag};
+    }
+
     final assets = payload['assets'];
-    if (assets is! List) return null;
+    if (assets is! List) {
+      return {'status': 'error', 'message': 'The release has no downloadable APK.'};
+    }
     for (final asset in assets) {
-      final assetName = asset is Map ? (asset['name'] ?? '').toString().toLowerCase() : '';
-      if (asset is Map && assetName.endsWith('.apk') && assetName.contains('signed')) {
+      final name = asset is Map ? (asset['name'] ?? '').toString().toLowerCase() : '';
+      if (asset is Map && name.endsWith('.apk') && name.contains('signed')) {
         final url = (asset['browser_download_url'] ?? '').toString();
-        if (url.startsWith('https://')) return {'version': tag, 'url': url};
+        if (url.startsWith('https://')) {
+          return {'status': 'available', 'version': tag, 'url': url};
+        }
       }
     }
-    return null;
+    return {'status': 'error', 'message': 'The latest release has no valid signed APK download.'};
+  } on TimeoutException {
+    return {'status': 'error', 'message': 'The update check timed out. Check your internet connection.'};
   } catch (_) {
-    return null;
+    return {'status': 'error', 'message': 'Could not check for updates. Check your internet connection and try again.'};
   } finally {
     client.close(force: true);
   }
@@ -286,11 +313,12 @@ Future<void> openTajirUpdate(String url) async {
 Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = false}) async {
   final found = await checkTajirUpdate();
   if (!context.mounted) return;
-  if (found == null) {
+  if (found['status'] != 'available') {
     if (showCurrent) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('TAJIR is up to date.')),
-      );
+      final message = found['status'] == 'current'
+          ? 'TAJIR is up to date.'
+          : (found['message'] ?? 'Could not check for updates.').toString();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
     return;
   }
@@ -298,7 +326,7 @@ Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = fals
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: const Text('TAJIR update available'),
-      content: Text('A newer version (${found['version']}) is ready. TAJIR will download it and open Android\'s installer. Choose Update to replace the existing app; you should not need to uninstall or clear your data.'),
+      content: Text('A newer version (${found['version']}) is ready. TAJIR will download it and open Android\\'s installer. Choose Update to replace the existing app; you should not need to uninstall or clear your data.'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Later')),
         FilledButton.icon(
@@ -1994,9 +2022,16 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
 
  @override void initState(){super.initState();load(); WidgetsBinding.instance.addPostFrameCallback((_) => checkCustomerUpdates());}
 
- Future<void> checkCustomerUpdates() async {
+ Future<void> checkCustomerUpdates({bool showStatus=false}) async {
   final found = await checkTajirUpdate();
-  if (!mounted || found == null) return;
+  if (!mounted) return;
+  if (found['status'] != 'available') {
+   if(showStatus){
+    final message=found['status']=='current'?'TAJIR is up to date.':(found['message']??'Could not check for updates.').toString();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(message)));
+   }
+   return;
+  }
   showDialog<void>(context:context,builder:(ctx)=>AlertDialog(
    title:const Text('TAJIR update available'),
    content:Text('A newer version (${found['version']}) is ready. Update to get the latest improvements and fixes.'),
@@ -2114,7 +2149,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
     ):null,
     title:Text(onSection?sectionTitle(selectedSection!):'TAJIR - '+c!['full_name'].toString()),
     actions:[
-     IconButton(tooltip:'Update TAJIR',onPressed:checkCustomerUpdates,icon:const Icon(Icons.system_update_alt)),
+     IconButton(tooltip:'Check for TAJIR updates',onPressed:()=>checkCustomerUpdates(showStatus:true),icon:const Icon(Icons.system_update_alt)),
      IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
      IconButton(tooltip:'Refresh',onPressed:onSection?()=>setState((){}):load,icon:const Icon(Icons.refresh)),
      IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
@@ -4007,8 +4042,8 @@ class _HomeShellState extends State<HomeShell> {
     if (mounted) setState(() => checkingUpdate = true);
     final found = await checkTajirUpdate();
     if (!mounted) return;
-    setState(() { availableUpdate = found; checkingUpdate = false; });
-    if (found != null) {
+    setState(() { availableUpdate = found['status']=='available' ? found : null; checkingUpdate = false; });
+    if (found['status'] == 'available') {
       showDialog<void>(context: context, builder: (ctx) => AlertDialog(
         title: const Text('TAJIR update available'),
         content: Text('A newer version (${found['version']}) is ready. TAJIR will download it and open Android’s installer. Choose Update to replace the existing app; you should not need to uninstall or clear your data.'),
@@ -4022,7 +4057,10 @@ class _HomeShellState extends State<HomeShell> {
         ],
       ));
     } else if (showCurrent) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('TAJIR is up to date.')));
+      final message = found['status'] == 'current'
+          ? 'TAJIR is up to date.'
+          : (found['message'] ?? 'Could not check for updates.').toString();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
