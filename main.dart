@@ -251,52 +251,77 @@ Future<Map<String, dynamic>?> readTajirOfflineData(String name) async {
 Future<Map<String, dynamic>> checkTajirUpdate() async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
   try {
-    final request = await client.getUrl(Uri.parse(
+    // Try GitHub's release API first. If its unauthenticated rate limit is
+    // reached (HTTP 403), fall back to the public latest-release redirect.
+    final apiRequest = await client.getUrl(Uri.parse(
       'https://api.github.com/repos/ngenok645-byte/Tajir-android1/releases/latest',
     ));
-    request.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
-    request.headers.set(HttpHeaders.userAgentHeader, 'TAJIR-Android');
-    final response = await request.close().timeout(const Duration(seconds: 15));
-    if (response.statusCode != HttpStatus.ok) {
-      return {
-        'status': 'error',
-        'message': 'The update service returned HTTP ${response.statusCode}.',
-      };
+    apiRequest.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
+    apiRequest.headers.set(HttpHeaders.userAgentHeader, 'TAJIR-Android');
+    final apiResponse = await apiRequest.close().timeout(const Duration(seconds: 15));
+
+    String tag = '';
+    String apkUrl = '';
+    if (apiResponse.statusCode == HttpStatus.ok) {
+      final payload = jsonDecode(
+        await apiResponse.transform(utf8.decoder).join().timeout(const Duration(seconds: 15)),
+      );
+      if (payload is! Map) {
+        return {'status': 'error', 'message': 'The update response was invalid.'};
+      }
+      tag = (payload['tag_name'] ?? '').toString();
+      final assets = payload['assets'];
+      if (assets is List) {
+        for (final asset in assets) {
+          final name = asset is Map ? (asset['name'] ?? '').toString().toLowerCase() : '';
+          if (asset is Map && name.endsWith('.apk') && name.contains('signed')) {
+            apkUrl = (asset['browser_download_url'] ?? '').toString();
+            if (apkUrl.startsWith('https://')) break;
+          }
+        }
+      }
+    } else if (apiResponse.statusCode == HttpStatus.forbidden ||
+        apiResponse.statusCode == HttpStatus.tooManyRequests ||
+        apiResponse.statusCode >= 500) {
+      // GitHub's public HTML release page is not subject to the REST API
+      // unauthenticated request quota. HttpClient follows its latest->tag redirect.
+      await apiResponse.drain();
+      final pageRequest = await client.getUrl(Uri.parse(
+        'https://github.com/ngenok645-byte/Tajir-android1/releases/latest',
+      ));
+      pageRequest.headers.set(HttpHeaders.userAgentHeader, 'TAJIR-Android');
+      final pageResponse = await pageRequest.close().timeout(const Duration(seconds: 15));
+      await pageResponse.drain();
+      if (pageResponse.statusCode != HttpStatus.ok) {
+        return {'status': 'error', 'message': 'GitHub could not provide the latest release (HTTP ${pageResponse.statusCode}).'};
+      }
+      final finalUri = pageResponse.redirects.isNotEmpty
+          ? pageResponse.redirects.last.location
+          : pageRequest.uri;
+      final segments = finalUri.pathSegments;
+      final tagIndex = segments.indexOf('tag');
+      if (tagIndex < 0 || tagIndex + 1 >= segments.length) {
+        return {'status': 'error', 'message': 'Could not identify the latest TAJIR release.'};
+      }
+      tag = segments[tagIndex + 1];
+      final cleanTag = tag.replaceFirst(RegExp(r'^[vV]'), '');
+      apkUrl = 'https://github.com/ngenok645-byte/Tajir-android1/releases/download/$tag/TAJIR-Android-v$cleanTag-signed.apk';
+    } else {
+      await apiResponse.drain();
+      return {'status': 'error', 'message': 'The update service returned HTTP ${apiResponse.statusCode}.'};
     }
 
-    final payload = jsonDecode(
-      await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 15)),
-    );
-    if (payload is! Map) {
-      return {'status': 'error', 'message': 'The update response was invalid.'};
-    }
-
-    final tag = (payload['tag_name'] ?? '')
-        .toString()
-        .replaceFirst(RegExp(r'^[vV]'), '');
-    final remote = int.tryParse(tag);
+    final cleanTag = tag.replaceFirst(RegExp(r'^[vV]'), '');
+    final remote = int.tryParse(cleanTag);
     final local = int.tryParse(tajirVersion);
     if (remote == null || remote <= 0 || local == null || local < 0) {
       return {'status': 'error', 'message': 'The app or release version is invalid.'};
     }
-    if (remote <= local) {
-      return {'status': 'current', 'version': tag};
+    if (remote <= local) return {'status': 'current', 'version': cleanTag};
+    if (!apkUrl.startsWith('https://') || !apkUrl.toLowerCase().endsWith('.apk')) {
+      return {'status': 'error', 'message': 'The latest release has no valid signed APK download.'};
     }
-
-    final assets = payload['assets'];
-    if (assets is! List) {
-      return {'status': 'error', 'message': 'The release has no downloadable APK.'};
-    }
-    for (final asset in assets) {
-      final name = asset is Map ? (asset['name'] ?? '').toString().toLowerCase() : '';
-      if (asset is Map && name.endsWith('.apk') && name.contains('signed')) {
-        final url = (asset['browser_download_url'] ?? '').toString();
-        if (url.startsWith('https://')) {
-          return {'status': 'available', 'version': tag, 'url': url};
-        }
-      }
-    }
-    return {'status': 'error', 'message': 'The latest release has no valid signed APK download.'};
+    return {'status': 'available', 'version': cleanTag, 'url': apkUrl};
   } on TimeoutException {
     return {'status': 'error', 'message': 'The update check timed out. Check your internet connection.'};
   } catch (_) {
