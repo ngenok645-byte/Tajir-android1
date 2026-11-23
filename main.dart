@@ -4492,6 +4492,148 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
   }
 }
 
+class ProductTraceabilityPage extends StatefulWidget {
+  const ProductTraceabilityPage({super.key});
+  @override
+  State<ProductTraceabilityPage> createState() => _ProductTraceabilityPageState();
+}
+
+class _ProductTraceabilityPageState extends State<ProductTraceabilityPage> {
+  final db = Supabase.instance.client;
+  final serialController = TextEditingController();
+  bool loading = false;
+  String? error;
+  String searchedSerial = '';
+  final Map<String, List<Map<String, dynamic>>> records = {};
+
+  @override
+  void dispose() {
+    serialController.dispose();
+    super.dispose();
+  }
+
+  Future<void> searchSerial() async {
+    final serial = serialController.text.trim();
+    if (serial.isEmpty || loading) {
+      if (serial.isEmpty) setState(() => error = 'Enter a product or batch serial number.');
+      return;
+    }
+    setState(() {
+      loading = true;
+      error = null;
+      searchedSerial = serial;
+      records.clear();
+    });
+    try {
+      final results = await Future.wait<dynamic>([
+        db.from('stock_batches').select('*').eq('batch_code', serial),
+        db.from('purchase_items').select('*').eq('product_serial', serial),
+        db.from('purchase_costs').select('*').eq('product_serial', serial),
+        db.from('sale_items').select('*').contains('product_serials', [serial]),
+        db.from('customer_payments').select('*').contains('product_serials', [serial]),
+        db.from('supplier_payments').select('*').contains('product_serials', [serial]),
+        db.from('expenses').select('*').contains('product_serials', [serial]),
+      ]);
+      const keys = [
+        'Stock batches',
+        'Purchase records',
+        'Purchase costs',
+        'Sales',
+        'Customer payments',
+        'Supplier payments',
+        'Expenses',
+      ];
+      for (var i = 0; i < keys.length; i++) {
+        records[keys[i]] = List<Map<String, dynamic>>.from(results[i]);
+      }
+    } catch (e) {
+      error = 'Could not retrieve the full serial history. ' + friendlyError(e);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String _summary(Map<String, dynamic> row) {
+    const preferred = [
+      'batch_code', 'purchase_id', 'sale_id', 'quantity', 'received_quantity',
+      'accepted_quantity', 'remaining_quantity', 'unit', 'amount',
+      'landed_cost_total', 'buying_price_per_unit', 'unit_selling_price',
+      'cost_type', 'description', 'status', 'method', 'payment_mode',
+      'provider_reference', 'reference', 'purchase_date', 'payment_date',
+      'received_at', 'incurred_at',
+    ];
+    final parts = <String>[];
+    for (final key in preferred) {
+      final value = row[key];
+      if (value != null && value.toString().trim().isNotEmpty) {
+        parts.add(key.replaceAll('_', ' ') + ': ' + value.toString());
+      }
+    }
+    return parts.isEmpty ? 'Linked record • ' + (row['id'] ?? 'No reference').toString() : parts.join('  •  ');
+  }
+
+  Widget _section(String title, List<Map<String, dynamic>> rows) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title + ' (' + rows.length.toString() + ')', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          if (rows.isEmpty)
+            const Padding(padding: EdgeInsets.only(top: 8), child: Text('No linked records found.', style: TextStyle(color: Colors.black54)))
+          else
+            ...rows.map((row) => ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.link, color: brandGreen),
+              title: Text(_summary(row), style: const TextStyle(fontSize: 12)),
+              subtitle: Text('Record ID: ' + (row['id'] ?? 'Not available').toString(), style: const TextStyle(fontSize: 10)),
+            )),
+        ]),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(16),
+    children: [
+      const Text('Product serial traceability', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 5),
+      const Text('Search a stock batch serial to follow its purchase, associated costs, sale, customer receipts, supplier payments and expenses. This is a read-only Director view.'),
+      const SizedBox(height: 14),
+      TextField(
+        controller: serialController,
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => searchSerial(),
+        decoration: InputDecoration(
+          labelText: 'Product / batch serial number',
+          hintText: 'Enter the exact serial or batch code',
+          prefixIcon: const Icon(Icons.qr_code_2),
+          border: const OutlineInputBorder(),
+          suffixIcon: IconButton(
+            tooltip: 'Search serial',
+            onPressed: loading ? null : searchSerial,
+            icon: const Icon(Icons.search),
+          ),
+        ),
+      ),
+      const SizedBox(height: 10),
+      if (loading) const LinearProgressIndicator(),
+      if (error != null) Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text(error!, style: const TextStyle(color: Colors.red)),
+      ),
+      if (searchedSerial.isNotEmpty && !loading) ...[
+        Text('History for: ' + searchedSerial, style: const TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        ...records.entries.map((entry) => _section(entry.key, entry.value)),
+        if (records.values.every((rows) => rows.isEmpty))
+          const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('No records were found for this serial. Check the number and try again.'))),
+      ],
+    ],
+  );
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
@@ -4554,14 +4696,15 @@ class _HomeShellState extends State<HomeShell> {
       if (director) const DirectorTractorRatesPage(),
       if (director) const DirectorMasterOversightPage(),
       if (director) const DirectorOrdersPage(),
+      if (director) const ProductTraceabilityPage(),
     ];
   }
   List<String> get labels => accountant && !director && !branchManager
     ? ['Dashboard','Stock','Financial Records']
-    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant || branchManager) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices', if (director) 'Tractor Rates', if (director) 'TAJIR Oversight', if (director) 'Orders'];
+    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant || branchManager) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices', if (director) 'Tractor Rates', if (director) 'TAJIR Oversight', if (director) 'Orders', if (director) 'Product Traceability'];
   List<IconData> get icons => accountant && !director && !branchManager
     ? [Icons.dashboard,Icons.inventory_2,Icons.account_balance]
-    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant || branchManager) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture, if (director) Icons.admin_panel_settings, if (director) Icons.receipt_long];
+    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant || branchManager) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture, if (director) Icons.admin_panel_settings, if (director) Icons.receipt_long, if (director) Icons.qr_code_2];
   @override void initState() {
     super.initState();
     loadAccess();
@@ -4600,6 +4743,7 @@ class _HomeShellState extends State<HomeShell> {
       if (director) ListTile(leading: const Icon(Icons.storefront_outlined), title: const Text('Marketplace Prices'), selected: index == 10, onTap: () { Navigator.pop(sheetContext); selectPage(10); }),
       if (director) ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Service Rates'), selected: index == 11, onTap: () { Navigator.pop(sheetContext); selectPage(11); }),
       if (director) ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('TAJIR Oversight'), selected: index == 12, onTap: () { Navigator.pop(sheetContext); selectPage(12); }),
+      if (director) ListTile(leading: const Icon(Icons.qr_code_2), title: const Text('Product Traceability'), selected: index == 14, onTap: () { Navigator.pop(sheetContext); selectPage(14); }),
       const SizedBox(height: 8),
     ])));
   }
