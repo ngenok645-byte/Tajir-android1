@@ -2056,13 +2056,32 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
        Expanded(child:homeTile(title:'SELL PRODUCTS',subtitle:sell?'Choose a catalogue product and view the Director-approved TAJIR buying price':'Access locked',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined,section:1,locked:!sell))
       ]),
       const SizedBox(height:10),
-      homeTile(title:'TRACTOR & MACHINERY SERVICES',subtitle:'Book ploughing, planting, harvesting and more',imageUrl:TajirPictures.tractor,icon:Icons.agriculture,section:3,large:true),
+      Card(
+       margin:EdgeInsets.zero,
+       shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(18)),
+       child:Padding(
+        padding:const EdgeInsets.all(12),
+        child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+         Row(children:[
+          const CircleAvatar(backgroundColor:Color(0xFFEAF4EC),child:Icon(Icons.agriculture,color:brandGreen)),
+          const SizedBox(width:10),
+          const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+           Text('TRACTOR SERVICES',style:TextStyle(fontWeight:FontWeight.bold,fontSize:16)),
+           SizedBox(height:2),
+           Text('All machinery services and farm-job bookings in one place',style:TextStyle(color:Colors.black54,fontSize:12)),
+          ])),
+         ]),
+         const SizedBox(height:10),
+         Row(children:[
+          Expanded(child:homeTile(title:'BOOK A SERVICE',subtitle:'Ploughing, harrowing, planting, transport and more',imageUrl:TajirPictures.tractor,icon:Icons.agriculture,section:3)),
+          const SizedBox(width:8),
+          Expanded(child:homeTile(title:'MY BOOKINGS',subtitle:'Track assigned tractors and farm jobs',imageUrl:TajirPictures.bookings,icon:Icons.calendar_month_outlined,section:4)),
+         ]),
+        ]),
+       ),
+      ),
       const SizedBox(height:10),
-      Row(children:[
-       Expanded(child:homeTile(title:'MY BOOKINGS',subtitle:'Track farm jobs',imageUrl:TajirPictures.bookings,icon:Icons.calendar_month_outlined,section:4)),
-       const SizedBox(width:8),
-       Expanded(child:homeTile(title:'MY BRANCH',subtitle:'Choose your branch',imageUrl:TajirPictures.branch,icon:Icons.location_on_outlined,section:5))
-      ]),
+      homeTile(title:'MY BRANCH',subtitle:'Choose your branch',imageUrl:TajirPictures.branch,icon:Icons.location_on_outlined,section:5),
       const SizedBox(height:10),
       homeTile(title:'PURCHASE REQUESTS',subtitle:'View and follow up your product requests',imageUrl:TajirPictures.orders,icon:Icons.receipt_long_outlined,section:2),
       const SizedBox(height:10),
