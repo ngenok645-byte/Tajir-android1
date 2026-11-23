@@ -16,10 +16,11 @@ Deno.serve(async (req) => {
   try {
     const b = await req.json();
     const pin = typeof b.pin === "string" ? b.pin.trim() : "";
-    // Users may self-register as buyer OR seller. Only a Director may grant both.\n    const customerType = b.customer_type === "seller" ? "seller" : b.customer_type === "buyer" || b.customer_type == null ? "buyer" : "";
+    // Users may self-register as buyer OR seller. Only a Director may grant both.
+    const customerType = b.customer_type === "seller" ? "seller" : b.customer_type === "buyer" || b.customer_type == null ? "buyer" : "";
     const fullName = typeof b.full_name === "string" ? b.full_name.trim().replace(/\s+/g, " ") : "";
     const nationalId = typeof b.national_id === "string" ? b.national_id.replace(/[^0-9]/g, "") : "";
-    if (typeof b.phone !== "string" || !/^\d{4}$/.test(pin) ||
+    if (!customerType || typeof b.phone !== "string" || !/^\d{4}$/.test(pin) ||
         fullName.length < 2 || fullName.length > 120 ||
         !/^[0-9]{7,8}$/.test(nationalId)) {
       return Response.json({
