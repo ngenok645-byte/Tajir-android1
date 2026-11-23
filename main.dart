@@ -4402,9 +4402,7 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
     final source = row['_source'].toString();
     final quantity = TextEditingController(text: source == 'marketplace_purchase_requests'
         ? (row['quantity'] ?? '').toString()
-        : source == 'customer_product_requests'
-            ? (row['quantity_requested'] ?? '').toString()
-            : (row['total_amount'] ?? '').toString());
+        : (row['quantity_requested'] ?? '').toString());
     final price = TextEditingController(text: source == 'marketplace_purchase_requests'
         ? (row['unit_price_kes'] ?? '').toString()
         : source == 'customer_product_requests'
@@ -4420,10 +4418,8 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
           if (source != 'customer_product_requests')
             TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Unit price (KES)')),
           TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'Order note')),
-        ] else ...[
-          TextField(controller: quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Order total (KES)')),
+        ] else
           TextField(controller: delivery, maxLines: 2, decoration: const InputDecoration(labelText: 'Delivery address')),
-        ],
       ])),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
@@ -4441,11 +4437,12 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
       } else if (source == 'customer_product_requests') {
         final q = double.tryParse(quantity.text.trim());
         if (q == null || q <= 0) throw const FormatException('Enter a valid quantity.');
-        changes.addAll({'quantity_requested': q, 'line_total_kes': q * numVal(row['unit_price_per_kg']), 'note': note.text.trim()});
+        final unit = (row['quantity_unit'] ?? 'KG').toString().toUpperCase();
+        final kg = unit == 'BAG' ? q * kgPerBag : q;
+        final pricePerKg = numVal(row['unit_price_per_kg']);
+        changes.addAll({'quantity_requested': q, 'quantity_kg': kg, 'line_total_kes': kg * pricePerKg, 'note': note.text.trim()});
       } else {
-        final total = double.tryParse(quantity.text.trim());
-        if (total == null || total < 0) throw const FormatException('Enter a valid order total.');
-        changes.addAll({'total_amount': total, 'delivery_address': delivery.text.trim()});
+        changes.add('delivery_address', delivery.text.trim());
       }
       await db.from(source).update(changes).eq('id', row['id']);
       await load();
