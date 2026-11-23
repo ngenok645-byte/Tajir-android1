@@ -1017,6 +1017,148 @@ class AuthGate extends StatelessWidget {
 }
 
 
+class ProviderRegistrationPage extends StatefulWidget {
+  final String roleCode;
+  final String roleName;
+  const ProviderRegistrationPage({super.key, required this.roleCode, required this.roleName});
+
+  @override
+  State<ProviderRegistrationPage> createState() => _ProviderRegistrationPageState();
+}
+
+class _ProviderRegistrationPageState extends State<ProviderRegistrationPage> {
+  final name = TextEditingController();
+  final phone = TextEditingController();
+  final business = TextEditingController();
+  final location = TextEditingController();
+  final services = TextEditingController();
+  final pin = TextEditingController();
+  final confirmPin = TextEditingController();
+  bool busy = false;
+  String? error;
+
+  bool get needsBusiness => widget.roleCode != 'driver';
+  bool get needsLocation => widget.roleCode == 'mechanic' || widget.roleCode == 'auto_spares_owner';
+
+  @override
+  void dispose() {
+    name.dispose(); phone.dispose(); business.dispose(); location.dispose();
+    services.dispose(); pin.dispose(); confirmPin.dispose();
+    super.dispose();
+  }
+
+  Future<void> submit() async {
+    if (busy) return;
+    setState(() { busy = true; error = null; });
+    try {
+      final normalized = normalizeKenyanPhone(phone.text);
+      if (name.text.trim().length < 2) throw const FormatException('Enter your full name.');
+      if (!RegExp(r'^\d{4}$').hasMatch(pin.text)) throw const FormatException('Choose a four-digit PIN.');
+      if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
+      if (needsBusiness && business.text.trim().length < 2) {
+        throw const FormatException('Enter your business or shop name.');
+      }
+      if (needsLocation && location.text.trim().length < 2) {
+        throw const FormatException('Enter your business location.');
+      }
+
+      final db = Supabase.instance.client;
+      final response = await db.functions.invoke('tajir-provider-register', body: {
+        'role_code': widget.roleCode,
+        'full_name': name.text.trim(),
+        'phone': normalized,
+        'pin': pin.text,
+        'business_name': business.text.trim(),
+        'location': location.text.trim(),
+        'services': services.text.split(',').map((v) => v.trim()).where((v) => v.isNotEmpty).take(8).toList(),
+      });
+      final data = response.data;
+      if (response.status != 200 || data is! Map || data['success'] != true) {
+        throw FormatException(data is Map
+          ? (friendlyError(data['error'] ?? 'Registration failed.') ?? 'Registration failed.')
+          : 'Registration failed. Please try again.');
+      }
+
+      try {
+        await db.auth.signInWithPassword(
+          email: tajirLoginEmail(normalized),
+          password: staffAuthPassword(pin.text),
+        );
+        if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+      } on AuthException {
+        if (mounted) setState(() => error = 'Your account has been created. Return to Sign in and use your phone number and PIN.');
+      }
+    } on FunctionException catch (e) {
+      final details = e.details;
+      if (mounted) setState(() => error = details is Map
+        ? (friendlyError(details['error'] ?? 'Registration failed.') ?? 'Registration failed.')
+        : (e.reasonPhrase ?? 'Registration failed.'));
+    } catch (e) {
+      if (mounted) setState(() => error = friendlyError(e).replaceFirst('FormatException: ', ''));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text('Join as ${widget.roleName}')),
+    body: SafeArea(child: Center(child: SingleChildScrollView(
+      padding: const EdgeInsets.all(18),
+      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 460),
+        child: Card(child: Padding(padding: const EdgeInsets.all(20),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const BrandMark(),
+            const SizedBox(height: 12),
+            Text('${widget.roleName} registration', textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            const Text('Create your account directly. Director verification may still be required before assets, repair work or spare-parts stock can be activated.',
+              textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
+            const SizedBox(height: 18),
+            TextField(controller: name, textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: phone, keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
+            if (needsBusiness) ...[
+              const SizedBox(height: 12),
+              TextField(controller: business, textCapitalization: TextCapitalization.words,
+                decoration: InputDecoration(labelText: widget.roleCode == 'auto_spares_owner' ? 'Shop name' : 'Business / company name', border: const OutlineInputBorder())),
+            ],
+            if (needsLocation) ...[
+              const SizedBox(height: 12),
+              TextField(controller: location, textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(labelText: 'Business location / town', border: OutlineInputBorder())),
+            ],
+            if (widget.roleCode == 'mechanic') ...[
+              const SizedBox(height: 12),
+              TextField(controller: services,
+                decoration: const InputDecoration(labelText: 'Services offered (separate with commas)', hintText: 'Engine repair, tyres, electrical', border: OutlineInputBorder())),
+            ],
+            const SizedBox(height: 12),
+            TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+              decoration: const InputDecoration(labelText: 'Create four-digit PIN', border: OutlineInputBorder(), counterText: '')),
+            const SizedBox(height: 8),
+            TextField(controller: confirmPin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+              decoration: const InputDecoration(labelText: 'Confirm PIN', border: OutlineInputBorder(), counterText: '')),
+            if (error != null) Padding(padding: const EdgeInsets.only(top: 12),
+              child: Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))),
+            const SizedBox(height: 16),
+            SizedBox(height: 48, child: FilledButton(
+              onPressed: busy ? null : submit,
+              child: Text(busy ? 'Creating account…' : 'Create account'),
+            )),
+            const SizedBox(height: 8),
+            const Text('Your PIN is private. Do not share it with anyone.',
+              textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: Colors.black54)),
+          ]),
+        )),
+      ),
+    ))),
+  );
+}
+
 class AuthChoicePage extends StatelessWidget {
   const AuthChoicePage({super.key});
 
@@ -1160,9 +1302,15 @@ class AuthChoicePage extends StatelessWidget {
     );
   }
 
+  void _joinProvider(BuildContext context, String roleCode, String roleName) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ProviderRegistrationPage(roleCode: roleCode, roleName: roleName),
+    ));
+  }
+
   Widget _tractorGroupCard(BuildContext context) {
     const tractorColor = Color(0xFF8B6B35);
-    Widget roleRow(IconData icon, String role, String description) {
+    Widget roleRow(IconData icon, String role, String roleCode, String description) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
         child: Row(
@@ -1194,7 +1342,7 @@ class AuthChoicePage extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 5),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-              onPressed: () => _explainApproval(context, role),
+              onPressed: () => _joinProvider(context, roleCode, role),
               child: const Text('Join', style: TextStyle(fontSize: 11)),
             ),
           ],
@@ -1231,17 +1379,17 @@ class AuthChoicePage extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Tractor & Auto-Spare Services', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
-                      Text('Machinery, repair and spare-parts accounts together', style: TextStyle(fontSize: 10, color: Colors.black54)),
+                      Text('Register directly • Verification protects service operations', style: TextStyle(fontSize: 10, color: Colors.black54)),
                     ],
                   ),
                 ),
               ],
             ),
             const Divider(height: 12),
-            roleRow(Icons.agriculture, 'Tractor Owner', 'Manage tractors and assign drivers'),
-            roleRow(Icons.local_shipping_outlined, 'Tractor Driver', 'View and complete assigned jobs'),
-            roleRow(Icons.handyman_outlined, 'Mechanic', 'Handle repairs and spare-part requests'),
-            roleRow(Icons.settings_outlined, 'Auto-Spare Owner', 'Manage spare-parts stock and fulfil requests'),
+            roleRow(Icons.agriculture, 'Tractor Owner', 'tractor_owner', 'Manage tractors and assign drivers'),
+            roleRow(Icons.local_shipping_outlined, 'Tractor Driver', 'driver', 'View and complete assigned jobs'),
+            roleRow(Icons.handyman_outlined, 'Mechanic', 'mechanic', 'Handle repairs and spare-part requests'),
+            roleRow(Icons.settings_outlined, 'Auto-Spare Owner', 'auto_spares_owner', 'Manage spare-parts stock and fulfil requests'),
           ],
         ),
       ),
