@@ -1037,7 +1037,7 @@ class _ProviderRegistrationPageState extends State<ProviderRegistrationPage> {
   bool busy = false;
   String? error;
 
-  bool get needsBusiness => widget.roleCode != 'driver';
+  bool get needsBusiness => !['driver', 'worker'].contains(widget.roleCode);
   bool get needsLocation => widget.roleCode == 'mechanic' || widget.roleCode == 'auto_spares_owner';
 
   @override
@@ -1113,7 +1113,7 @@ class _ProviderRegistrationPageState extends State<ProviderRegistrationPage> {
             Text('${widget.roleName} registration', textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
-            const Text('Create your account directly. TAJIR verification may still be required before assets, repair work or spare-parts stock can be activated.',
+            Text(widget.roleCode == 'worker' ? 'Create your worker account directly. TAJIR will assign duties and limit access to the work given to you.' : 'Create your account directly. TAJIR verification may still be required before assets, repair work or spare-parts stock can be activated.',
               textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
             const SizedBox(height: 18),
             TextField(controller: name, textCapitalization: TextCapitalization.words,
@@ -1469,7 +1469,7 @@ class AuthChoicePage extends StatelessWidget {
                           roleColor: const Color(0xFF687C42),
                           subtitle: 'Access assigned branch duties and authorised work records.',
                           onLogin: () => _openLogin(context),
-                          onJoin: () => _explainApproval(context, 'Worker'),
+                          onJoin: () => _joinProvider(context, 'worker', 'Worker'),
                         ),
                       ),
                       SizedBox(
