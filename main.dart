@@ -1102,7 +1102,7 @@ class _ProviderRegistrationPageState extends State<ProviderRegistrationPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text('Join as \${widget.roleName}')),
+    appBar: AppBar(title: Text('Join as ${widget.roleName}')),
     body: SafeArea(child: Center(child: SingleChildScrollView(
       padding: const EdgeInsets.all(18),
       child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 460),
@@ -1110,7 +1110,7 @@ class _ProviderRegistrationPageState extends State<ProviderRegistrationPage> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const BrandMark(),
             const SizedBox(height: 12),
-            Text('\${widget.roleName} registration', textAlign: TextAlign.center,
+            Text('${widget.roleName} registration', textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
             const Text('Create your account directly. Director verification may still be required before assets, repair work or spare-parts stock can be activated.',
