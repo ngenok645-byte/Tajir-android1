@@ -2288,13 +2288,17 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
     label: const Text('Add or retry National ID registration'),
    )
   ];
-  return Scaffold(
+  return PopScope<Object?>(
+   // Use Android's native back button/gesture to return from a section
+   // to the dashboard. Pushed pages and dialogs retain normal Navigator behaviour.
+   canPop: !onSection,
+   onPopInvokedWithResult: (didPop, result) {
+    if (!didPop && onSection && mounted) {
+     setState(()=>selectedSection=null);
+    }
+   },
+   child: Scaffold(
    appBar:AppBar(
-    leading:onSection?IconButton(
-     tooltip:'Back to dashboard',
-     icon:const Icon(Icons.arrow_back),
-     onPressed:()=>setState(()=>selectedSection=null),
-    ):null,
     title:Text(onSection?sectionTitle(selectedSection!):'TAJIR - '+c!['full_name'].toString()),
     actions:[
      IconButton(tooltip:'Check for TAJIR updates',onPressed:()=>checkCustomerUpdates(showStatus:true),icon:const Icon(Icons.system_update_alt)),
@@ -2309,7 +2313,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
      ?sectionPage(selectedSection!)
      :ListView(padding:const EdgeInsets.all(12),children:dashboardCards))
    ])
-  );
+  ));
  }
 }
 
