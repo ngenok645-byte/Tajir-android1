@@ -6006,7 +6006,7 @@ class _CustomersPageState extends State<CustomersPage> {
         TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
         FilledButton(onPressed:()async{
           if(name.text.trim().isEmpty||phone.text.trim().isEmpty){refresh(()=>error='Name and phone number are required.');return;}
-          
+          if(!canBuy&&!canSell){refresh(()=>error='Select buyer access, seller access, or both.');return;}
           Navigator.pop(dialogContext,true);
         },child:const Text('Save')),
       ],
@@ -6014,7 +6014,6 @@ class _CustomersPageState extends State<CustomersPage> {
     if(result==true){
       try {
         final db=Supabase.instance.client;
-        if(!canBuy&&!canSell){refresh(()=>error='Select buyer access, seller access, or both.');return;}
         final values=<String,dynamic>{'customer_type':canBuy&&canSell?'both':canSell?'seller':'buyer','marketplace_can_buy':canBuy,'marketplace_can_sell':canSell,'full_name':name.text.trim(),'phone':phone.text.trim(),
           'email':email.text.trim().isEmpty?null:email.text.trim()};
         if(row==null){
