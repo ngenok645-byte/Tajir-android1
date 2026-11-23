@@ -1539,6 +1539,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   final pin = TextEditingController();
   final confirmPin = TextEditingController();
   bool createAccount = true, busy = false;
+  String selectedMarketplaceAccount = 'buyer';
   String? message;
   @override void initState() {
     super.initState();
@@ -1689,7 +1690,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
         final response = await db.functions.invoke(
           'tajir-customer-register',
-          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'national_id': nationalId.text.trim()},
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'national_id': nationalId.text.trim(), 'customer_type': selectedMarketplaceAccount},
         );
         final resultData = response.data;
         if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
@@ -1729,12 +1730,34 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             Text(createAccount ? 'Register as a TAJIR client' : 'Client sign in',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 8),
-            const Text('Register once to start buying and using client services. The Director can enable selling access when your account is approved for both buyer and seller activities.', textAlign: TextAlign.center,
+            const Text('Choose one account to start with: Buyer or Seller. The Director may authorize both accounts if you need them.', textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13, color: Colors.black54)),
             const SizedBox(height: 10),
             const Text('Your National ID is used to help prevent duplicate accounts. TAJIR stores a protected verification code, not the full ID number. Entering an ID does not mean it has been checked against government records.', textAlign: TextAlign.center,
               style: TextStyle(color: Colors.black54, fontSize: 12)),
             const SizedBox(height: 16),
+            if (createAccount) ...[
+              const Align(alignment: Alignment.centerLeft, child: Text('Choose account type', style: TextStyle(fontWeight: FontWeight.w600))),
+              const SizedBox(height: 8),
+              RadioListTile<String>(
+                contentPadding: EdgeInsets.zero,
+                value: 'buyer',
+                groupValue: selectedMarketplaceAccount,
+                onChanged: busy ? null : (v) => setState(() => selectedMarketplaceAccount = v!),
+                title: const Text('Buyer account'),
+                subtitle: const Text('Buy products and request services'),
+              ),
+              RadioListTile<String>(
+                contentPadding: EdgeInsets.zero,
+                value: 'seller',
+                groupValue: selectedMarketplaceAccount,
+                onChanged: busy ? null : (v) => setState(() => selectedMarketplaceAccount = v!),
+                title: const Text('Seller account'),
+                subtitle: const Text('List products and sell through TAJIR'),
+              ),
+              const Text('To use both buyer and seller accounts, request authorization from the Director.', style: TextStyle(fontSize: 12, color: Colors.black54)),
+              const SizedBox(height: 12),
+            ],
             if (createAccount) TextField(controller: name, textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
             if (createAccount) const SizedBox(height: 12),
