@@ -5965,7 +5965,6 @@ class _CustomersPageState extends State<CustomersPage> {
     final name=TextEditingController(text:row?['full_name']?.toString()??'');
     final phone=TextEditingController(text:row?['phone']?.toString()??'');
     final email=TextEditingController(text:row?['email']?.toString()??'');
-    bool canBuy=true;
     bool canSell=row==null?false:row['marketplace_can_sell']==true;
     String? error;
     final result=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(context,refresh)=>AlertDialog(
