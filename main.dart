@@ -2456,7 +2456,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
     final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
     final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
-    final salesRows=await db.from('sales_orders').select('id,order_number,status,total_amount,created_at,delivery_address,payment_mode,fulfilment_method').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final salesRows=await db.from('sales_orders').select('id,order_number,status,total_amount,created_at,updated_at,delivery_address,payment_mode,fulfilment_method').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
     r=[
      ...List<Map<String,dynamic>>.from(marketplaceRows),
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
@@ -2894,7 +2894,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
       return Card(child:ListTile(
        leading:const CircleAvatar(child:Icon(Icons.local_shipping_outlined)),
        title:Text('Order ${r['order_number']??r['id'].toString().substring(0,8).toUpperCase()}'),
-       subtitle:Text('Order total: KES ${((r['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}\\nStatus: ${status.toUpperCase()} • Placed: ${_orderDate(r['created_at'])}${address.isEmpty?'':'\\nDelivery: '+address}'),
+       subtitle:Text('Order total: KES ${((r['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}\\nStatus: ${status.toUpperCase()} • Placed: ${_orderDate(r['created_at'])}${updatedAt==null?'':'\nLast update: '+_orderDate(updatedAt.toIso8601String())}${address.isEmpty?'':'\\nDelivery: '+address}'),
        isThreeLine:true,
        trailing:Chip(label:Text(status)),
       ));
