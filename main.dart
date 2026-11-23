@@ -4279,6 +4279,11 @@ class DirectorOrdersPage extends StatefulWidget {
 }
 
 class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
+  double numVal(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse((value ?? '').toString().trim()) ?? 0.0;
+  }
+
   final db = Supabase.instance.client;
   bool loading = true, busy = false;
   String? error;
