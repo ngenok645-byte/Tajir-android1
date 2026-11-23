@@ -6879,6 +6879,7 @@ class _CustomersPageState extends State<CustomersPage> {
   String message='';
   bool busy=false;
   bool showDeleted=false;
+  bool directorAccess=false;
   final search=TextEditingController();
 
   @override void initState(){ super.initState(); load(); }
@@ -6887,7 +6888,10 @@ class _CustomersPageState extends State<CustomersPage> {
   Future<void> load() async {
     setState(() { busy=true; message=''; });
     try {
-      final r=await Supabase.instance.client.from('customers')
+      final db=Supabase.instance.client;
+      final roleRows=await db.from('user_role_assignments').select('app_roles(code)').eq('user_id',db.auth.currentUser!.id).eq('is_active',true);
+      directorAccess=roleRows.any((r)=>r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='director');
+      final r=await db.from('customers')
         .select('id,profile_id,customer_type,full_name,phone,email,default_branch_id,active,marketplace_can_buy,marketplace_can_sell,approved_at,approved_by,created_at,deleted_at,permanently_deleted_at')
         .order('full_name');
       final customerRows = List<Map<String,dynamic>>.from(r);
@@ -6926,8 +6930,16 @@ class _CustomersPageState extends State<CustomersPage> {
         TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
         TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
         const Align(alignment:Alignment.centerLeft,child:Text('Marketplace access',style:TextStyle(fontWeight:FontWeight.bold))),
-        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Buyer access'),subtitle:const Text('Allow this customer to buy products.'),value:canBuy,onChanged:(v)=>refresh(()=>canBuy=v??false)),
-        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Seller access'),subtitle:const Text('Allow this customer to list and sell products.'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
+        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Buyer access'),subtitle:const Text('Allow this customer to buy products.'),value:canBuy,onChanged:(v){
+          final next=v??false;
+          if(next&&canSell&&!directorAccess){refresh(()=>error='Only a TAJIR Director can grant both Buyer and Seller access.');return;}
+          refresh(()=>{canBuy=next;error=null;});
+        }),
+        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Seller access'),subtitle:Text(directorAccess?'Allow this customer to list and sell products.':'Only a TAJIR Director can enable both Buyer and Seller access.'),value:canSell,onChanged:(v){
+          final next=v??false;
+          if(next&&canBuy&&!directorAccess){refresh(()=>error='Only a TAJIR Director can grant both Buyer and Seller access.');return;}
+          refresh(()=>{canSell=next;error=null;});
+        }),
         if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
       ])),
       actions:[
@@ -6935,6 +6947,7 @@ class _CustomersPageState extends State<CustomersPage> {
         FilledButton(onPressed:()async{
           if(name.text.trim().isEmpty||phone.text.trim().isEmpty){refresh(()=>error='Name and phone number are required.');return;}
           if(!canBuy&&!canSell){refresh(()=>error='Select buyer access, seller access, or both.');return;}
+          if(canBuy&&canSell&&!directorAccess){refresh(()=>error='Only a TAJIR Director can grant both Buyer and Seller access.');return;}
           Navigator.pop(dialogContext,true);
         },child:const Text('Save')),
       ],
