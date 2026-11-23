@@ -1185,7 +1185,7 @@ class AuthChoicePage extends StatelessWidget {
                           icon: Icons.person_outline,
                           title: 'Client',
                           roleColor: const Color(0xFF168B72),
-                          subtitle: 'Buy and sell approved products and request tractor services.',
+                          subtitle: 'Register freely to buy products and request tractor services. The Director can enable selling access.',
                           onLogin: () => _openClient(context, createAccount: false),
                           onJoin: () => _openClient(context, createAccount: true),
                         ),
@@ -1729,7 +1729,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             Text(createAccount ? 'Register as a TAJIR client' : 'Client sign in',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 8),
-            const Text('For farmers, buyers, sellers, tractor and machinery owners, and drivers. Tractor owners and drivers can also buy or sell farm products using this same client account.', textAlign: TextAlign.center,
+            const Text('Register once to start buying and using client services. The Director can enable selling access when your account is approved for both buyer and seller activities.', textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13, color: Colors.black54)),
             const SizedBox(height: 10),
             const Text('Your National ID is used to help prevent duplicate accounts. TAJIR stores a protected verification code, not the full ID number. Entering an ID does not mean it has been checked against government records.', textAlign: TextAlign.center,
@@ -1972,7 +1972,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    case 1:
     return sell
      ?CustomerMarketPage(customer:c!,mode:'sell')
-     :const CustomerLockedPage(title:'Sell products',message:'The Director has not enabled selling on your account yet.',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined);
+     :const CustomerLockedPage(title:'Sell products',message:'Buyer access is already active. Ask the Director to enable seller access if you also want to list products for sale.',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined);
    case 2:
     return CustomerMarketPage(customer:c!,mode:'requests');
    case 3:
@@ -5983,7 +5983,7 @@ class _CustomersPageState extends State<CustomersPage> {
         TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
         FilledButton(onPressed:()async{
           if(name.text.trim().isEmpty||phone.text.trim().isEmpty){refresh(()=>error='Name and phone number are required.');return;}
-          if(!canBuy&&!canSell){refresh(()=>error='Enable buying, selling, or both.');return;}
+          
           Navigator.pop(dialogContext,true);
         },child:const Text('Save')),
       ],
@@ -5991,7 +5991,7 @@ class _CustomersPageState extends State<CustomersPage> {
     if(result==true){
       try {
         final db=Supabase.instance.client;
-        final values=<String,dynamic>{'customer_type':canBuy&&canSell?'both':canSell?'seller':'buyer','marketplace_can_buy':canBuy,'marketplace_can_sell':canSell,'full_name':name.text.trim(),'phone':phone.text.trim(),
+        final values=<String,dynamic>{'customer_type':canSell?'both':'buyer','marketplace_can_buy':true,'marketplace_can_sell':canSell,'full_name':name.text.trim(),'phone':phone.text.trim(),
           'email':email.text.trim().isEmpty?null:email.text.trim()};
         if(row==null){
           final branch=await db.from('branches').select('id').eq('code','NTULELE').maybeSingle();
@@ -6383,7 +6383,7 @@ class _CustomersPageState extends State<CustomersPage> {
           itemBuilder:(context)=>[
             if(!showDeleted)const PopupMenuItem(value:'edit',child:Text('Edit details')),
             if(!showDeleted&&r['active']==true)const PopupMenuItem(value:'deactivate',child:Text('Deactivate')),
-            if(!showDeleted&&r['active']==false)const PopupMenuItem(value:'activate',child:Text('Approve / activate account')),
+            if(!showDeleted&&r['active']==false)const PopupMenuItem(value:'activate',child:Text('Reactivate suspended account')),
             if(!showDeleted)const PopupMenuItem(value:'delete',child:Text('Move to Deleted Accounts',style:TextStyle(color:Colors.red))),
             if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'restore',child:Text('Restore account')),
             if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'permanent',child:Text('Permanently delete',style:TextStyle(color:Colors.red))),
