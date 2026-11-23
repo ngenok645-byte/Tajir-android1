@@ -68,7 +68,7 @@ jobs:
         working-directory: TAJIR_flutter_app
         run: |
           rm -rf android
-          flutter create . --platforms=android --org com.tajir --project-name tajir_app
+          flutter create . --platforms=android --org com.tajirfresh --project-name tajir_app
       - name: Ensure Android plugin dependencies resolve from Maven Central
         working-directory: TAJIR_flutter_app
         run: |
