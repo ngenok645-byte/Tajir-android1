@@ -1132,6 +1132,93 @@ class AuthChoicePage extends StatelessWidget {
     );
   }
 
+  Widget _tractorGroupCard(BuildContext context) {
+    const tractorColor = Color(0xFF8B6B35);
+    Widget roleRow(IconData icon, String role, String description) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          children: [
+            Icon(icon, size: 19, color: tractorColor),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(role, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                  Text(description, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 10, color: Colors.black54)),
+                ],
+              ),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () => _openLogin(context),
+              child: const Text('Sign in', style: TextStyle(fontSize: 11)),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () => _explainApproval(context, role),
+              child: const Text('Join', style: TextStyle(fontSize: 11)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      elevation: 1,
+      shadowColor: tractorColor.withOpacity(.14),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: tractorColor.withOpacity(.22)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(11, 10, 11, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 39, height: 39,
+                  decoration: BoxDecoration(
+                    color: tractorColor.withOpacity(.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.agriculture, color: tractorColor, size: 23),
+                ),
+                const SizedBox(width: 9),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Tractor Services', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+                      Text('All tractor accounts in one place', style: TextStyle(fontSize: 10, color: Colors.black54)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 12),
+            roleRow(Icons.agriculture, 'Tractor Owner', 'Manage tractors and assign drivers'),
+            roleRow(Icons.local_shipping_outlined, 'Tractor Driver', 'View and complete assigned jobs'),
+            roleRow(Icons.handyman_outlined, 'Mechanic', 'Handle repairs and spare-part requests'),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
@@ -1193,41 +1280,7 @@ class AuthChoicePage extends StatelessWidget {
                       SizedBox(
                         width: cardWidth,
                         height: 232,
-                        child: _accountCard(
-                          context,
-                          icon: Icons.agriculture,
-                          title: 'Tractor Owner',
-                          roleColor: const Color(0xFF8B6B35),
-                          subtitle: 'Manage tractors, receive client jobs and assign drivers.',
-                          onLogin: () => _openLogin(context),
-                          onJoin: () => _explainApproval(context, 'Tractor Owner'),
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        height: 232,
-                        child: _accountCard(
-                          context,
-                          icon: Icons.local_shipping_outlined,
-                          title: 'Tractor Driver',
-                          roleColor: const Color(0xFF3276A8),
-                          subtitle: 'View and complete jobs assigned by a tractor owner.',
-                          onLogin: () => _openLogin(context),
-                          onJoin: () => _explainApproval(context, 'Tractor Driver'),
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        height: 232,
-                        child: _accountCard(
-                          context,
-                          icon: Icons.handyman_outlined,
-                          title: 'Mechanic',
-                          roleColor: const Color(0xFF697386),
-                          subtitle: 'Manage tractor repair jobs and request required spare parts.',
-                          onLogin: () => _openLogin(context),
-                          onJoin: () => _explainApproval(context, 'Mechanic'),
-                        ),
+                        child: _tractorGroupCard(context),
                       ),
                       SizedBox(
                         width: cardWidth,
