@@ -46,7 +46,7 @@ Deno.serve(async (req: Request) => {
     if (fullName.length < 2 || fullName.length > 120) return json({ error: "Enter your full name." }, 400);
     if (!phone) return json({ error: "Enter a valid Kenyan phone number." }, 400);
     if (!/^\d{4}$/.test(pin)) return json({ error: "PIN must contain exactly four digits." }, 400);
-    if (roleCode !== "driver" && (businessName.length < 2 || businessName.length > 120)) {
+    if (roleCode !== "driver" && roleCode !== "worker" && (businessName.length < 2 || businessName.length > 120)) {
       return json({ error: "Enter a valid business or shop name." }, 400);
     }
     if (["mechanic", "auto_spares_owner"].includes(roleCode) && (location.length < 2 || location.length > 160)) {
