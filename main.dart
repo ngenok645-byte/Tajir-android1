@@ -326,7 +326,7 @@ Future<void> promptForTajirUpdate(BuildContext context, {bool showCurrent = fals
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: const Text('TAJIR update available'),
-      content: Text('A newer version (${found['version']}) is ready. TAJIR will download it and open Android\\'s installer. Choose Update to replace the existing app; you should not need to uninstall or clear your data.'),
+      content: Text('A newer version (${found['version']}) is ready. TAJIR will download it and open Android\'s installer. Choose Update to replace the existing app; you should not need to uninstall or clear your data.'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Later')),
         FilledButton.icon(
