@@ -2453,10 +2453,10 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    }else if(widget.mode=='marketplace_buy'){
     r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status,total_value_kes,branch_id,branches(name),marketplace_listing_selling_prices(selling_price_kes)').eq('status','active').neq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
    }else{
-    final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').eq('buyer_customer_id',widget.customer['id']).order('created_at',ascending:false);
-    final tajirRows=await db.from('customer_product_requests').select('id,customer_id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
-    final customRows=await db.from('customer_custom_product_requests').select('id,customer_id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
-    final salesRows=await db.from('sales_orders').select('id,order_number,customer_id,status,total_amount,created_at,delivery_address,payment_mode').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,updated_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').eq('buyer_customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final tajirRows=await db.from('customer_product_requests').select('id,customer_id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,updated_at,products(name),product_variants(variant_name),branches(name)').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final customRows=await db.from('customer_custom_product_requests').select('id,customer_id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at,updated_at').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final salesRows=await db.from('sales_orders').select('id,order_number,customer_id,status,total_amount,created_at,updated_at,delivery_address,payment_mode').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
     r=[
      ...List<Map<String,dynamic>>.from(marketplaceRows),
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
@@ -2482,6 +2482,10 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
   if (date == null) return 'Date not available';
   final local = date.toLocal();
   return '${local.day.toString().padLeft(2,'0')}/${local.month.toString().padLeft(2,'0')}/${local.year} ${local.hour.toString().padLeft(2,'0')}:${local.minute.toString().padLeft(2,'0')}';
+ }
+ String _progressUpdated(Map<String,dynamic> row) {
+  final value = row['updated_at'] ?? row['created_at'];
+  return 'Progress updated: ${_displayOrderDate(value)}';
  }
  bool _isClearedOrder(Map<String,dynamic> row){
   final status=(row['status']??'').toString().toLowerCase();
@@ -2890,7 +2894,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
       return Card(child:ListTile(
        leading:const Icon(Icons.local_shipping_outlined,color:brandGreen),
        title:Text('Sales order ${(r['order_number']??r['id']).toString()}'),
-       subtitle:Text('Total: KES ${(r['total_amount']??'Pending').toString()} • Status: ${(r['status']??'pending').toString().replaceAll('_',' ')}\nPlaced: ${_displayOrderDate(r['created_at'])}${(r['delivery_address']??'').toString().trim().isEmpty?'':'\nDelivery: ${r['delivery_address']}'}'),
+       subtitle:Text('Total: KES ${(r['total_amount']??'Pending').toString()} • Status: ${(r['status']??'pending').toString().replaceAll('_',' ')}\nPlaced: ${_displayOrderDate(r['created_at'])} • ${_progressUpdated(r)}${(r['delivery_address']??'').toString().trim().isEmpty?'':'\nDelivery: ${r['delivery_address']}'}'),
        isThreeLine:true,
       ));
      }
@@ -2901,7 +2905,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
       return Card(child:ListTile(
        leading:const Icon(Icons.assignment_late_outlined,color:Colors.deepOrange),
        title:Text((r['product_name']??'Custom product').toString()),
-       subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\n'+((r['request_direction']??'BUY_FROM_TAJIR')=='SELL_TO_TAJIR'?'Offer to sell to TAJIR':'Request to buy from TAJIR')+'\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • TAJIR agreed: KES '+agreed.toString()+'/'+unit)+'\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\nDirector: '+response)),
+       subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\n'+((r['request_direction']??'BUY_FROM_TAJIR')=='SELL_TO_TAJIR'?'Offer to sell to TAJIR':'Request to buy from TAJIR')+'\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • TAJIR agreed: KES '+agreed.toString()+'/'+unit)+'\nStatus: '+r['status'].toString()+'\nPlaced: '+_displayOrderDate(r['created_at'])+' • '+_progressUpdated(r)+(response.isEmpty?'':'\nDirector: '+response)),
        isThreeLine:true,
        trailing:_isClearedOrder(r)?_reviewAction(r):r['customer_response']=='declined'
         ? const Text('Declined')
@@ -2923,7 +2927,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
       return Card(child:ListTile(
        leading:const Icon(Icons.inventory_2_outlined),
        title:Text(variant.isEmpty?name:'$name • $variant'),
-       subtitle:Text('Quantity: '+r['quantity_requested'].toString()+' '+(r['quantity_unit']??'BAG').toString()+' • '+(r['branches'] is Map?(r['branches'] as Map)['name']??'TAJIR branch':'TAJIR branch').toString()+'\nOfficial total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()),
+       subtitle:Text('Quantity: '+r['quantity_requested'].toString()+' '+(r['quantity_unit']??'BAG').toString()+' • '+(r['branches'] is Map?(r['branches'] as Map)['name']??'TAJIR branch':'TAJIR branch').toString()+'\nOfficial total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()+'\nPlaced: '+_displayOrderDate(r['created_at'])+' • '+_progressUpdated(r)),
        trailing:_reviewAction(r),
       ));
      }
@@ -2931,7 +2935,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      final seller=l['seller_customer_id']==widget.customer['id'];
      return Card(child:ListTile(
       title:Text((l['product_name']??'Purchase request').toString()),
-      subtitle:Text('Quantity: '+r['quantity'].toString()+' '+(l['unit']??'').toString()+' • Official price: KES '+(r['unit_price_kes']??'Pending').toString()+' / '+(l['unit']??'unit').toString()+' • Total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()),
+      subtitle:Text('Quantity: '+r['quantity'].toString()+' '+(l['unit']??'').toString()+' • Official price: KES '+(r['unit_price_kes']??'Pending').toString()+' / '+(l['unit']??'unit').toString()+' • Total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()+'\nPlaced: '+_displayOrderDate(r['created_at'])+' • '+_progressUpdated(r)),
       trailing:seller&&!_isClearedOrder(r)&&!['declined','cancelled'].contains((r['status']??'').toString())?PopupMenuButton<String>(tooltip:'Update order progress',onSelected:(v)=>change(r,v,false),itemBuilder:(_)=>[
        if(r['status']=='pending')const PopupMenuItem(value:'accepted',child:Text('Accept order')),
        if(r['status']=='pending')const PopupMenuItem(value:'declined',child:Text('Decline order')),
