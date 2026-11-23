@@ -2890,6 +2890,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      if(r['_is_sales_order']==true){
       final status=(r['status']??'pending').toString().replaceAll('_',' ');
       final address=(r['delivery_address']??'').toString();
+      final updatedAt=DateTime.tryParse((r['updated_at']??'').toString());
       return Card(child:ListTile(
        leading:const CircleAvatar(child:Icon(Icons.local_shipping_outlined)),
        title:Text('Order ${r['order_number']??r['id'].toString().substring(0,8).toUpperCase()}'),
@@ -4330,7 +4331,7 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
           .select('id,customer_id,quantity_requested,quantity_unit,line_total_kes,status,created_at,products(name),branches(name)')
           .order('created_at', ascending: false),
         db.from('sales_orders')
-          .select('id,order_number,customer_id,status,total_amount,created_at,delivery_address,payment_mode')
+          .select('id,order_number,customer_id,status,total_amount,created_at,updated_at,delivery_address,payment_mode,staff_notes')
           .order('created_at', ascending: false),
         db.from('customers').select('id,full_name'),
         db.from('customer_payments')
@@ -4420,7 +4421,7 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
 
   Future<void> editOrderDetails(Map<String,dynamic> row) async {
     final source=row['_source'].toString();
-    final field=source=='sales_orders'?'delivery_address':source=='marketplace_purchase_requests'?'message':'note';
+    final field=source=='sales_orders'?'staff_notes':source=='marketplace_purchase_requests'?'message':'note';
     final controller=TextEditingController(text:(row[field]??'').toString());
     final accepted=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
       title:const Text('Edit order details'),
@@ -4428,7 +4429,7 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
         controller:controller,
         maxLines:4,
         decoration:InputDecoration(
-          labelText:field=='delivery_address'?'Delivery address':field=='message'?'Buyer message':'Order note',
+          labelText:field=='staff_notes'?'TAJIR internal note':field=='message'?'Buyer message':'Order note',
           border:const OutlineInputBorder(),
         ),
       ),
