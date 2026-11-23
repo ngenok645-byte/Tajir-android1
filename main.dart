@@ -1456,12 +1456,7 @@ class AuthChoicePage extends StatelessWidget {
                       ),
                       SizedBox(
                         width: cardWidth,
-                        height: 232,
-                        child: _tractorGroupCard(context),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        height: 232,
+                        height: 218,
                         child: _accountCard(
                           context,
                           icon: Icons.badge_outlined,
@@ -1497,6 +1492,12 @@ class AuthChoicePage extends StatelessWidget {
                     );
                   },
                 ),
+                const SizedBox(height: 14),
+                // Keep tractor and auto-spares access as a full-width section.
+                // The four role rows cannot fit inside a 218px grid tile on
+                // small phones; clipping there made the Join/Sign in actions
+                // appear missing or unresponsive.
+                _tractorGroupCard(context),
                 const SizedBox(height: 14),
                 const Text(
                   'Buyer-only and Seller-only accounts can register freely. Only combined Buyer + Seller access requires TAJIR authorisation.',
