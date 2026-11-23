@@ -4736,17 +4736,63 @@ class _HomeShellState extends State<HomeShell> {
   }
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
   void openMoreMenu() {
-    showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-      if (director || accountant || branchManager) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
-      if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
-      if (director) ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
-      if (director) ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Custom Requests'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
-      if (director) ListTile(leading: const Icon(Icons.storefront_outlined), title: const Text('Marketplace Prices'), selected: index == 10, onTap: () { Navigator.pop(sheetContext); selectPage(10); }),
-      if (director) ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Service Rates'), selected: index == 11, onTap: () { Navigator.pop(sheetContext); selectPage(11); }),
-      if (director) ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('TAJIR Oversight'), selected: index == 12, onTap: () { Navigator.pop(sheetContext); selectPage(12); }),
-      if (director) ListTile(leading: const Icon(Icons.qr_code_2), title: const Text('Product Traceability'), selected: index == 14, onTap: () { Navigator.pop(sheetContext); selectPage(14); }),
-      const SizedBox(height: 8),
-    ])));
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(sheetContext).size.height * 0.8,
+          ),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: Text('MORE', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.1)),
+              ),
+              if (!director && branchManager) ...[
+                ListTile(
+                  leading: const Icon(Icons.people),
+                  title: const Text('Customers'),
+                  selected: index == 4,
+                  onTap: () { Navigator.pop(sheetContext); selectPage(4); },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.agriculture),
+                  title: const Text('Tractor Services'),
+                  selected: index == 5,
+                  onTap: () { Navigator.pop(sheetContext); selectPage(5); },
+                ),
+              ],
+              if (director || accountant || branchManager) ListTile(
+                leading: const Icon(Icons.account_balance),
+                title: const Text('Financial Records'),
+                selected: index == 6,
+                onTap: () { Navigator.pop(sheetContext); selectPage(6); },
+              ),
+              if (director) ...[
+                const Divider(),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 8, 20, 4),
+                  child: Text('ADMINISTRATION', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
+                ),
+                ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
+                ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
+                ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
+                ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Custom Requests'), selected: index == 9, onTap: () { Navigator.pop(sheetContext); selectPage(9); }),
+                ListTile(leading: const Icon(Icons.storefront_outlined), title: const Text('Marketplace Prices'), selected: index == 10, onTap: () { Navigator.pop(sheetContext); selectPage(10); }),
+                ListTile(leading: const Icon(Icons.agriculture_outlined), title: const Text('Tractor Service Rates'), selected: index == 11, onTap: () { Navigator.pop(sheetContext); selectPage(11); }),
+                ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('TAJIR Oversight'), selected: index == 12, onTap: () { Navigator.pop(sheetContext); selectPage(12); }),
+                ListTile(leading: const Icon(Icons.receipt_long), title: const Text('Orders'), selected: index == 13, onTap: () { Navigator.pop(sheetContext); selectPage(13); }),
+                ListTile(leading: const Icon(Icons.qr_code_2), title: const Text('Product Traceability'), selected: index == 14, onTap: () { Navigator.pop(sheetContext); selectPage(14); }),
+              ],
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    );
   }
   @override Widget build(BuildContext context) {
     if (!accessLoaded) return const Scaffold(body: Center(child: CircularProgressIndicator()));
