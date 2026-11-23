@@ -2453,13 +2453,15 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    }else if(widget.mode=='marketplace_buy'){
     r=await db.from('marketplace_listings').select('id,seller_customer_id,product_name,description,quantity,unit,location,status,total_value_kes,branch_id,branches(name),marketplace_listing_selling_prices(selling_price_kes)').eq('status','active').neq('seller_customer_id',widget.customer['id']).order('created_at',ascending:false);
    }else{
-    final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
-    final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').order('created_at',ascending:false);
-    final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').order('created_at',ascending:false);
+    final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').eq('buyer_customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final tajirRows=await db.from('customer_product_requests').select('id,customer_id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final customRows=await db.from('customer_custom_product_requests').select('id,customer_id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final salesRows=await db.from('sales_orders').select('id,order_number,customer_id,status,total_amount,created_at,delivery_address,payment_mode').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
     r=[
      ...List<Map<String,dynamic>>.from(marketplaceRows),
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
      ...List<Map<String,dynamic>>.from(customRows).map((x)=>{...x,'_is_custom_request':true}),
+     ...List<Map<String,dynamic>>.from(salesRows).map((x)=>{...x,'_is_sales_order':true}),
     ]..sort((a,b)=>DateTime.parse(b['created_at'].toString()).compareTo(DateTime.parse(a['created_at'].toString())));
    }
    if(widget.mode=='requests'){
@@ -2475,6 +2477,12 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
  }
 
 
+ String _displayOrderDate(dynamic value) {
+  final date = DateTime.tryParse((value ?? '').toString());
+  if (date == null) return 'Date not available';
+  final local = date.toLocal();
+  return '${local.day.toString().padLeft(2,'0')}/${local.month.toString().padLeft(2,'0')}/${local.year} ${local.hour.toString().padLeft(2,'0')}:${local.minute.toString().padLeft(2,'0')}';
+ }
  bool _isClearedOrder(Map<String,dynamic> row){
   final status=(row['status']??'').toString().toLowerCase();
   return const {'delivered','completed','fulfilled'}.contains(status);
@@ -2878,6 +2886,14 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      ));
     }
     if(widget.mode=='requests'){
+     if(r['_is_sales_order']==true){
+      return Card(child:ListTile(
+       leading:const Icon(Icons.local_shipping_outlined,color:brandGreen),
+       title:Text('Sales order ${(r['order_number']??r['id']).toString()}'),
+       subtitle:Text('Total: KES ${(r['total_amount']??'Pending').toString()} • Status: ${(r['status']??'pending').toString().replaceAll('_',' ')}\nPlaced: ${_displayOrderDate(r['created_at'])}${(r['delivery_address']??'').toString().trim().isEmpty?'':'\nDelivery: ${r['delivery_address']}'}'),
+       isThreeLine:true,
+      ));
+     }
      if(r['_is_custom_request']==true){
       final unit=(r['quantity_unit']??'KG').toString();
       final response=(r['director_response']??'').toString();
@@ -4382,6 +4398,79 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
     }
   }
 
+  Future<void> editOrder(Map<String,dynamic> row) async {
+    final source = row['_source'].toString();
+    final quantity = TextEditingController(text: source == 'marketplace_purchase_requests'
+        ? (row['quantity'] ?? '').toString()
+        : (row['quantity_requested'] ?? '').toString());
+    final price = TextEditingController(text: source == 'marketplace_purchase_requests'
+        ? (row['unit_price_kes'] ?? '').toString()
+        : source == 'customer_product_requests'
+            ? (row['unit_price_per_kg'] ?? '').toString()
+            : '');
+    final delivery = TextEditingController(text: (row['delivery_address'] ?? '').toString());
+    final note = TextEditingController(text: (row['message'] ?? row['note'] ?? '').toString());
+    final result = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Edit order'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        if (source != 'sales_orders') ...[
+          TextField(controller: quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Quantity')),
+          if (source != 'customer_product_requests')
+            TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Unit price (KES)')),
+          TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'Order note')),
+        ] else
+          TextField(controller: delivery, maxLines: 2, decoration: const InputDecoration(labelText: 'Delivery address')),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save changes')),
+      ],
+    ));
+    if (result != true) return;
+    try {
+      final changes = <String,dynamic>{};
+      if (source == 'marketplace_purchase_requests') {
+        final q = double.tryParse(quantity.text.trim());
+        final p = double.tryParse(price.text.trim());
+        if (q == null || q <= 0 || p == null || p < 0) throw const FormatException('Enter a valid quantity and unit price.');
+        changes.addAll({'quantity': q, 'unit_price_kes': p, 'line_total_kes': q * p, 'message': note.text.trim()});
+      } else if (source == 'customer_product_requests') {
+        final q = double.tryParse(quantity.text.trim());
+        if (q == null || q <= 0) throw const FormatException('Enter a valid quantity.');
+        final unit = (row['quantity_unit'] ?? 'KG').toString().toUpperCase();
+        final kg = unit == 'BAG' ? q * kgPerBag : q;
+        final pricePerKg = numVal(row['unit_price_per_kg']);
+        changes.addAll({'quantity_requested': q, 'quantity_kg': kg, 'line_total_kes': kg * pricePerKg, 'note': note.text.trim()});
+      } else {
+        changes.add('delivery_address', delivery.text.trim());
+      }
+      await db.from(source).update(changes).eq('id', row['id']);
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order details updated.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not edit order: ${friendlyError(e)}')));
+    } finally {
+      quantity.dispose(); price.dispose(); delivery.dispose(); note.dispose();
+    }
+  }
+
+  Future<void> cancelOrder(Map<String,dynamic> row) async {
+    if (isCleared(row) || numVal(paidByOrder[row['id'].toString()]) > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paid or completed orders cannot be cancelled here. Keep their financial history intact.')));
+      return;
+    }
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Cancel this order?'),
+      content: const Text('The order will be marked cancelled. Its record and linked payment history will be retained; nothing is permanently deleted.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep order')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Cancel order')),
+      ],
+    ));
+    if (ok != true) return;
+    await updateStatus(row, 'cancelled');
+  }
+
   Future<void> updateStatus(Map<String,dynamic> row, String status) async {
     if (busy) return;
     setState(() => busy = true);
@@ -4477,13 +4566,24 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
               ],
               if ((r['delivery_address'] ?? '').toString().isNotEmpty) Text('Delivery: ${r['delivery_address']}'),
               const SizedBox(height:8),
-              if (actions.isNotEmpty) Align(
-                alignment:Alignment.centerRight,
-                child: Wrap(spacing:6, children: actions.map((next) => OutlinedButton(
-                  onPressed:busy?null:()=>updateStatus(r,next),
-                  child:Text(next.replaceAll('_',' ').toUpperCase()),
-                )).toList()),
-              ),
+              if (!isCleared(r) && !['cancelled','declined'].contains(status.toLowerCase()))
+                Wrap(alignment: WrapAlignment.end, spacing: 6, runSpacing: 4, children: [
+                  OutlinedButton.icon(
+                    onPressed: busy ? null : () => editOrder(r),
+                    icon: const Icon(Icons.edit_outlined, size: 16),
+                    label: const Text('Edit'),
+                  ),
+                  if (numVal(paidByOrder[orderId]) <= 0)
+                    OutlinedButton.icon(
+                      onPressed: busy ? null : () => cancelOrder(r),
+                      icon: const Icon(Icons.cancel_outlined, size: 16),
+                      label: const Text('Cancel order'),
+                    ),
+                  ...actions.map((next) => OutlinedButton(
+                    onPressed:busy?null:()=>updateStatus(r,next),
+                    child:Text(next.replaceAll('_',' ').toUpperCase()),
+                  )),
+                ]),
               if (showCleared) const Text('DELIVERED • CLEARED', style:TextStyle(color:brandGreen,fontWeight:FontWeight.bold)),
             ]),
           ));
@@ -6779,6 +6879,7 @@ class _CustomersPageState extends State<CustomersPage> {
   String message='';
   bool busy=false;
   bool showDeleted=false;
+  bool directorAccess=false;
   final search=TextEditingController();
 
   @override void initState(){ super.initState(); load(); }
@@ -6787,7 +6888,10 @@ class _CustomersPageState extends State<CustomersPage> {
   Future<void> load() async {
     setState(() { busy=true; message=''; });
     try {
-      final r=await Supabase.instance.client.from('customers')
+      final db=Supabase.instance.client;
+      final roleRows=await db.from('user_role_assignments').select('app_roles(code)').eq('user_id',db.auth.currentUser!.id).eq('is_active',true);
+      directorAccess=roleRows.any((r)=>r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='director');
+      final r=await db.from('customers')
         .select('id,profile_id,customer_type,full_name,phone,email,default_branch_id,active,marketplace_can_buy,marketplace_can_sell,approved_at,approved_by,created_at,deleted_at,permanently_deleted_at')
         .order('full_name');
       final customerRows = List<Map<String,dynamic>>.from(r);
@@ -6826,8 +6930,16 @@ class _CustomersPageState extends State<CustomersPage> {
         TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
         TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
         const Align(alignment:Alignment.centerLeft,child:Text('Marketplace access',style:TextStyle(fontWeight:FontWeight.bold))),
-        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Buyer access'),subtitle:const Text('Allow this customer to buy products.'),value:canBuy,onChanged:(v)=>refresh(()=>canBuy=v??false)),
-        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Seller access'),subtitle:const Text('Allow this customer to list and sell products.'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
+        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Buyer access'),subtitle:const Text('Allow this customer to buy products.'),value:canBuy,onChanged:(v){
+          final next=v??false;
+          if(next&&canSell&&!directorAccess){refresh(()=>error='Only a TAJIR Director can grant both Buyer and Seller access.');return;}
+          refresh(()=>{canBuy=next;error=null;});
+        }),
+        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Seller access'),subtitle:Text(directorAccess?'Allow this customer to list and sell products.':'Only a TAJIR Director can enable both Buyer and Seller access.'),value:canSell,onChanged:(v){
+          final next=v??false;
+          if(next&&canBuy&&!directorAccess){refresh(()=>error='Only a TAJIR Director can grant both Buyer and Seller access.');return;}
+          refresh(()=>{canSell=next;error=null;});
+        }),
         if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
       ])),
       actions:[
@@ -6835,6 +6947,7 @@ class _CustomersPageState extends State<CustomersPage> {
         FilledButton(onPressed:()async{
           if(name.text.trim().isEmpty||phone.text.trim().isEmpty){refresh(()=>error='Name and phone number are required.');return;}
           if(!canBuy&&!canSell){refresh(()=>error='Select buyer access, seller access, or both.');return;}
+          if(canBuy&&canSell&&!directorAccess){refresh(()=>error='Only a TAJIR Director can grant both Buyer and Seller access.');return;}
           Navigator.pop(dialogContext,true);
         },child:const Text('Save')),
       ],
@@ -7205,43 +7318,6 @@ class _CustomersPageState extends State<CustomersPage> {
     }
   }
 
-  Future<void> permanentlyDeleteCustomerAccount(Map<String,dynamic> customer) async {
-    final name=customer['full_name']?.toString()??'this customer';
-    final confirmed=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
-      title:const Text('Permanently delete customer?'),
-      content:Text('This action cannot be undone. It will permanently remove $name\'s login and personal contact details. The customer history record will remain as an anonymized reference so sales, orders, payments and audit history are preserved.'),
-      actions:[
-        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
-        FilledButton(
-          style:FilledButton.styleFrom(backgroundColor:Colors.red),
-          onPressed:()=>Navigator.pop(dialogContext,true),
-          child:const Text('Permanently delete'),
-        ),
-      ],
-    ));
-    if(confirmed!=true)return;
-    try{
-      final session=Supabase.instance.client.auth.currentSession;
-      final accessToken=session?.accessToken;
-      if(accessToken==null||accessToken.isEmpty){
-        throw Exception('Your TAJIR session is missing or expired. Sign out and sign in again, then retry.');
-      }
-      final response=await Supabase.instance.client.functions.invoke(
-        'tajir-director-permanently-delete-customer',
-        headers:{'Authorization':'Bearer $accessToken'},
-        body:{'customer_id':customer['id'],'confirm_permanent_delete':true},
-      );
-      final data=response.data;
-      if(response.status!=200||data is! Map||data['success']!=true){
-        throw FormatException(data is Map?(friendlyError(data['error'] ?? 'Something went wrong.')??'Could not permanently delete customer.'):'Could not permanently delete customer.');
-      }
-      if(!mounted)return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personal details permanently removed. Financial and transaction history retained.')));
-      await load();
-    }catch(e){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not permanently delete customer: ${friendlyError(e)}')));
-    }
-  }
 
   Future<void> setActive(Map<String,dynamic> row,bool active) async {
     try {
@@ -7289,15 +7365,13 @@ class _CustomersPageState extends State<CustomersPage> {
           if(v=='activate')setActive(r,true);
           if(v=='delete')deleteCustomerAccount(r);
           if(v=='restore')restoreCustomerAccount(r);
-          if(v=='permanent')permanentlyDeleteCustomerAccount(r);
         },
           itemBuilder:(context)=>[
             if(!showDeleted)const PopupMenuItem(value:'edit',child:Text('Edit details')),
             if(!showDeleted&&r['active']==true)const PopupMenuItem(value:'deactivate',child:Text('Deactivate')),
             if(!showDeleted&&r['active']==false)const PopupMenuItem(value:'activate',child:Text('Reactivate suspended account')),
             if(!showDeleted)const PopupMenuItem(value:'delete',child:Text('Move to Deleted Accounts',style:TextStyle(color:Colors.red))),
-            if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'restore',child:Text('Restore account')),
-            if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'permanent',child:Text('Permanently delete',style:TextStyle(color:Colors.red))),
+            if(showDeleted)const PopupMenuItem(value:'restore',child:Text('Restore account')),
           ]),
           ]),
       ))),
