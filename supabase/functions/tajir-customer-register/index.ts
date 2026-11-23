@@ -21,8 +21,7 @@ Deno.serve(async (req) => {
     const nationalId = typeof b.national_id === "string" ? b.national_id.replace(/[^0-9]/g, "") : "";
     if (typeof b.phone !== "string" || !/^\d{4}$/.test(pin) ||
         fullName.length < 2 || fullName.length > 120 ||
-        !/^[0-9]{7,8}$/.test(nationalId) ||
-        false) {
+        !/^[0-9]{7,8}$/.test(nationalId)) {
       return Response.json({
         error: "Enter your full legal name as shown on your National ID, valid Kenyan phone number, National ID number, and four-digit PIN.",
       }, { status: 400 });
