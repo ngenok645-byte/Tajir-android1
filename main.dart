@@ -2626,7 +2626,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      'quantity_requested':amount,
      'quantity_unit':unit,
      'note':note.text.trim().isEmpty?null:note.text.trim(),
-     'status':'accepted',
+     'status':'approved',
     });
     if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your order has been automatically approved. TAJIR has applied the official branch price and calculated the total. The branch will now process delivery.')));
     await load();
@@ -4400,8 +4400,12 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
       if (status == 'paid' || status == 'confirmed') return ['completed'];
       return [];
     }
-    if (status == 'pending') return ['accepted','cancelled'];
-    if (status == 'accepted') return ['processing','cancelled'];
+    if (status == 'pending') {
+      return row['_source'] == 'customer_product_requests'
+        ? ['approved','cancelled']
+        : ['accepted','cancelled'];
+    }
+    if (status == 'accepted' || status == 'approved') return ['processing','cancelled'];
     if (status == 'processing') return ['dispatched'];
     if (status == 'dispatched') return ['in_transit'];
     if (status == 'in_transit') return ['delivered'];
@@ -4417,7 +4421,7 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
       child: ListView(padding: const EdgeInsets.all(16), children: [
         const Text('Orders & delivery', style: TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
         const SizedBox(height:4),
-        const Text('Track each order from submission through processing, dispatch and delivery. Delivered orders are moved into Cleared Orders.', style:TextStyle(color:Colors.black54)),
+        const Text('New orders are approved automatically and appear here for TAJIR to monitor. Move each order through processing, dispatch, transit and delivery. Delivered orders move to Cleared Orders.', style:TextStyle(color:Colors.black54)),
         CheckboxListTile(
           value: !showCleared,
           onChanged: (_) => setState(() => showCleared = false),
