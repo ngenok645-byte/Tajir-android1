@@ -16,15 +16,15 @@ Deno.serve(async (req) => {
   try {
     const b = await req.json();
     const pin = typeof b.pin === "string" ? b.pin.trim() : "";
-    const customerType = b.customer_type ?? "buyer";
+    // Self-registration always creates a buyer account. Seller access is granted\n    // separately by a Director from the Customers workspace.\n    const customerType = "buyer";
     const fullName = typeof b.full_name === "string" ? b.full_name.trim().replace(/\s+/g, " ") : "";
     const nationalId = typeof b.national_id === "string" ? b.national_id.replace(/[^0-9]/g, "") : "";
     if (typeof b.phone !== "string" || !/^\d{4}$/.test(pin) ||
         fullName.length < 2 || fullName.length > 120 ||
         !/^[0-9]{7,8}$/.test(nationalId) ||
-        !["buyer", "seller", "both"].includes(customerType)) {
+        false) {
       return Response.json({
-        error: "Enter your full legal name as shown on your National ID, valid Kenyan phone number, National ID number, four-digit PIN and account type.",
+        error: "Enter your full legal name as shown on your National ID, valid Kenyan phone number, National ID number, and four-digit PIN.",
       }, { status: 400 });
     }
     const phone = normalizePhone(b.phone);
