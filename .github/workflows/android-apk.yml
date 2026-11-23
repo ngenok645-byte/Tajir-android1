@@ -275,6 +275,10 @@ jobs:
           import re
           manifest = Path("android/app/src/main/AndroidManifest.xml")
           source = manifest.read_text()
+          label = re.search(r'android:label="[^"]+"', source)
+          if not label:
+              raise SystemExit("Generated Android app label was not found")
+          source = source[:label.start()] + 'android:label="TAJIR"' + source[label.end():]
           permissions = [
               "android.permission.INTERNET",
               "android.permission.ACCESS_NETWORK_STATE",
