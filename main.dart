@@ -1037,7 +1037,7 @@ class _ProviderRegistrationPageState extends State<ProviderRegistrationPage> {
   bool busy = false;
   String? error;
 
-  bool get needsBusiness => widget.roleCode != 'driver';
+  bool get needsBusiness => widget.roleCode != 'driver' && widget.roleCode != 'worker';
   bool get needsLocation => widget.roleCode == 'mechanic' || widget.roleCode == 'auto_spares_owner';
 
   @override
@@ -1469,7 +1469,7 @@ class AuthChoicePage extends StatelessWidget {
                           roleColor: const Color(0xFF687C42),
                           subtitle: 'Access assigned branch duties and authorised work records.',
                           onLogin: () => _openLogin(context),
-                          onJoin: () => _explainApproval(context, 'Worker'),
+                          onJoin: () => _joinProvider(context, 'worker', 'Worker'),
                         ),
                       ),
                       SizedBox(
