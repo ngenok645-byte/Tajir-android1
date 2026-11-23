@@ -5988,7 +5988,7 @@ class _CustomersPageState extends State<CustomersPage> {
     final name=TextEditingController(text:row?['full_name']?.toString()??'');
     final phone=TextEditingController(text:row?['phone']?.toString()??'');
     final email=TextEditingController(text:row?['email']?.toString()??'');
-    bool canSell=row==null?false:row['marketplace_can_sell']==true;
+    bool canBuy=row==null?true:row['marketplace_can_buy']==true;\n    bool canSell=row==null?false:row['marketplace_can_sell']==true;
     String? error;
     final result=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(context,refresh)=>AlertDialog(
       title:Text(row==null?'Add customer':'Edit customer'),
@@ -6013,7 +6013,7 @@ class _CustomersPageState extends State<CustomersPage> {
     if(result==true){
       try {
         final db=Supabase.instance.client;
-        final values=<String,dynamic>{'customer_type':canSell?'both':'buyer','marketplace_can_buy':true,'marketplace_can_sell':canSell,'full_name':name.text.trim(),'phone':phone.text.trim(),
+        if(!canBuy&&!canSell){refresh(()=>error='Select buyer access, seller access, or both.');return;}\n        final values=<String,dynamic>{'customer_type':canBuy&&canSell?'both':canSell?'seller':'buyer','marketplace_can_buy':canBuy,'marketplace_can_sell':canSell,'full_name':name.text.trim(),'phone':phone.text.trim(),
           'email':email.text.trim().isEmpty?null:email.text.trim()};
         if(row==null){
           final branch=await db.from('branches').select('id').eq('code','NTULELE').maybeSingle();
