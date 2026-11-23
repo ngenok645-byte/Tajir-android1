@@ -4736,6 +4736,7 @@ class _HomeShellState extends State<HomeShell> {
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
   void openMoreMenu() {
     showModalBottomSheet<void>(context: context, builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      if (!(accountant && !director && !branchManager)) ListTile(leading: const Icon(Icons.agriculture), title: const Text('Tractor Services'), selected: index == 5, onTap: () { Navigator.pop(sheetContext); selectPage(5); }),
       if (director || accountant || branchManager) ListTile(leading: const Icon(Icons.account_balance), title: const Text('Financial Records'), selected: index == 6, onTap: () { Navigator.pop(sheetContext); selectPage(6); }),
       if (director) ListTile(leading: const Icon(Icons.manage_accounts), title: const Text('Staff & Accounts'), selected: index == 7, onTap: () { Navigator.pop(sheetContext); selectPage(7); }),
       if (director) ListTile(leading: const Icon(Icons.price_change_outlined), title: const Text('Catalogue Prices'), selected: index == 8, onTap: () { Navigator.pop(sheetContext); selectPage(8); }),
