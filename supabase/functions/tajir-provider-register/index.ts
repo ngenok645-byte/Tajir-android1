@@ -58,7 +58,7 @@ Deno.serve(async (req: Request) => {
     if (!supabaseUrl || !serviceKey) throw new Error("Registration service is not configured.");
     db = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
-    const ip = req.headers.get("cf-connecting-ip") || req.headers.get("x-real-ip") || "unknown";
+    const ip = req.headers.get("cf-connecting-ip") || "unknown";
     const { data: allowed, error: rateError } = await db.rpc("consume_tajir_registration_attempt", {
       p_phone: phone,
       p_ip: ip,
