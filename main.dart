@@ -2029,9 +2029,9 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
   final sell=c!['marketplace_can_sell']==true;
   switch(section){
    case 0:
-    // Show every active marketplace listing. Do not silently restrict buyers
-    // to fertilizer when their account's general buying permission is off.
-    return CustomerMarketPage(customer:c!,mode:'buy',fertilizerOnly:false);
+    return buy
+     ?CustomerMarketPage(customer:c!,mode:'buy',fertilizerOnly:false)
+     :const CustomerLockedPage(title:'Buy TAJIR products',message:'This account is registered for selling only. Ask the Director to authorize Buyer access if you also need to buy.',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined);
    case 1:
     return sell
      ?CustomerMarketPage(customer:c!,mode:'sell')
@@ -2045,7 +2045,9 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    case 5:
     return const BranchRequestPanel();
    case 6:
-    return CustomerMarketPage(customer:c!,mode:'marketplace_buy');
+    return buy
+     ?CustomerMarketPage(customer:c!,mode:'marketplace_buy')
+     :const CustomerLockedPage(title:'Buy from farmers',message:'This account is registered for selling only. Ask the Director to authorize Buyer access if you also need to buy.',imageUrl:TajirPictures.buy,icon:Icons.storefront_outlined);
    default:
     return const SizedBox.shrink();
   }
@@ -2069,8 +2071,40 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    ]))
   );
 
+  final buy=c!['marketplace_can_buy']==true;
   final sell=c!['marketplace_can_sell']==true;
   final onSection=selectedSection!=null;
+  // Only show marketplace cards granted to this account. Shared services and
+  // account tools remain available to both Buyer and Seller accounts.
+  final dashboardCards=<Widget>[
+   if(buy)Row(children:[
+    Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse products available in the marketplace',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0)),
+    const SizedBox(width:8),
+    Expanded(child:homeTile(title:'BUY FROM FARMERS',subtitle:'Browse farmer offers at Director-approved prices',imageUrl:TajirPictures.buy,icon:Icons.storefront_outlined,section:6))
+   ]),
+   if(sell)homeTile(title:'SELL PRODUCTS',subtitle:'List products and manage your selling activity',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined,section:1,large:true),
+   const SizedBox(height:10),
+   homeTile(title:'TRACTOR & MACHINERY SERVICES',subtitle:'Book ploughing, planting, harvesting and more',imageUrl:TajirPictures.tractor,icon:Icons.agriculture,section:3,large:true),
+   const SizedBox(height:10),
+   Row(children:[
+    Expanded(child:homeTile(title:'MY BOOKINGS',subtitle:'Track farm jobs',imageUrl:TajirPictures.bookings,icon:Icons.calendar_month_outlined,section:4)),
+    const SizedBox(width:8),
+    Expanded(child:homeTile(title:'MY BRANCH',subtitle:'Choose your branch',imageUrl:TajirPictures.branch,icon:Icons.location_on_outlined,section:5))
+   ]),
+   const SizedBox(height:10),
+   homeTile(title:'PURCHASE REQUESTS',subtitle:'View and follow up your product requests',imageUrl:TajirPictures.orders,icon:Icons.receipt_long_outlined,section:2),
+   const SizedBox(height:12),
+   OutlinedButton.icon(
+    onPressed: () => showTajirNationalId(context, Supabase.instance.client.auth.currentUser!.id),
+    icon: const Icon(Icons.verified_user_outlined),
+    label: const Text('View my National ID'),
+   ),
+   OutlinedButton.icon(
+    onPressed: () => addMyTajirNationalId(context),
+    icon: const Icon(Icons.add_moderator_outlined),
+    label: const Text('Add or retry National ID registration'),
+   )
+  ];
   return Scaffold(
    appBar:AppBar(
     leading:onSection?IconButton(
@@ -2090,36 +2124,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
     const TajirDirectorContacts(),
     Expanded(child:onSection
      ?sectionPage(selectedSection!)
-     :ListView(padding:const EdgeInsets.all(12),children:[
-      Row(children:[
-       Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse all products available in the marketplace',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0)),
-       const SizedBox(width:8),
-       Expanded(child:homeTile(title:'SELL PRODUCTS',subtitle:sell?'Choose a catalogue product and view the Director-approved TAJIR buying price':'Access locked',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined,section:1,locked:!sell))
-      ]),
-      const SizedBox(height:10),
-      homeTile(title:'TRACTOR & MACHINERY SERVICES',subtitle:'Book ploughing, planting, harvesting and more',imageUrl:TajirPictures.tractor,icon:Icons.agriculture,section:3,large:true),
-      const SizedBox(height:10),
-      Row(children:[
-       Expanded(child:homeTile(title:'MY BOOKINGS',subtitle:'Track farm jobs',imageUrl:TajirPictures.bookings,icon:Icons.calendar_month_outlined,section:4)),
-       const SizedBox(width:8),
-       Expanded(child:homeTile(title:'MY BRANCH',subtitle:'Choose your branch',imageUrl:TajirPictures.branch,icon:Icons.location_on_outlined,section:5))
-      ]),
-      const SizedBox(height:10),
-      homeTile(title:'PURCHASE REQUESTS',subtitle:'View and follow up your product requests',imageUrl:TajirPictures.orders,icon:Icons.receipt_long_outlined,section:2),
-      const SizedBox(height:10),
-      homeTile(title:'BUY FROM FARMERS',subtitle:'Browse farmer offers at Director-approved TAJIR selling prices',imageUrl:TajirPictures.buy,icon:Icons.storefront_outlined,section:6,large:true),
-      const SizedBox(height:12),
-      OutlinedButton.icon(
-        onPressed: () => showTajirNationalId(context, Supabase.instance.client.auth.currentUser!.id),
-        icon: const Icon(Icons.verified_user_outlined),
-        label: const Text('View my National ID'),
-      ),
-      OutlinedButton.icon(
-        onPressed: () => addMyTajirNationalId(context),
-        icon: const Icon(Icons.add_moderator_outlined),
-        label: const Text('Add or retry National ID registration'),
-      )
-    ]))
+     :ListView(padding:const EdgeInsets.all(12),children:dashboardCards))
    ])
   );
  }
