@@ -8,7 +8,7 @@ alter table public.customers
 -- disabled, archived, and permanently anonymized accounts.
 update public.customers c
    set active = true,
-       marketplace_can_buy = true,
+       marketplace_can_buy = case when c.marketplace_can_sell then c.marketplace_can_buy else true end,
        customer_type = case
          when c.marketplace_can_sell then 'both'::public.customer_type
          else 'buyer'::public.customer_type
