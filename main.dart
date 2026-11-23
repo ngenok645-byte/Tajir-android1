@@ -4990,7 +4990,7 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
       final roles = await db.from('user_role_assignments')
         .select('user_id,is_active,app_roles(name,code)')
         .eq('is_active', true);
-      final profiles = await db.from('profiles').select('id,display_name').order('display_name');
+      final profiles = await db.from('profiles').select('id,display_name,phone,status,created_at').order('display_name');
       final names = <String, String>{
         for (final p in List<Map<String, dynamic>>.from(profiles))
           p['id'].toString(): (p['display_name'] ?? 'Unnamed account').toString()
@@ -5007,12 +5007,84 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
         'user_id': entry.key,
         'name': names[entry.key] ?? 'Profile name unavailable',
         'roles': entry.value.toSet().toList()..sort(),
+        'phone': List<Map<String,dynamic>>.from(profiles).firstWhere((p)=>p['id'].toString()==entry.key,orElse:()=>{})['phone'],
+        'status': List<Map<String,dynamic>>.from(profiles).firstWhere((p)=>p['id'].toString()==entry.key,orElse:()=>{})['status'],
+        'created_at': List<Map<String,dynamic>>.from(profiles).firstWhere((p)=>p['id'].toString()==entry.key,orElse:()=>{})['created_at'],
       }).toList()..sort((a,b) => a['name'].toString().compareTo(b['name'].toString()));
       if (mounted) setState(() => accounts = result);
     } catch (e) {
       if (mounted) setState(() => error = 'Could not load the staff directory: ${friendlyError(e)}');
     } finally {
       if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> inspectStaffAccount(Map<String,dynamic> account) async {
+    final db=Supabase.instance.client;
+    final id=account['user_id'].toString();
+    try {
+      final results=await Future.wait<dynamic>([
+        db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':id}),
+        db.from('audit_logs').select('id,action,entity_table,reason,created_at')
+          .eq('actor_user_id',id).order('created_at',ascending:false).limit(50),
+        db.from('audit_logs').select('id,action,entity_table,reason,created_at')
+          .eq('entity_table','profiles').eq('entity_id',id)
+          .order('created_at',ascending:false).limit(30),
+        db.from('user_branch_assignments').select('branch_id,started_at,ended_at,branches(name)')
+          .eq('user_id',id).order('started_at',ascending:false),
+      ]);
+      final activity=List<Map<String,dynamic>>.from(results[0]);
+      final events=List<Map<String,dynamic>>.from(results[1]);
+      final changes=List<Map<String,dynamic>>.from(results[2]);
+      final branches=List<Map<String,dynamic>>.from(results[3]);
+      if(!mounted)return;
+      await Navigator.of(context).push(MaterialPageRoute<void>(builder:(pageContext)=>Scaffold(
+        appBar:AppBar(title:Text((account['name']??'Worker account').toString()),actions:[
+          if((account['phone']??'').toString().trim().isNotEmpty)
+            IconButton(tooltip:'Call account',icon:const Icon(Icons.call),onPressed:()async{
+              try{await callTajirPhone(account['phone'].toString());}
+              catch(e){if(pageContext.mounted)ScaffoldMessenger.of(pageContext).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+            }),
+        ]),
+        body:ListView(padding:const EdgeInsets.all(16),children:[
+          Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            const Text('TAJIR WORKER ACCOUNT DASHBOARD',style:TextStyle(fontWeight:FontWeight.bold,color:brandGreen)),
+            const SizedBox(height:10),
+            Text((account['name']??'Worker').toString(),style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
+            Text('Phone: '+((account['phone']??'Not provided').toString())),
+            Text('Account status: '+((account['status']??'unknown').toString())),
+            Text('Created: '+((account['created_at']??'Not available').toString())),
+            const SizedBox(height:8),
+            Wrap(spacing:6,runSpacing:6,children:(account['roles'] as List<String>).map((r)=>Chip(label:Text(r))).toList()),
+            if((account['phone']??'').toString().trim().isNotEmpty)
+              Align(alignment:Alignment.centerLeft,child:FilledButton.icon(
+                onPressed:()async{try{await callTajirPhone(account['phone'].toString());}catch(e){if(pageContext.mounted)ScaffoldMessenger.of(pageContext).showSnackBar(SnackBar(content:Text(friendlyError(e))));}},
+                icon:const Icon(Icons.call),label:const Text('Call worker'))),
+          ]))),
+          const SizedBox(height:12),
+          Text('All linked work, orders, deliveries and payments (${activity.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+          if(activity.isEmpty)const Card(child:Padding(padding:EdgeInsets.all(14),child:Text('No operational activity has been recorded for this account.'))),
+          ...activity.map((r)=>Card(child:ListTile(
+            leading:const Icon(Icons.receipt_long_outlined,color:brandGreen),
+            title:Text((r['activity_type']??'Activity').toString()+' • '+(r['reference']??'Record').toString()),
+            subtitle:Text((r['status']??'').toString().replaceAll('_',' ')+' • '+(r['activity_at']??'').toString()+'\\n'+(r['details']??'').toString()),
+            trailing:r['amount']==null?null:Text('KES '+(r['amount'] as num).toStringAsFixed(2)),
+          ))),
+          const SizedBox(height:12),
+          Text('Branch assignments (${branches.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+          if(branches.isEmpty)const Text('No branch assignments recorded.'),
+          ...branches.map((r)=>ListTile(leading:const Icon(Icons.business_outlined),title:Text(((r['branches'] as Map?)?['name']??'Branch').toString()),subtitle:Text('Started: ${r['started_at']??'—'} • Ended: ${r['ended_at']??'Active'}'))),
+          const SizedBox(height:12),
+          const Text('Account activity and audit history',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+          if(events.isEmpty&&changes.isEmpty)const Text('No audit events have been recorded.'),
+          ...[...changes,...events].map((r)=>ListTile(dense:true,leading:const Icon(Icons.history),title:Text((r['action']??'Activity').toString().replaceAll('_',' ')),subtitle:Text((r['entity_table']??'account').toString()+' • '+(r['created_at']??'').toString()+'\\n'+(r['reason']??'').toString()))),
+          const SizedBox(height:8),
+          const Text('Read-only oversight. Passwords, PINs and authentication tokens are never shown.',style:TextStyle(fontSize:12,color:Colors.black54)),
+        ]),
+      )));
+      await load();
+    } catch(e) {
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not open full worker dashboard: '+friendlyError(e))));
     }
   }
 
@@ -5037,8 +5109,14 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
       ...accounts.map((account) => Card(child: ListTile(
         leading: const CircleAvatar(child: Icon(Icons.person_outline)),
         title: Text(account['name'].toString()),
-        subtitle: Text((account['roles'] as List<String>).join(' • ')),
-        trailing: const Icon(Icons.visibility_outlined),
+        subtitle: Text((account['roles'] as List<String>).join(' • ')+' • '+((account['status']??'unknown').toString())),
+        onTap:()=>inspectStaffAccount(account),
+        trailing:Row(mainAxisSize:MainAxisSize.min,children:[
+          if((account['phone']??'').toString().trim().isNotEmpty)
+            IconButton(tooltip:'Call ${account['name']}',icon:const Icon(Icons.call,color:brandGreen),
+              onPressed:()async{try{await callTajirPhone(account['phone'].toString());}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}),
+          const Icon(Icons.visibility_outlined),
+        ]),
       ))),
       const Padding(padding: EdgeInsets.only(top: 12), child: Text(
         'This directory is read-only. It does not expose PINs, passwords, authentication tokens, or private login credentials.',
@@ -6950,7 +7028,11 @@ class _CustomersPageState extends State<CustomersPage> {
         title:Text(r['full_name']?.toString()??''),
         subtitle:Text('${r['phone']??''} • ${r['customer_type']??''}${r['permanently_deleted_at']!=null?' • Permanently deleted (anonymized)':r['deleted_at']!=null?' • Archived':r['active']==false?' • Inactive':''}'),
         onTap:()=>showCustomer(r),
-        trailing:PopupMenuButton<String>(onSelected:(v){
+        trailing:Row(mainAxisSize:MainAxisSize.min,children:[
+          if((r['phone']??'').toString().trim().isNotEmpty)
+            IconButton(tooltip:'Call ${r['full_name']??'customer'}',icon:const Icon(Icons.call,color:brandGreen),
+              onPressed:()async{try{await callTajirPhone(r['phone'].toString());}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}),
+          PopupMenuButton<String>(onSelected:(v){
           if(v=='edit')editCustomer(r);
           if(v=='deactivate')setActive(r,false);
           if(v=='activate')setActive(r,true);
@@ -6965,6 +7047,7 @@ class _CustomersPageState extends State<CustomersPage> {
             if(!showDeleted)const PopupMenuItem(value:'delete',child:Text('Move to Deleted Accounts',style:TextStyle(color:Colors.red))),
             if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'restore',child:Text('Restore account')),
             if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'permanent',child:Text('Permanently delete',style:TextStyle(color:Colors.red))),
+          ]),
           ]),
       ))),
       const Padding(padding:EdgeInsets.only(top:8),child:Text('Customer balances count verified payments only. Pending, rejected and reversed payments are not treated as money received.',style:TextStyle(fontSize:12,color:Colors.black54))),
