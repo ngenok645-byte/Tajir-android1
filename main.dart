@@ -6809,86 +6809,143 @@ class _CustomersPageState extends State<CustomersPage> {
       final id=customer['id'];
       final results=await Future.wait<dynamic>([
         db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode').eq('customer_id',id).order('sale_date',ascending:false),
-        db.from('customer_payments').select('id,payment_number,sale_id,amount,method,status,received_at,created_at').eq('customer_id',id).order('created_at',ascending:false),
+        db.from('customer_payments').select('id,payment_number,sale_id,order_id,amount,method,status,provider_reference,provider_transaction_id,received_at,verified_at,created_at').eq('customer_id',id).order('created_at',ascending:false),
+        db.from('sales_orders').select('id,order_number,status,total_amount,fulfilment_method,delivery_address,requested_delivery_at,confirmed_delivery_at,created_at,payment_mode').eq('customer_id',id).order('created_at',ascending:false),
+        db.from('customer_order_reviews').select('id,order_type,order_id,rating,review_text,created_at').eq('reviewer_customer_id',id).order('created_at',ascending:false),
+        db.from('user_role_assignments').select('app_roles(code)').eq('user_id',db.auth.currentUser!.id).eq('is_active',true),
       ]);
       final sales=List<Map<String,dynamic>>.from(results[0]);
       final payments=List<Map<String,dynamic>>.from(results[1]);
-      final roleRows=await db.from('user_role_assignments').select('app_roles(code)').eq('user_id',db.auth.currentUser!.id).eq('is_active',true);
+      final orders=List<Map<String,dynamic>>.from(results[2]);
+      final reviews=List<Map<String,dynamic>>.from(results[3]);
+      final roleRows=List<Map<String,dynamic>>.from(results[4]);
       final canVerifyPayments=roleRows.any((r)=>r['app_roles'] is Map && ['director','accountant'].contains((r['app_roles'] as Map)['code']));
-      final totalSales=sales.fold<double>(0,(s,r)=>s+((r['total_amount'] as num?)?.toDouble()??0));
-      final verified=payments.where((p)=>p['status']=='verified').fold<double>(0,(s,r)=>s+((r['amount'] as num?)?.toDouble()??0));
-      final pending=payments.where((p)=>p['status']=='pending').fold<double>(0,(s,r)=>s+((r['amount'] as num?)?.toDouble()??0));
+      final isDirector=roleRows.any((r)=>r['app_roles'] is Map && (r['app_roles'] as Map)['code']=='director');
+      List<Map<String,dynamic>> activity=[];
+      final profileId=(customer['profile_id']??'').toString();
+      if(isDirector&&profileId.isNotEmpty){
+        try{
+          final raw=await db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':profileId});
+          activity=List<Map<String,dynamic>>.from(raw);
+        }catch(_){activity=[];}
+      }
+      final totalSales=sales.fold<double>(0,(sum,r)=>sum+((r['total_amount'] as num?)?.toDouble()??0));
+      final verified=payments.where((p)=>p['status']=='verified').fold<double>(0,(sum,r)=>sum+((r['amount'] as num?)?.toDouble()??0));
+      final pending=payments.where((p)=>p['status']=='pending').fold<double>(0,(sum,r)=>sum+((r['amount'] as num?)?.toDouble()??0));
       final balance=totalSales-verified;
       final unallocatedBalance=totalSales-verified-pending;
       if(!mounted)return;
-      await showDialog<void>(context:context,builder:(context)=>AlertDialog(
-        title:Text(customer['full_name']?.toString()??'Customer'),
-        content:SizedBox(width:480,child:SingleChildScrollView(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-          Text('Phone: ${customer['phone']??'—'}'),
-          const SizedBox(height: 8),
-          if ((customer['profile_id']?.toString() ?? '').isNotEmpty) ...[
-            TajirCallButton(profileId: customer['profile_id'].toString(), label: 'Call customer'),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () => showTajirNationalId(context, customer['profile_id'].toString()),
-              icon: const Icon(Icons.verified_user_outlined),
-              label: const Text('View National ID (TAJIR only)'),
-            ),
+      await Navigator.of(context).push(MaterialPageRoute<void>(builder:(pageContext)=>Scaffold(
+        appBar:AppBar(
+          title:Text(customer['full_name']?.toString()??'Client dashboard'),
+          actions:[
+            if((customer['phone']??'').toString().trim().isNotEmpty)
+              IconButton(tooltip:'Call client',icon:const Icon(Icons.call),onPressed:()async{
+                try{await callTajirPhone(customer['phone'].toString());}
+                catch(e){if(pageContext.mounted)ScaffoldMessenger.of(pageContext).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+              }),
+            IconButton(tooltip:'Refresh client records',icon:const Icon(Icons.refresh),onPressed:()=>Navigator.pop(pageContext)),
           ],
-          Text('Email: ${customer['email']??'—'}'),
-          Text('Customer type: ${customer['customer_type']??'—'}'),
-          Text('Account status: ${customer['active']==true?'Active':'Inactive'}'),
-          Text('Customer record ID: ${customer['id']??'—'}'),
-          Text('Login profile ID: ${customer['profile_id']??'Not linked'}'),
-          Text('Default branch ID: ${customer['default_branch_id']??'Not assigned'}'),
-          Text('Registered: ${customer['created_at']??'—'}'),
-          Text('Approved at: ${customer['approved_at']??'Not approved'}'),
+        ),
+        body:ListView(padding:const EdgeInsets.all(16),children:[
+          Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            const Row(children:[Icon(Icons.person_outline,color:brandGreen),SizedBox(width:8),Text('FULL CLIENT ACCOUNT DASHBOARD',style:TextStyle(fontWeight:FontWeight.bold,color:brandGreen))]),
+            const SizedBox(height:10),
+            Text(customer['full_name']?.toString()??'Client',style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
+            Text('Phone: ${customer['phone']??'—'}'),
+            Text('Email: ${customer['email']??'—'}'),
+            Text('Customer type: ${customer['customer_type']??'—'}'),
+            Text('Account status: ${customer['active']==true?'Active':'Inactive'}'),
+            Text('Marketplace access: Buy ${customer['marketplace_can_buy']==true?'Yes':'No'} • Sell ${customer['marketplace_can_sell']==true?'Yes':'No'}'),
+            Text('Customer record ID: ${customer['id']??'—'}'),
+            Text('Login profile ID: ${customer['profile_id']??'Not linked'}'),
+            Text('Default branch ID: ${customer['default_branch_id']??'Not assigned'}'),
+            Text('Registered: ${customer['created_at']??'—'}'),
+            Text('Approved at: ${customer['approved_at']??'Not approved'}'),
+            if(profileId.isNotEmpty)...[
+              const SizedBox(height:8),
+              Wrap(spacing:8,runSpacing:8,children:[
+                OutlinedButton.icon(onPressed:()=>showTajirNationalId(pageContext,profileId),icon:const Icon(Icons.verified_user_outlined),label:const Text('View National ID')),
+                if((customer['phone']??'').toString().trim().isNotEmpty)
+                  FilledButton.icon(onPressed:()async{try{await callTajirPhone(customer['phone'].toString());}catch(e){if(pageContext.mounted)ScaffoldMessenger.of(pageContext).showSnackBar(SnackBar(content:Text(friendlyError(e))));}},icon:const Icon(Icons.call),label:const Text('Call client')),
+              ]),
+            ],
+          ]))),
           const SizedBox(height:12),
-          Text('Total purchases: KES ${totalSales.toStringAsFixed(2)}'),
-          Text('Verified payments: KES ${verified.toStringAsFixed(2)}'),
-          Text('Pending verification: KES ${pending.toStringAsFixed(2)}'),
-          Text('Unallocated balance: KES ${unallocatedBalance.clamp(0,double.infinity).toStringAsFixed(2)}'),
-          Text('Outstanding balance: KES ${balance.toStringAsFixed(2)}',style:TextStyle(fontWeight:FontWeight.bold,color:balance>0?Colors.red:brandGreen)),
-          const Divider(),
-          const Text('Purchase history',style:TextStyle(fontWeight:FontWeight.bold)),
+          GridView.count(crossAxisCount:MediaQuery.of(pageContext).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:2.15,children:[
+            _customerMetric('Total sales','KES ${totalSales.toStringAsFixed(2)}',Icons.shopping_bag_outlined),
+            _customerMetric('Verified payments','KES ${verified.toStringAsFixed(2)}',Icons.verified_outlined),
+            _customerMetric('Pending payments','KES ${pending.toStringAsFixed(2)}',Icons.pending_actions),
+            _customerMetric('Outstanding balance','KES ${balance.toStringAsFixed(2)}',Icons.account_balance_wallet_outlined),
+          ]),
+          const SizedBox(height:14),
+          Text('Orders and delivery tracking (${orders.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+          if(orders.isEmpty)const Text('No direct sales orders recorded for this client.'),
+          ...orders.map((o)=>Card(child:ListTile(
+            leading:const Icon(Icons.local_shipping_outlined,color:brandGreen),
+            title:Text((o['order_number']??'Order').toString()),
+            subtitle:Text('${(o['status']??'').toString().replaceAll('_',' ')} • ${o['fulfilment_method']??'—'}\\n${o['delivery_address']??'Pickup / no delivery address'}\\nPlaced: ${o['created_at']??'—'} • Delivered: ${o['confirmed_delivery_at']??'Pending'}'),
+            isThreeLine:true,
+            trailing:Text('KES ${((o['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'),
+          ))),
+          const SizedBox(height:12),
+          Text('Purchase history (${sales.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
           if(sales.isEmpty)const Text('No sales recorded for this customer.'),
-          ...sales.map((s)=>ListTile(contentPadding:EdgeInsets.zero,title:Text('${s['sale_number']}'),subtitle:Text('${s['sale_date']} • Payment: ${s['payment_mode']??'credit'}'),trailing:Text('KES ${((s['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'))),
-          const Divider(),
-          const Text('Payments',style:TextStyle(fontWeight:FontWeight.bold)),
+          ...sales.map((sale)=>Card(child:ListTile(
+            title:Text((sale['sale_number']??'Sale').toString()),
+            subtitle:Text('${sale['sale_date']??'—'} • Payment: ${sale['payment_mode']??'credit'}'),
+            trailing:Text('KES ${((sale['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'),
+          ))),
+          const SizedBox(height:12),
+          Text('Payments and transaction references (${payments.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
           if(payments.isEmpty)const Text('No payments recorded.'),
           ...payments.map((p){
             final saleRows=sales.where((sale)=>sale['id'].toString()==(p['sale_id']??'').toString()).toList();
             final sale=saleRows.isEmpty?<String,dynamic>{}:saleRows.first;
             final related=payments.where((x)=>x['sale_id'].toString()==(p['sale_id']??'').toString()&&x['status']=='verified').fold<double>(0,(sum,x)=>sum+((x['amount'] as num?)?.toDouble()??0));
             final invoice=(sale['total_amount'] as num?)?.toDouble()??0;
-            return ListTile(
-              contentPadding:EdgeInsets.zero,
+            return Card(child:ListTile(
               title:Text('KES ${((p['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)} • ${p['method']}'),
-              subtitle:Text('${p['status']} • ${p['payment_number']}'),
-              onTap:()=>showTajirReceipt(context,
-                receiptNumber:(p['payment_number']??'—').toString(),
-                receiptType:'Customer payment receipt',
-                partyLabel:'Customer',partyName:(customer['full_name']??'Customer').toString(),
-                date:(p['received_at']??p['created_at']??'').toString(),
-                amount:((p['amount'] as num?)?.toDouble()??0),
-                invoiceTotal:invoice>0?invoice:null,totalPaid:related,
-                balance:invoice>0?(invoice-related).clamp(0,double.infinity).toDouble():null,
-                method:(p['method']??'—').toString(),status:(p['status']??'pending').toString(),
-                details:['Sale: ${sale['sale_number']??'—'}'],
-              ),
-              trailing:p['status']=='pending'&&canVerifyPayments?TextButton(onPressed:(){Navigator.pop(context);verifyCustomerPayment(p['id'].toString(),customer);},child:const Text('Verify')):null,
-            );
+              subtitle:Text('${p['status']} • ${p['payment_number']}\\nReference: ${p['provider_reference']??p['provider_transaction_id']??'Not supplied'} • Received: ${p['received_at']??'—'} • Verified: ${p['verified_at']??'Pending'}'),
+              isThreeLine:true,
+              onTap:()=>showTajirReceipt(pageContext,receiptNumber:(p['payment_number']??'—').toString(),receiptType:'Customer payment receipt',partyLabel:'Customer',partyName:(customer['full_name']??'Customer').toString(),date:(p['received_at']??p['created_at']??'').toString(),amount:((p['amount'] as num?)?.toDouble()??0),invoiceTotal:invoice>0?invoice:null,totalPaid:related,balance:invoice>0?(invoice-related).clamp(0,double.infinity).toDouble():null,method:(p['method']??'—').toString(),status:(p['status']??'pending').toString(),details:['Sale: ${sale['sale_number']??'—'}','Order: ${p['order_id']??'—'}','Provider reference: ${p['provider_reference']??'—'}']),
+              trailing:p['status']=='pending'&&canVerifyPayments?TextButton(onPressed:(){Navigator.pop(pageContext);verifyCustomerPayment(p['id'].toString(),customer);},child:const Text('Verify')):null,
+            ));
           }),
-        ]))),
-        actions:[
-          if(unallocatedBalance>0.009) OutlinedButton.icon(onPressed:(){Navigator.pop(context);recordCustomerPayment(customer,sales,payments);},icon:const Icon(Icons.payments_outlined),label:const Text('Record payment')),
-          TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Close')),
-        ],
-      ));
-    } catch(e) {
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Customer financial history is not available for this account: ${friendlyError(e)}')));
+          if(unallocatedBalance>0.009)
+            Align(alignment:Alignment.centerLeft,child:Padding(padding:const EdgeInsets.only(top:8),child:FilledButton.icon(onPressed:(){Navigator.pop(pageContext);recordCustomerPayment(customer,sales,payments);},icon:const Icon(Icons.payments_outlined),label:const Text('Record payment')))),
+          const SizedBox(height:12),
+          Text('Client reviews (${reviews.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+          if(reviews.isEmpty)const Text('No client reviews have been submitted.'),
+          ...reviews.map((r)=>Card(child:ListTile(
+            leading:Row(mainAxisSize:MainAxisSize.min,children:List.generate(5,(i)=>Icon(i<(r['rating'] as num? ??0).toInt()?Icons.star:Icons.star_border,color:Colors.amber,size:16))),
+            title:Text('${r['order_type']??'Order'} • ${r['rating']??0}/5'),
+            subtitle:Text('${r['review_text']??'No written comment'}\\n${r['created_at']??''}'),
+            isThreeLine:true,
+          ))),
+          if(isDirector)...[
+            const SizedBox(height:12),
+            Text('All linked TAJIR activity (${activity.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+            if(activity.isEmpty)const Text('No additional linked activity was found.'),
+            ...activity.map((e)=>Card(child:ListTile(
+              leading:const Icon(Icons.receipt_long_outlined,color:brandGreen),
+              title:Text('${e['activity_type']??'Activity'} • ${e['reference']??'Record'}'),
+              subtitle:Text('${(e['status']??'').toString().replaceAll('_',' ')} • ${e['activity_at']??''}\\n${e['details']??''}'),
+              isThreeLine:true,
+              trailing:e['amount']==null?null:Text('KES ${(e['amount'] as num).toStringAsFixed(2)}'),
+            ))),
+          ],
+          const SizedBox(height:8),
+          const Text('Read-only client oversight. Authentication PINs, passwords and tokens remain private.',style:TextStyle(fontSize:12,color:Colors.black54)),
+        ]),
+      )));
+      await load();
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Client dashboard could not be opened: ${friendlyError(e)}')));
     }
   }
+
+  Widget _customerMetric(String label,String value,IconData icon)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[Icon(icon,color:brandGreen,size:24),const SizedBox(width:8),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(value,style:const TextStyle(fontSize:16,fontWeight:FontWeight.bold)),Text(label,style:const TextStyle(fontSize:11,color:Colors.black54))]))])));
 
   Future<void> deleteCustomerAccount(Map<String,dynamic> customer) async {
     final name=customer['full_name']?.toString()??'this customer';
