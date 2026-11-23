@@ -3323,7 +3323,7 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
   if(mounted&&request==quoteRequest)setState(()=>quoting=false);
  }
  Future<void> book()async{
-  if(location.text.trim().length<3||county.text.trim().isEmpty||region.text.trim().isEmpty||village.text.trim().isEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter the farm location: County, Region and Village.')));return;}
+  if(location.text.trim().length<3){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter the specific farm location or directions (at least 3 characters).')));return;}
   final q=double.tryParse(quantity.text.trim());
   if(q==null||q<=0){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Enter a valid quantity in $unitLabel.')));return;}
   if(quote==null){await refreshQuote();if(quote==null){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(quoteError??'A valid TAJIR-approved rate is required before booking.')));return;}}
@@ -3348,9 +3348,9 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
   DropdownButtonFormField<String>(value:service,items:const [DropdownMenuItem(value:'ploughing',child:Text('Ploughing')),DropdownMenuItem(value:'harrowing',child:Text('Harrowing')),DropdownMenuItem(value:'planting',child:Text('Planting')),DropdownMenuItem(value:'transport',child:Text('Transport')),DropdownMenuItem(value:'other',child:Text('Other'))],onChanged:(v){setState((){service=v??'ploughing';if(service=='transport'&&transportUnit=='per_acre')transportUnit='per_trip';});refreshQuote();},decoration:const InputDecoration(labelText:'Service')),
   if(hasVariablePricingUnit)DropdownButtonFormField<String>(value:transportUnit,items:(service=='transport'?const ['per_trip','per_km','per_tonne']:const ['per_acre','per_trip','per_km','per_tonne']).map((u)=>DropdownMenuItem(value:u,child:Text({'per_acre':'Per acre','per_trip':'Per trip','per_km':'Per kilometre','per_tonne':'Per tonne'}[u]!))).toList(),onChanged:(v){setState(()=>transportUnit=v??'per_trip');refreshQuote();},decoration:InputDecoration(labelText:service=='transport'?'Transport pricing basis':'Other service pricing basis')), 
   const Text('Farm location',style:TextStyle(fontWeight:FontWeight.w600)),
-  TextField(controller:county,decoration:const InputDecoration(labelText:'County',hintText:'Select or enter county'),onChanged:(_)=>refreshQuote()),
-  TextField(controller:region,decoration:const InputDecoration(labelText:'Region',hintText:'Select or enter region'),onChanged:(_)=>refreshQuote()),
-  TextField(controller:village,decoration:const InputDecoration(labelText:'Village',hintText:'Select or enter village'),onChanged:(_)=>refreshQuote()),
+  TextField(controller:county,decoration:const InputDecoration(labelText:'County (as applicable)',hintText:'Enter county for matching approved rate'),onChanged:(_)=>refreshQuote()),
+  TextField(controller:region,decoration:const InputDecoration(labelText:'Region (as applicable)',hintText:'Enter region if the approved rate uses it'),onChanged:(_)=>refreshQuote()),
+  TextField(controller:village,decoration:const InputDecoration(labelText:'Village (as applicable)',hintText:'Enter village if the approved rate uses it'),onChanged:(_)=>refreshQuote()),
   TextField(controller:location,decoration:const InputDecoration(labelText:'Specific farm location / directions'),onChanged:(_)=>refreshQuote()),
   TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:usesLandArea?'Land size (acres)':'Service quantity ($unitLabel)'),onChanged:(_)=>refreshQuote()),
   if(usesLandArea)OutlinedButton.icon(onPressed:()=>Navigator.push<double>(context,MaterialPageRoute(builder:(_)=>const TajirLandMeasurePage())).then((value){if(value!=null&&mounted){quantity.text=value.toStringAsFixed(3);refreshQuote();}}),icon:const Icon(Icons.gps_fixed),label:const Text('Measure land with GPS')),
