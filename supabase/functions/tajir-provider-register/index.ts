@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const allowedRoles = new Set(["tractor_owner", "driver", "mechanic", "auto_spares_owner"]);
+const allowedRoles = new Set(["worker", "tractor_owner", "driver", "mechanic", "auto_spares_owner"]);
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -142,7 +142,7 @@ Deno.serve(async (req: Request) => {
     return json({
       success: true,
       role: roleCode,
-      verification_required: roleCode !== "driver",
+      verification_required: roleCode !== "driver" && roleCode !== "worker",
     });
   } catch (error) {
     if (createdUserId && db) {
