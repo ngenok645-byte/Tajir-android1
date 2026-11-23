@@ -4179,6 +4179,217 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
   ]));
 }
 
+
+class DirectorOrdersPage extends StatefulWidget {
+  const DirectorOrdersPage({super.key});
+  @override State<DirectorOrdersPage> createState() => _DirectorOrdersPageState();
+}
+
+class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
+  final db = Supabase.instance.client;
+  bool loading = true, busy = false;
+  String? error;
+  bool showCleared = false;
+  List<Map<String,dynamic>> orders = [];
+  Map<String,String> customerNames = {};
+  Map<String,double> paidByOrder = {};
+  Map<String,String> paymentStatusByOrder = {};
+
+  bool isCleared(Map<String,dynamic> row) {
+    final status = (row['status'] ?? '').toString().toLowerCase();
+    return const {'delivered','completed','fulfilled'}.contains(status);
+  }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = null; });
+    try {
+      final results = await Future.wait<dynamic>([
+        db.from('marketplace_purchase_requests')
+          .select('id,buyer_customer_id,quantity,unit_price_kes,line_total_kes,status,created_at,listing:marketplace_listings(product_name,unit)')
+          .order('created_at', ascending: false),
+        db.from('customer_product_requests')
+          .select('id,customer_id,quantity_requested,quantity_unit,line_total_kes,status,created_at,products(name),branches(name)')
+          .order('created_at', ascending: false),
+        db.from('sales_orders')
+          .select('id,order_number,customer_id,status,total_amount,created_at,delivery_address,payment_mode')
+          .order('created_at', ascending: false),
+        db.from('customers').select('id,full_name'),
+        db.from('customer_payments')
+          .select('order_id,amount,status,method,provider_reference')
+          .not('order_id', 'is', null),
+      ]);
+      final names = <String,String>{};
+      for (final c in List<Map<String,dynamic>>.from(results[3])) {
+        names[c['id'].toString()] = (c['full_name'] ?? 'Customer').toString();
+      }
+      final paid = <String,double>{};
+      final paymentStates = <String,String>{};
+      for (final p in List<Map<String,dynamic>>.from(results[4])) {
+        final id = p['order_id']?.toString();
+        if (id == null) continue;
+        if ((p['status'] ?? '').toString() == 'verified') {
+          paid[id] = (paid[id] ?? 0) + numVal(p['amount']);
+        }
+        paymentStates[id] = (p['status'] ?? 'pending').toString();
+      }
+      final combined = <Map<String,dynamic>>[];
+      for (final r in List<Map<String,dynamic>>.from(results[0])) {
+        final listing = (r['listing'] as Map?)?.cast<String,dynamic>() ?? {};
+        combined.add({
+          ...r, '_source':'marketplace_purchase_requests',
+          '_title':(listing['product_name'] ?? 'Marketplace order').toString(),
+          '_quantity':'${r['quantity'] ?? ''} ${listing['unit'] ?? ''}',
+          '_amount':numVal(r['line_total_kes']),
+          '_customer_id':r['buyer_customer_id'],
+          '_reference':'MP-${r['id'].toString().substring(0,8).toUpperCase()}',
+        });
+      }
+      for (final r in List<Map<String,dynamic>>.from(results[1])) {
+        final product = (r['products'] as Map?)?.cast<String,dynamic>() ?? {};
+        final branch = (r['branches'] as Map?)?.cast<String,dynamic>() ?? {};
+        combined.add({
+          ...r, '_source':'customer_product_requests',
+          '_title':(product['name'] ?? 'TAJIR product order').toString(),
+          '_quantity':'${r['quantity_requested'] ?? ''} ${r['quantity_unit'] ?? ''}',
+          '_amount':numVal(r['line_total_kes']),
+          '_customer_id':r['customer_id'],
+          '_reference':'TP-${r['id'].toString().substring(0,8).toUpperCase()}',
+          '_extra':(branch['name'] ?? 'TAJIR branch').toString(),
+        });
+      }
+      for (final r in List<Map<String,dynamic>>.from(results[2])) {
+        combined.add({
+          ...r, '_source':'sales_orders',
+          '_title':'Sales order ${r['order_number'] ?? ''}',
+          '_quantity':'',
+          '_amount':numVal(r['total_amount']),
+          '_customer_id':r['customer_id'],
+          '_reference':(r['order_number'] ?? r['id']).toString(),
+        });
+      }
+      combined.sort((a,b) => DateTime.tryParse((b['created_at'] ?? '').toString())?.compareTo(
+        DateTime.tryParse((a['created_at'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0)
+      ) ?? 0);
+      if (mounted) setState(() {
+        orders = combined;
+        customerNames = names;
+        paidByOrder = paid;
+        paymentStatusByOrder = paymentStates;
+      });
+    } catch (e) {
+      if (mounted) setState(() => error = friendlyError(e));
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> updateStatus(Map<String,dynamic> row, String status) async {
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      await db.from(row['_source'].toString()).update({'status':status}).eq('id', row['id']);
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Order moved to ${status.replaceAll('_',' ')}.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update order: ${friendlyError(e)}')));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  List<String> nextStatuses(Map<String,dynamic> row) {
+    final status = (row['status'] ?? '').toString().toLowerCase();
+    if (row['_source'] == 'sales_orders') {
+      if (status == 'draft' || status == 'submitted') return ['confirmed','awaiting_payment'];
+      if (status == 'awaiting_payment') return ['paid'];
+      if (status == 'paid' || status == 'confirmed') return ['completed'];
+      return [];
+    }
+    if (status == 'pending') return ['accepted','cancelled'];
+    if (status == 'accepted') return ['processing','cancelled'];
+    if (status == 'processing') return ['dispatched'];
+    if (status == 'dispatched') return ['in_transit'];
+    if (status == 'in_transit') return ['delivered'];
+    return [];
+  }
+
+  @override void initState() { super.initState(); load(); }
+
+  @override Widget build(BuildContext context) {
+    final visible = orders.where((r) => isCleared(r) == showCleared).toList();
+    return RefreshIndicator(
+      onRefresh: load,
+      child: ListView(padding: const EdgeInsets.all(16), children: [
+        const Text('Orders & delivery', style: TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+        const SizedBox(height:4),
+        const Text('Track each order from submission through processing, dispatch and delivery. Delivered orders are moved into Cleared Orders.', style:TextStyle(color:Colors.black54)),
+        CheckboxListTile(
+          value: !showCleared,
+          onChanged: (_) => setState(() => showCleared = false),
+          title: const Text('Pending Orders', style:TextStyle(fontWeight:FontWeight.w600)),
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
+        ),
+        CheckboxListTile(
+          value: showCleared,
+          onChanged: (_) => setState(() => showCleared = true),
+          title: const Text('Cleared Orders', style:TextStyle(fontWeight:FontWeight.w600)),
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
+        ),
+        if (loading) const LinearProgressIndicator(),
+        if (error != null) Text(error!, style: const TextStyle(color:Colors.red)),
+        if (!loading && visible.isEmpty) Padding(
+          padding: const EdgeInsets.symmetric(vertical:24),
+          child: Text(showCleared ? 'No delivered orders have been cleared yet.' : 'There are no pending orders.'),
+        ),
+        ...visible.map((r) {
+          final customerId = (r['_customer_id'] ?? '').toString();
+          final customer = customerNames[customerId] ?? 'Customer';
+          final amount = numVal(r['_amount']);
+          final orderId = r['id'].toString();
+          final paid = paidByOrder[orderId] ?? 0;
+          final paymentState = paymentStatusByOrder[orderId] ?? 'not recorded';
+          final actions = nextStatuses(r);
+          final source = r['_source'].toString();
+          final status = (r['status'] ?? 'pending').toString();
+          return Card(child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(crossAxisAlignment:CrossAxisAlignment.start, children: [
+              Row(children: [
+                Expanded(child: Text(r['_title'].toString(), style:const TextStyle(fontWeight:FontWeight.bold,fontSize:16))),
+                Chip(label:Text(status.replaceAll('_',' '))),
+              ]),
+              Text('Customer: $customer'),
+              Text('Order: ${r['_reference']}'),
+              if ((r['_quantity'] ?? '').toString().isNotEmpty) Text('Quantity: ${r['_quantity']}'),
+              if ((r['_extra'] ?? '').toString().isNotEmpty) Text('Branch: ${r['_extra']}'),
+              Text('Order total: KES ${amount.toStringAsFixed(2)}'),
+              if (source == 'sales_orders') ...[
+                Text('Verified payment: KES ${paid.toStringAsFixed(2)}'),
+                Text('Payment record: ${paymentState.replaceAll('_',' ')}'),
+                if ((r['payment_mode'] ?? '').toString().isNotEmpty) Text('Payment method: ${r['payment_mode']}'),
+              ],
+              if ((r['delivery_address'] ?? '').toString().isNotEmpty) Text('Delivery: ${r['delivery_address']}'),
+              const SizedBox(height:8),
+              if (actions.isNotEmpty) Align(
+                alignment:Alignment.centerRight,
+                child: Wrap(spacing:6, children: actions.map((next) => OutlinedButton(
+                  onPressed:busy?null:()=>updateStatus(r,next),
+                  child:Text(next.replaceAll('_',' ').toUpperCase()),
+                )).toList()),
+              ),
+              if (showCleared) const Text('DELIVERED • CLEARED', style:TextStyle(color:brandGreen,fontWeight:FontWeight.bold)),
+            ]),
+          ));
+        }),
+      ]),
+    );
+  }
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override State<HomeShell> createState() => _HomeShellState();
@@ -4231,7 +4442,7 @@ class _HomeShellState extends State<HomeShell> {
       ];
     }
     return [
-      DashboardPage(onOpenTractor: () => selectPage(5), onOpenCustomers: () => selectPage(4), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9), onOpenMarketplacePrices: () => selectPage(10), onOpenTractorRates: () => selectPage(11), onOpenOversight: () => selectPage(12)),
+      DashboardPage(onOpenTractor: () => selectPage(5), onOpenCustomers: () => selectPage(4), onOpenItems: () => selectPage(3), onOpenFinancial: () => selectPage(6), onOpenStaff: () => selectPage(7), onOpenPrices: () => selectPage(8), onOpenCustomRequests: () => selectPage(9), onOpenMarketplacePrices: () => selectPage(10), onOpenTractorRates: () => selectPage(11), onOpenOversight: () => selectPage(12), onOpenOrders: () => selectPage(13)),
       const PurchasePage(), const SalePage(), const StockPage(), const CustomersPage(), const TractorServicesPage(),
       if (director || accountant || branchManager) const FinancialRecordsPage(),
       if (director) const StaffAccountsPage(),
@@ -4240,14 +4451,15 @@ class _HomeShellState extends State<HomeShell> {
       if (director) const DirectorMarketplacePricesPage(),
       if (director) const DirectorTractorRatesPage(),
       if (director) const DirectorMasterOversightPage(),
+      if (director) const DirectorOrdersPage(),
     ];
   }
   List<String> get labels => accountant && !director && !branchManager
     ? ['Dashboard','Stock','Financial Records']
-    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant || branchManager) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices', if (director) 'Tractor Rates', if (director) 'TAJIR Oversight'];
+    : ['Dashboard','Purchases','Sales','Stock','Customers','Tractor Services', if (director || accountant || branchManager) 'Financial Records', if (director) 'Staff & Accounts', if (director) 'Catalogue Prices', if (director) 'Custom Requests', if (director) 'Marketplace Prices', if (director) 'Tractor Rates', if (director) 'TAJIR Oversight', if (director) 'Orders'];
   List<IconData> get icons => accountant && !director && !branchManager
     ? [Icons.dashboard,Icons.inventory_2,Icons.account_balance]
-    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant || branchManager) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture, if (director) Icons.admin_panel_settings];
+    : [Icons.dashboard,Icons.add_shopping_cart,Icons.point_of_sale,Icons.inventory_2,Icons.people,Icons.agriculture, if (director || accountant || branchManager) Icons.account_balance, if (director) Icons.manage_accounts, if (director) Icons.price_change_outlined, if (director) Icons.fact_check_outlined, if (director) Icons.storefront_outlined, if (director) Icons.agriculture, if (director) Icons.admin_panel_settings, if (director) Icons.receipt_long];
   @override void initState() {
     super.initState();
     loadAccess();
@@ -4449,7 +4661,8 @@ class DashboardPage extends StatefulWidget {
   final VoidCallback? onOpenMarketplacePrices;
   final VoidCallback? onOpenTractorRates;
   final VoidCallback? onOpenOversight;
-  const DashboardPage({super.key, this.onOpenTractor, this.onOpenCustomers, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices, this.onOpenCustomRequests, this.onOpenMarketplacePrices, this.onOpenTractorRates, this.onOpenOversight});
+  final VoidCallback? onOpenOrders;
+  const DashboardPage({super.key, this.onOpenTractor, this.onOpenCustomers, this.onOpenItems, this.onOpenFinancial, this.onOpenStaff, this.onOpenPrices, this.onOpenCustomRequests, this.onOpenMarketplacePrices, this.onOpenTractorRates, this.onOpenOversight, this.onOpenOrders});
   @override State<DashboardPage> createState() => _DashboardPageState();
 }
 class _DashboardPageState extends State<DashboardPage> {
@@ -4536,6 +4749,16 @@ class _DashboardPageState extends State<DashboardPage> {
         subtitle:const Text('Open customer records, contacts and buying or selling activity'),
         trailing:const Icon(Icons.chevron_right,color:brandGreen),
         onTap:widget.onOpenCustomers ?? _noDashboardAction,
+      )),
+    ],
+    if(director) ...[
+      const SizedBox(height: 10),
+      Card(child: ListTile(
+        leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.receipt_long_outlined, color: brandGreen)),
+        title: const Text('Orders & Delivery Tracking', style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: const Text('See every order, follow its progress and move delivered orders to Cleared Orders'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: widget.onOpenOrders,
       )),
     ],
     if(director || accountant) ...[
