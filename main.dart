@@ -5112,9 +5112,8 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
         subtitle: Text((account['roles'] as List<String>).join(' • ')+' • '+((account['status']??'unknown').toString())),
         onTap:()=>inspectStaffAccount(account),
         trailing:Row(mainAxisSize:MainAxisSize.min,children:[
-          if((account['phone']??'').toString().trim().isNotEmpty)
-            IconButton(tooltip:'Call ${account['name']}',icon:const Icon(Icons.call,color:brandGreen),
-              onPressed:()async{try{await callTajirPhone(account['phone'].toString());}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}),
+          IconButton(tooltip:(account['phone']??'').toString().trim().isEmpty?'No registered phone number':'Call ${account['name']}',icon:const Icon(Icons.call,color:brandGreen),
+            onPressed:(account['phone']??'').toString().trim().isEmpty?null:()async{try{await callTajirPhone(account['phone'].toString());}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}),
           const Icon(Icons.visibility_outlined),
         ]),
       ))),
@@ -7029,9 +7028,8 @@ class _CustomersPageState extends State<CustomersPage> {
         subtitle:Text('${r['phone']??''} • ${r['customer_type']??''}${r['permanently_deleted_at']!=null?' • Permanently deleted (anonymized)':r['deleted_at']!=null?' • Archived':r['active']==false?' • Inactive':''}'),
         onTap:()=>showCustomer(r),
         trailing:Row(mainAxisSize:MainAxisSize.min,children:[
-          if((r['phone']??'').toString().trim().isNotEmpty)
-            IconButton(tooltip:'Call ${r['full_name']??'customer'}',icon:const Icon(Icons.call,color:brandGreen),
-              onPressed:()async{try{await callTajirPhone(r['phone'].toString());}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}),
+          IconButton(tooltip:(r['phone']??'').toString().trim().isEmpty?'No registered phone number':'Call ${r['full_name']??'customer'}',icon:const Icon(Icons.call,color:brandGreen),
+            onPressed:(r['phone']??'').toString().trim().isEmpty?null:()async{try{await callTajirPhone(r['phone'].toString());}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}),
           PopupMenuButton<String>(onSelected:(v){
           if(v=='edit')editCustomer(r);
           if(v=='deactivate')setActive(r,false);
