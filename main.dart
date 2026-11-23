@@ -2432,6 +2432,8 @@ class CustomerMarketPage extends StatefulWidget{
 class _CustomerMarketPageState extends State<CustomerMarketPage>{
  List<Map<String,dynamic>> rows=[];
  List<Map<String,dynamic>> sellCatalogue=[];
+ Map<String,Map<String,dynamic>> myOrderReviews={};
+ String orderFilter='pending';
  bool busy=true;String? error;
  @override void initState(){super.initState();load();}
  Future<void> load()async{
@@ -2459,9 +2461,86 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      ...List<Map<String,dynamic>>.from(customRows).map((x)=>{...x,'_is_custom_request':true}),
     ]..sort((a,b)=>DateTime.parse(b['created_at'].toString()).compareTo(DateTime.parse(a['created_at'].toString())));
    }
+   if(widget.mode=='requests'){
+    final reviewRows=await db.from('customer_order_reviews').select('order_type,order_id,rating,review_text').eq('reviewer_customer_id',widget.customer['id']);
+    myOrderReviews={};
+    for(final review in List<Map<String,dynamic>>.from(reviewRows)){
+     myOrderReviews['${review['order_type']}|${review['order_id']}']=review;
+    }
+   }
    if(mounted)setState(()=>{rows=List<Map<String,dynamic>>.from(r),error=null});
   }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
   if(mounted)setState(()=>busy=false);
+ }
+
+
+ bool _isClearedOrder(Map<String,dynamic> row){
+  final status=(row['status']??'').toString().toLowerCase();
+  return const {'delivered','completed','fulfilled'}.contains(status);
+ }
+ String _reviewType(Map<String,dynamic> row){
+  if(row['_is_custom_request']==true)return 'customer_custom_product_request';
+  if(row['_is_tajir_request']==true)return 'customer_product_request';
+  return 'marketplace_purchase_request';
+ }
+ String _reviewKey(Map<String,dynamic> row)=>'${_reviewType(row)}|${row['id']}';
+
+ Future<void> leaveOrderReview(Map<String,dynamic> row)async{
+  if(!_isClearedOrder(row))return;
+  final key=_reviewKey(row);
+  if(myOrderReviews.containsKey(key))return;
+  int rating=5;
+  final comment=TextEditingController();
+  final ok=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(dialogContext,setDialogState)=>AlertDialog(
+   title:const Text('Rate your order experience'),
+   content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Text('Your order has been delivered. How was your experience?'),
+    const SizedBox(height:10),
+    DropdownButtonFormField<int>(
+     value:rating,
+     decoration:const InputDecoration(labelText:'Rating'),
+     items:const [1,2,3,4,5].map((v)=>DropdownMenuItem(value:v,child:Text('${v} star${v==1?'':'s'}'))).toList(),
+     onChanged:(v)=>setDialogState(()=>rating=v??5),
+    ),
+    const SizedBox(height:8),
+    TextField(controller:comment,maxLines:3,maxLength:2000,decoration:const InputDecoration(labelText:'Write a review (optional)',border:OutlineInputBorder())),
+   ]),
+   actions:[
+    TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+    FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Submit review')),
+   ],
+  )));
+  if(ok==true){
+   try{
+    await Supabase.instance.client.from('customer_order_reviews').insert({
+     'reviewer_customer_id':widget.customer['id'],
+     'order_type':_reviewType(row),
+     'order_id':row['id'],
+     'rating':rating,
+     'review_text':comment.text.trim().isEmpty?null:comment.text.trim(),
+    });
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Thank you. Your order review has been saved.')));
+    await load();
+   }catch(e){
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not submit review: ${friendlyError(e)}')));
+   }
+  }
+  comment.dispose();
+ }
+
+ Widget _reviewAction(Map<String,dynamic> row){
+  final key=_reviewKey(row);
+  final review=myOrderReviews[key];
+  if(review!=null)return Chip(
+   avatar:const Icon(Icons.star,color:Colors.amber,size:17),
+   label:Text('Reviewed • ${review['rating']}/5'),
+  );
+  if(!_isClearedOrder(row))return const SizedBox.shrink();
+  return TextButton.icon(
+   onPressed:()=>leaveOrderReview(row),
+   icon:const Icon(Icons.rate_review_outlined),
+   label:const Text('Review'),
+  );
  }
 
  Future<void> openListingChat(Map<String,dynamic> listing) async {
@@ -2547,8 +2626,9 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      'quantity_requested':amount,
      'quantity_unit':unit,
      'note':note.text.trim().isEmpty?null:note.text.trim(),
+     'status':'accepted',
     });
-    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your order request was sent. TAJIR has applied the official branch price and calculated the total. The branch will confirm fulfilment and timing.')));
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your order has been automatically approved. TAJIR has applied the official branch price and calculated the total. The branch will now process delivery.')));
     await load();
    }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
   }
@@ -2719,8 +2799,9 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      'listing_id':item['id'],
      'buyer_customer_id':widget.customer['id'],
      'quantity':amount,
+     'status':'accepted',
     });
-    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Purchase request sent. TAJIR saved the official unit price and total.')));
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Your order has been automatically approved. TAJIR saved the official unit price and total.')));
     await load();
    }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
   }
@@ -2757,10 +2838,15 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    ],
    if(widget.mode=='buy')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('BUY_FROM_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Request unlisted product'))),
    if(widget.mode=='sell')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('SELL_TO_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Offer unlisted product to TAJIR'))),
+   if(widget.mode=='requests') ...[
+    const SizedBox(height:8),
+    CheckboxListTile(value:orderFilter=='pending',onChanged:(_)=>setState(()=>orderFilter='pending'),title:const Text('Pending Orders',style:TextStyle(fontWeight:FontWeight.w600)),controlAffinity:ListTileControlAffinity.leading,contentPadding:EdgeInsets.zero),
+    CheckboxListTile(value:orderFilter=='cleared',onChanged:(_)=>setState(()=>orderFilter='cleared'),title:const Text('Cleared Orders',style:TextStyle(fontWeight:FontWeight.w600)),controlAffinity:ListTileControlAffinity.leading,contentPadding:EdgeInsets.zero),
+   ],
    if(busy)const LinearProgressIndicator(),
    if(error!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(error!,style:const TextStyle(color:Colors.red))),
    if(!busy&&rows.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(widget.mode=='buy'?'No products are currently listed in the TAJIR catalogue. Please contact your branch if you expected to see a product.':widget.mode=='marketplace_buy'?'No farmer offers are available at the moment.':'No marketplace records yet.')),
-   ...rows.map((r){
+   ...rows.where((r)=>widget.mode!='requests'||(_isClearedOrder(r)==(orderFilter=='cleared'))).map((r){
     if(widget.mode=='buy'){
      final variant=(r['variant_name']??'').toString();
      final product=(r['product_name']??'Product').toString();
@@ -2800,7 +2886,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
        title:Text((r['product_name']??'Custom product').toString()),
        subtitle:Text('CLIENT-SUBMITTED • NOT OFFICIAL TAJIR PRICE\n'+((r['request_direction']??'BUY_FROM_TAJIR')=='SELL_TO_TAJIR'?'Offer to sell to TAJIR':'Request to buy from TAJIR')+'\nQuantity: '+r['quantity'].toString()+' '+unit+' • Proposed: KES '+r['proposed_unit_price_kes'].toString()+'/'+unit+(agreed==null?'':' • TAJIR agreed: KES '+agreed.toString()+'/'+unit)+'\nStatus: '+r['status'].toString()+(response.isEmpty?'':'\nDirector: '+response)),
        isThreeLine:true,
-       trailing:r['customer_response']=='declined'
+       trailing:_isClearedOrder(r)?_reviewAction(r):r['customer_response']=='declined'
         ? const Text('Declined')
         : r['customer_confirmed_at']!=null || r['customer_response']=='accepted'
          ? const Icon(Icons.verified,color:brandGreen)
@@ -2821,7 +2907,7 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
        leading:const Icon(Icons.inventory_2_outlined),
        title:Text(variant.isEmpty?name:'$name • $variant'),
        subtitle:Text('Quantity: '+r['quantity_requested'].toString()+' '+(r['quantity_unit']??'BAG').toString()+' • '+(r['branches'] is Map?(r['branches'] as Map)['name']??'TAJIR branch':'TAJIR branch').toString()+'\nOfficial total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()),
-       trailing:const Icon(Icons.hourglass_top),
+       trailing:_reviewAction(r),
       ));
      }
      final l=(r['listing'] as Map?)?.cast<String,dynamic>()??{};
@@ -2829,7 +2915,14 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      return Card(child:ListTile(
       title:Text((l['product_name']??'Purchase request').toString()),
       subtitle:Text('Quantity: '+r['quantity'].toString()+' '+(l['unit']??'').toString()+' • Official price: KES '+(r['unit_price_kes']??'Pending').toString()+' / '+(l['unit']??'unit').toString()+' • Total: KES '+(r['line_total_kes']??'Pending').toString()+' • '+r['status'].toString()),
-      trailing:seller&&r['status']=='pending'?PopupMenuButton<String>(onSelected:(v)=>change(r,v,false),itemBuilder:(_)=>const [PopupMenuItem(value:'accepted',child:Text('Accept')),PopupMenuItem(value:'declined',child:Text('Decline'))]):seller&&r['status']=='accepted'?TextButton(onPressed:()=>change(r,'completed',false),child:const Text('Complete')):null
+      trailing:seller&&!_isClearedOrder(r)&&!['declined','cancelled'].contains((r['status']??'').toString())?PopupMenuButton<String>(tooltip:'Update order progress',onSelected:(v)=>change(r,v,false),itemBuilder:(_)=>[
+       if(r['status']=='pending')const PopupMenuItem(value:'accepted',child:Text('Accept order')),
+       if(r['status']=='pending')const PopupMenuItem(value:'declined',child:Text('Decline order')),
+       if(r['status']=='accepted')const PopupMenuItem(value:'processing',child:Text('Start processing')),
+       if(r['status']=='processing')const PopupMenuItem(value:'dispatched',child:Text('Dispatch order')),
+       if(r['status']=='dispatched')const PopupMenuItem(value:'in_transit',child:Text('Mark in transit')),
+       if(r['status']=='in_transit')const PopupMenuItem(value:'delivered',child:Text('Mark delivered')),
+      ]):_reviewAction(r)
      ));
     }
     final branch=(r['branches'] as Map?)?.cast<String,dynamic>()??{};
