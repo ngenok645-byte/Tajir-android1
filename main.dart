@@ -1312,38 +1312,39 @@ class AuthChoicePage extends StatelessWidget {
     const tractorColor = Color(0xFF8B6B35);
     Widget roleRow(IconData icon, String role, String roleCode, String description) {
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
+        padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(
           children: [
-            Icon(icon, size: 19, color: tractorColor),
-            const SizedBox(width: 7),
+            Icon(icon, size: 23, color: tractorColor),
+            const SizedBox(width: 10),
             Expanded(
+              flex: 5,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(role, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
-                  Text(description, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 10, color: Colors.black54)),
+                  Text(role, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                  Text(description, maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, color: Colors.black54)),
                 ],
               ),
             ),
-            TextButton(
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 3,
+              child: OutlinedButton(
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 42), padding: const EdgeInsets.symmetric(horizontal: 5)),
+                onPressed: () => _openLogin(context),
+                child: const Text('Sign in', style: TextStyle(fontSize: 11)),
               ),
-              onPressed: () => _openLogin(context),
-              child: const Text('Sign in', style: TextStyle(fontSize: 11)),
             ),
-            TextButton(
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 5),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            const SizedBox(width: 6),
+            Expanded(
+              flex: 3,
+              child: FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: tractorColor, minimumSize: const Size(0, 42), padding: const EdgeInsets.symmetric(horizontal: 5)),
+                onPressed: () => _joinProvider(context, roleCode, role),
+                child: const Text('Register', style: TextStyle(fontSize: 11)),
               ),
-              onPressed: () => _joinProvider(context, roleCode, role),
-              child: const Text('Join', style: TextStyle(fontSize: 11)),
             ),
           ],
         ),
@@ -1457,11 +1458,6 @@ class AuthChoicePage extends StatelessWidget {
                       SizedBox(
                         width: cardWidth,
                         height: 232,
-                        child: _tractorGroupCard(context),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        height: 232,
                         child: _accountCard(
                           context,
                           icon: Icons.badge_outlined,
@@ -1486,14 +1482,21 @@ class AuthChoicePage extends StatelessWidget {
                         ),
                       ),
                     ];
-                    return GridView.count(
-                      crossAxisCount: columns,
-                      crossAxisSpacing: spacing,
-                      mainAxisSpacing: spacing,
-                      childAspectRatio: cardWidth / 218,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      children: accounts,
+                    return Column(
+                      crossAxisSize: CrossAxisSize.stretch,
+                      children: [
+                        GridView.count(
+                          crossAxisCount: columns,
+                          crossAxisSpacing: spacing,
+                          mainAxisSpacing: spacing,
+                          childAspectRatio: cardWidth / 218,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          children: accounts,
+                        ),
+                        const SizedBox(height: 14),
+                        _tractorGroupCard(context),
+                      ],
                     );
                   },
                 ),
