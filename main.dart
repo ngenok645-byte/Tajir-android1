@@ -1185,7 +1185,7 @@ class AuthChoicePage extends StatelessWidget {
                           icon: Icons.person_outline,
                           title: 'Client',
                           roleColor: const Color(0xFF168B72),
-                          subtitle: 'Buy and sell approved products and request tractor services.',
+                          subtitle: 'Choose Buyer or Seller when registering. You can use either account without Director approval; the Director controls access to both.',
                           onLogin: () => _openClient(context, createAccount: false),
                           onJoin: () => _openClient(context, createAccount: true),
                         ),
@@ -1282,8 +1282,7 @@ class AuthChoicePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
                 const Text(
-                  'Staff and service-provider accounts require Director approval. '
-                  'Selecting a workspace does not grant account permissions.',
+                  'Buyer-only and Seller-only accounts can register freely. Only combined Buyer + Seller access requires Director authorisation.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: Colors.black54),
                 ),
@@ -1539,6 +1538,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   final pin = TextEditingController();
   final confirmPin = TextEditingController();
   bool createAccount = true, busy = false;
+  String selectedMarketplaceAccount = 'buyer';
   String? message;
   @override void initState() {
     super.initState();
@@ -1689,7 +1689,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
         final response = await db.functions.invoke(
           'tajir-customer-register',
-          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'national_id': nationalId.text.trim()},
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'national_id': nationalId.text.trim(), 'customer_type': selectedMarketplaceAccount},
         );
         final resultData = response.data;
         if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
@@ -1729,12 +1729,34 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             Text(createAccount ? 'Register as a TAJIR client' : 'Client sign in',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 8),
-            const Text('For farmers, buyers, sellers, tractor and machinery owners, and drivers. Tractor owners and drivers can also buy or sell farm products using this same client account.', textAlign: TextAlign.center,
+            const Text('Choose Buyer or Seller. You can use either account immediately; the Director must authorize access to both.', textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13, color: Colors.black54)),
             const SizedBox(height: 10),
             const Text('Your National ID is used to help prevent duplicate accounts. TAJIR stores a protected verification code, not the full ID number. Entering an ID does not mean it has been checked against government records.', textAlign: TextAlign.center,
               style: TextStyle(color: Colors.black54, fontSize: 12)),
             const SizedBox(height: 16),
+            if (createAccount) ...[
+              const Align(alignment: Alignment.centerLeft, child: Text('Choose account type', style: TextStyle(fontWeight: FontWeight.w600))),
+              const SizedBox(height: 8),
+              RadioListTile<String>(
+                contentPadding: EdgeInsets.zero,
+                value: 'buyer',
+                groupValue: selectedMarketplaceAccount,
+                onChanged: busy ? null : (v) => setState(() => selectedMarketplaceAccount = v!),
+                title: const Text('Buyer account'),
+                subtitle: const Text('Buy products and request services'),
+              ),
+              RadioListTile<String>(
+                contentPadding: EdgeInsets.zero,
+                value: 'seller',
+                groupValue: selectedMarketplaceAccount,
+                onChanged: busy ? null : (v) => setState(() => selectedMarketplaceAccount = v!),
+                title: const Text('Seller account'),
+                subtitle: const Text('List products and sell through TAJIR'),
+              ),
+              const Text('To use both buyer and seller accounts, request authorization from the Director.', style: TextStyle(fontSize: 12, color: Colors.black54)),
+              const SizedBox(height: 12),
+            ],
             if (createAccount) TextField(controller: name, textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
             if (createAccount) const SizedBox(height: 12),
@@ -1972,7 +1994,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    case 1:
     return sell
      ?CustomerMarketPage(customer:c!,mode:'sell')
-     :const CustomerLockedPage(title:'Sell products',message:'The Director has not enabled selling on your account yet.',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined);
+     :const CustomerLockedPage(title:'Sell products',message:'Your account has buyer-only access. Ask the Director to authorize both Buyer and Seller access if you need both.',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined);
    case 2:
     return CustomerMarketPage(customer:c!,mode:'requests');
    case 3:
@@ -5974,16 +5996,16 @@ class _CustomersPageState extends State<CustomersPage> {
         TextField(controller:name,decoration:const InputDecoration(labelText:'Customer name')),
         TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
         TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
-        const Align(alignment:Alignment.centerLeft,child:Text('Marketplace permissions',style:TextStyle(fontWeight:FontWeight.bold))),
-        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Can buy'),value:canBuy,onChanged:(v)=>refresh(()=>canBuy=v??false)),
-        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Can sell'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
+        const Align(alignment:Alignment.centerLeft,child:Text('Marketplace access',style:TextStyle(fontWeight:FontWeight.bold))),
+        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Buyer access'),subtitle:const Text('Allow this customer to buy products.'),value:canBuy,onChanged:(v)=>refresh(()=>canBuy=v??false)),
+        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Seller access'),subtitle:const Text('Allow this customer to list and sell products.'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
         if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
       ])),
       actions:[
         TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
         FilledButton(onPressed:()async{
           if(name.text.trim().isEmpty||phone.text.trim().isEmpty){refresh(()=>error='Name and phone number are required.');return;}
-          if(!canBuy&&!canSell){refresh(()=>error='Enable buying, selling, or both.');return;}
+          if(!canBuy&&!canSell){refresh(()=>error='Select buyer access, seller access, or both.');return;}
           Navigator.pop(dialogContext,true);
         },child:const Text('Save')),
       ],
@@ -6383,7 +6405,7 @@ class _CustomersPageState extends State<CustomersPage> {
           itemBuilder:(context)=>[
             if(!showDeleted)const PopupMenuItem(value:'edit',child:Text('Edit details')),
             if(!showDeleted&&r['active']==true)const PopupMenuItem(value:'deactivate',child:Text('Deactivate')),
-            if(!showDeleted&&r['active']==false)const PopupMenuItem(value:'activate',child:Text('Approve / activate account')),
+            if(!showDeleted&&r['active']==false)const PopupMenuItem(value:'activate',child:Text('Reactivate suspended account')),
             if(!showDeleted)const PopupMenuItem(value:'delete',child:Text('Move to Deleted Accounts',style:TextStyle(color:Colors.red))),
             if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'restore',child:Text('Restore account')),
             if(showDeleted&&r['permanently_deleted_at']==null)const PopupMenuItem(value:'permanent',child:Text('Permanently delete',style:TextStyle(color:Colors.red))),
