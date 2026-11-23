@@ -2456,10 +2456,12 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').order('created_at',ascending:false);
     final tajirRows=await db.from('customer_product_requests').select('id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
     final customRows=await db.from('customer_custom_product_requests').select('id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final salesRows=await db.from('sales_orders').select('id,order_number,status,total_amount,created_at,delivery_address,payment_mode,fulfilment_method').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
     r=[
      ...List<Map<String,dynamic>>.from(marketplaceRows),
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
      ...List<Map<String,dynamic>>.from(customRows).map((x)=>{...x,'_is_custom_request':true}),
+     ...List<Map<String,dynamic>>.from(salesRows).map((x)=>{...x,'_is_sales_order':true}),
     ]..sort((a,b)=>DateTime.parse(b['created_at'].toString()).compareTo(DateTime.parse(a['created_at'].toString())));
    }
    if(widget.mode=='requests'){
@@ -2845,6 +2847,8 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
    if(widget.mode=='buy')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('BUY_FROM_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Request unlisted product'))),
    if(widget.mode=='sell')Align(alignment:Alignment.centerRight,child:OutlinedButton.icon(onPressed:()=>createCustomProductRequest('SELL_TO_TAJIR'),icon:const Icon(Icons.add_circle_outline),label:const Text('Offer unlisted product to TAJIR'))),
    if(widget.mode=='requests') ...[
+    const SizedBox(height:6),
+    const Text('Track your orders here. Refresh this page to see the latest status, order reference and delivery information.',style:TextStyle(fontSize:12,color:Colors.black54)),
     const SizedBox(height:8),
     CheckboxListTile(value:orderFilter=='pending',onChanged:(_)=>setState(()=>orderFilter='pending'),title:const Text('Pending Orders',style:TextStyle(fontWeight:FontWeight.w600)),controlAffinity:ListTileControlAffinity.leading,contentPadding:EdgeInsets.zero),
     CheckboxListTile(value:orderFilter=='cleared',onChanged:(_)=>setState(()=>orderFilter='cleared'),title:const Text('Cleared Orders',style:TextStyle(fontWeight:FontWeight.w600)),controlAffinity:ListTileControlAffinity.leading,contentPadding:EdgeInsets.zero),
@@ -2883,6 +2887,17 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      ));
     }
     if(widget.mode=='requests'){
+     if(r['_is_sales_order']==true){
+      final status=(r['status']??'pending').toString().replaceAll('_',' ');
+      final address=(r['delivery_address']??'').toString();
+      return Card(child:ListTile(
+       leading:const CircleAvatar(child:Icon(Icons.local_shipping_outlined)),
+       title:Text('Order ${r['order_number']??r['id'].toString().substring(0,8).toUpperCase()}'),
+       subtitle:Text('Order total: KES ${((r['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}\\nStatus: ${status.toUpperCase()} • Placed: ${_orderDate(r['created_at'])}${address.isEmpty?'':'\\nDelivery: '+address}'),
+       isThreeLine:true,
+       trailing:Chip(label:Text(status)),
+      ));
+     }
      if(r['_is_custom_request']==true){
       final unit=(r['quantity_unit']??'KG').toString();
       final response=(r['director_response']??'').toString();
