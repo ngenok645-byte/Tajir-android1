@@ -5988,7 +5988,8 @@ class _CustomersPageState extends State<CustomersPage> {
     final name=TextEditingController(text:row?['full_name']?.toString()??'');
     final phone=TextEditingController(text:row?['phone']?.toString()??'');
     final email=TextEditingController(text:row?['email']?.toString()??'');
-    bool canBuy=row==null?true:row['marketplace_can_buy']==true;\n    bool canSell=row==null?false:row['marketplace_can_sell']==true;
+    bool canBuy=row==null?true:row['marketplace_can_buy']==true;
+    bool canSell=row==null?false:row['marketplace_can_sell']==true;
     String? error;
     final result=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(context,refresh)=>AlertDialog(
       title:Text(row==null?'Add customer':'Edit customer'),
@@ -5997,8 +5998,8 @@ class _CustomersPageState extends State<CustomersPage> {
         TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
         TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
         const Align(alignment:Alignment.centerLeft,child:Text('Marketplace access',style:TextStyle(fontWeight:FontWeight.bold))),
-        const ListTile(contentPadding:EdgeInsets.zero,leading:Icon(Icons.shopping_bag_outlined,color:brandGreen),title:Text('Buyer access'),subtitle:Text('Enabled automatically for every registered customer.')),
-        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Approve seller access (buyer + seller)'),subtitle:const Text('Allows this customer to buy and list products for sale.'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
+        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Buyer access'),subtitle:const Text('Allow this customer to buy products.'),value:canBuy,onChanged:(v)=>refresh(()=>canBuy=v??false)),
+        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Seller access'),subtitle:const Text('Allow this customer to list and sell products.'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
         if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
       ])),
       actions:[
@@ -6013,7 +6014,8 @@ class _CustomersPageState extends State<CustomersPage> {
     if(result==true){
       try {
         final db=Supabase.instance.client;
-        if(!canBuy&&!canSell){refresh(()=>error='Select buyer access, seller access, or both.');return;}\n        final values=<String,dynamic>{'customer_type':canBuy&&canSell?'both':canSell?'seller':'buyer','marketplace_can_buy':canBuy,'marketplace_can_sell':canSell,'full_name':name.text.trim(),'phone':phone.text.trim(),
+        if(!canBuy&&!canSell){refresh(()=>error='Select buyer access, seller access, or both.');return;}
+        final values=<String,dynamic>{'customer_type':canBuy&&canSell?'both':canSell?'seller':'buyer','marketplace_can_buy':canBuy,'marketplace_can_sell':canSell,'full_name':name.text.trim(),'phone':phone.text.trim(),
           'email':email.text.trim().isEmpty?null:email.text.trim()};
         if(row==null){
           final branch=await db.from('branches').select('id').eq('code','NTULELE').maybeSingle();
