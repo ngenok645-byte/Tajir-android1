@@ -3228,10 +3228,10 @@ class _TajirLandMeasurePageState extends State<TajirLandMeasurePage>{
    var synced=false;try{await Supabase.instance.client.from('land_measurements').upsert(record);synced=true;}catch(_){}
    if(synced){record['sync_status']='synced';list[list.length-1]=record;await prefs.setStringList(key,list.map((v)=>jsonEncode(v)).toList());}
    if(!mounted)return;
-   final summary=measurementType=='area'?'Area: ${acres.toStringAsFixed(3)} acres\n${(areaM2/10000).toStringAsFixed(4)} hectares\n${areaM2.toStringAsFixed(1)} m²\nBoundary perimeter: ${perimeter.toStringAsFixed(1)} m':'Route distance: ${distance.toStringAsFixed(1)} m (${(distance/1000).toStringAsFixed(3)} km)';
+   final summary=measurementType=='area'?'Area: ${acres.toStringAsFixed(3)} acres\\n${(areaM2/10000).toStringAsFixed(4)} hectares\\n${areaM2.toStringAsFixed(1)} m²\\nBoundary perimeter: ${perimeter.toStringAsFixed(1)} m':'Route distance: ${distance.toStringAsFixed(1)} m (${(distance/1000).toStringAsFixed(3)} km)';
    final maxAccuracy=(record['max_accuracy_m'] as num).toDouble().toStringAsFixed(1);
    setState(() { saving=false;message=synced?'Saved on this phone and synced to TAJIR.':'Saved offline. It will sync when internet returns.'; });
-   await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text(measurementType=='area'?'Area measurement saved':'Distance measurement saved'),content:Text('$summary\nGPS points: ${points.length}\nMaximum recorded GPS error: $maxAccuracy m\n${synced?'Synced':'Pending sync'}'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Close')),if(measurementType=='area')FilledButton(onPressed:(){Navigator.pop(c);Navigator.pop(context,acres);},child:const Text('Use this area'))]));
+   await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text(measurementType=='area'?'Area measurement saved':'Distance measurement saved'),content:Text('$summary\\nGPS points: ${points.length}\\nMaximum recorded GPS error: $maxAccuracy m\\n${synced?'Synced':'Pending sync'}'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Close')),if(measurementType=='area')FilledButton(onPressed:(){Navigator.pop(c);Navigator.pop(context,acres);},child:const Text('Use this area'))]));
   }catch(e){if(mounted)setState(() { saving=false;message='Could not save: ${friendlyError(e)}'; });}
  }
  @override void dispose(){tracking?.cancel();connectivitySub?.cancel();super.dispose();}
@@ -4218,13 +4218,13 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
           ...activityRows.map((e) => Card(child: ListTile(
             leading: const Icon(Icons.receipt_long_outlined, color: brandGreen),
             title: Text((e['activity_type']??'Activity').toString()+' • '+(e['reference']??'Record').toString()),
-            subtitle: Text((e['status']??'').toString().replaceAll('_',' ')+' • '+(e['activity_at']??'').toString()+'\n'+(e['details']??'').toString()),
+            subtitle: Text((e['status']??'').toString().replaceAll('_',' ')+' • '+(e['activity_at']??'').toString()+'\\n'+(e['details']??'').toString()),
             trailing: e['amount']==null ? null : Text('KES '+(e['amount'] as num).toStringAsFixed(2)),
           ))),
           const SizedBox(height: 12),
           const Text('Changes to this account and its access', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           if(changeEvents.isEmpty) const Text('No account or role changes have been recorded.'),
-          ...changeEvents.take(20).map((e) => ListTile(dense:true, leading:const Icon(Icons.manage_history), title:Text((e['action']??'Change').toString().replaceAll('_',' ')+' • '+(e['entity_table']??'account').toString()), subtitle:Text((e['reason']??'Account access or profile change').toString()+'\n'+(e['created_at']??'').toString()))),
+          ...changeEvents.take(20).map((e) => ListTile(dense:true, leading:const Icon(Icons.manage_history), title:Text((e['action']??'Change').toString().replaceAll('_',' ')+' • '+(e['entity_table']??'account').toString()), subtitle:Text((e['reason']??'Account access or profile change').toString()+'\\n'+(e['created_at']??'').toString()))),
           const SizedBox(height:12),
           const Text('Activity performed by this account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           if(events.isEmpty) const Text('No activity is recorded for this account yet.'),
@@ -5363,7 +5363,7 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
           ...activity.map((r)=>Card(child:ListTile(
             leading:const Icon(Icons.receipt_long_outlined,color:brandGreen),
             title:Text((r['activity_type']??'Activity').toString()+' • '+(r['reference']??'Record').toString()),
-            subtitle:Text((r['status']??'').toString().replaceAll('_',' ')+' • '+(r['activity_at']??'').toString()+'\n'+(r['details']??'').toString()),
+            subtitle:Text((r['status']??'').toString().replaceAll('_',' ')+' • '+(r['activity_at']??'').toString()+'\\n'+(r['details']??'').toString()),
             trailing:r['amount']==null?null:Text('KES '+(r['amount'] as num).toStringAsFixed(2)),
           ))),
           const SizedBox(height:12),
@@ -5373,7 +5373,7 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
           const SizedBox(height:12),
           const Text('Account activity and audit history',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
           if(events.isEmpty&&changes.isEmpty)const Text('No audit events have been recorded.'),
-          ...[...changes,...events].map((r)=>ListTile(dense:true,leading:const Icon(Icons.history),title:Text((r['action']??'Activity').toString().replaceAll('_',' ')),subtitle:Text((r['entity_table']??'account').toString()+' • '+(r['created_at']??'').toString()+'\n'+(r['reason']??'').toString()))),
+          ...[...changes,...events].map((r)=>ListTile(dense:true,leading:const Icon(Icons.history),title:Text((r['action']??'Activity').toString().replaceAll('_',' ')),subtitle:Text((r['entity_table']??'account').toString()+' • '+(r['created_at']??'').toString()+'\\n'+(r['reason']??'').toString()))),
           const SizedBox(height:8),
           const Text('Read-only oversight. Passwords, PINs and authentication tokens are never shown.',style:TextStyle(fontSize:12,color:Colors.black54)),
         ]),
@@ -7180,7 +7180,7 @@ class _CustomersPageState extends State<CustomersPage> {
           ...orders.map((o)=>Card(child:ListTile(
             leading:const Icon(Icons.local_shipping_outlined,color:brandGreen),
             title:Text((o['order_number']??'Order').toString()),
-            subtitle:Text('${(o['status']??'').toString().replaceAll('_',' ')} • ${o['fulfilment_method']??'—'}\n${o['delivery_address']??'Pickup / no delivery address'}\nPlaced: ${o['created_at']??'—'} • Delivered: ${o['confirmed_delivery_at']??'Pending'}'),
+            subtitle:Text('${(o['status']??'').toString().replaceAll('_',' ')} • ${o['fulfilment_method']??'—'}\\n${o['delivery_address']??'Pickup / no delivery address'}\\nPlaced: ${o['created_at']??'—'} • Delivered: ${o['confirmed_delivery_at']??'Pending'}'),
             isThreeLine:true,
             trailing:Text('KES ${((o['total_amount'] as num?)?.toDouble()??0).toStringAsFixed(2)}'),
           ))),
@@ -7202,7 +7202,7 @@ class _CustomersPageState extends State<CustomersPage> {
             final invoice=(sale['total_amount'] as num?)?.toDouble()??0;
             return Card(child:ListTile(
               title:Text('KES ${((p['amount'] as num?)?.toDouble()??0).toStringAsFixed(2)} • ${p['method']}'),
-              subtitle:Text('${p['status']} • ${p['payment_number']}\nReference: ${p['provider_reference']??p['provider_transaction_id']??'Not supplied'} • Received: ${p['received_at']??'—'} • Verified: ${p['verified_at']??'Pending'}'),
+              subtitle:Text('${p['status']} • ${p['payment_number']}\\nReference: ${p['provider_reference']??p['provider_transaction_id']??'Not supplied'} • Received: ${p['received_at']??'—'} • Verified: ${p['verified_at']??'Pending'}'),
               isThreeLine:true,
               onTap:()=>showTajirReceipt(pageContext,receiptNumber:(p['payment_number']??'—').toString(),receiptType:'Customer payment receipt',partyLabel:'Customer',partyName:(customer['full_name']??'Customer').toString(),date:(p['received_at']??p['created_at']??'').toString(),amount:((p['amount'] as num?)?.toDouble()??0),invoiceTotal:invoice>0?invoice:null,totalPaid:related,balance:invoice>0?(invoice-related).clamp(0,double.infinity).toDouble():null,method:(p['method']??'—').toString(),status:(p['status']??'pending').toString(),details:['Sale: ${sale['sale_number']??'—'}','Order: ${p['order_id']??'—'}','Provider reference: ${p['provider_reference']??'—'}']),
               trailing:p['status']=='pending'&&canVerifyPayments?TextButton(onPressed:(){Navigator.pop(pageContext);verifyCustomerPayment(p['id'].toString(),customer);},child:const Text('Verify')):null,
@@ -7216,7 +7216,7 @@ class _CustomersPageState extends State<CustomersPage> {
           ...reviews.map((r)=>Card(child:ListTile(
             leading:Row(mainAxisSize:MainAxisSize.min,children:List.generate(5,(i)=>Icon(i<(r['rating'] as num? ??0).toInt()?Icons.star:Icons.star_border,color:Colors.amber,size:16))),
             title:Text('${r['order_type']??'Order'} • ${r['rating']??0}/5'),
-            subtitle:Text('${r['review_text']??'No written comment'}\n${r['created_at']??''}'),
+            subtitle:Text('${r['review_text']??'No written comment'}\\n${r['created_at']??''}'),
             isThreeLine:true,
           ))),
           if(isDirector)...[
@@ -7226,7 +7226,7 @@ class _CustomersPageState extends State<CustomersPage> {
             ...activity.map((e)=>Card(child:ListTile(
               leading:const Icon(Icons.receipt_long_outlined,color:brandGreen),
               title:Text('${e['activity_type']??'Activity'} • ${e['reference']??'Record'}'),
-              subtitle:Text('${(e['status']??'').toString().replaceAll('_',' ')} • ${e['activity_at']??''}\n${e['details']??''}'),
+              subtitle:Text('${(e['status']??'').toString().replaceAll('_',' ')} • ${e['activity_at']??''}\\n${e['details']??''}'),
               isThreeLine:true,
               trailing:e['amount']==null?null:Text('KES ${(e['amount'] as num).toStringAsFixed(2)}'),
             ))),
