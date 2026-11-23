@@ -1185,7 +1185,7 @@ class AuthChoicePage extends StatelessWidget {
                           icon: Icons.person_outline,
                           title: 'Client',
                           roleColor: const Color(0xFF168B72),
-                          subtitle: 'Register freely to buy products and request tractor services. The Director can enable selling access.',
+                          subtitle: 'Choose Buyer or Seller when registering. You can use either account without Director approval; the Director controls access to both.',
                           onLogin: () => _openClient(context, createAccount: false),
                           onJoin: () => _openClient(context, createAccount: true),
                         ),
@@ -1282,8 +1282,7 @@ class AuthChoicePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
                 const Text(
-                  'Client registration is open. Buyer access starts immediately; the Director controls seller access. '
-                  'Staff and service-provider accounts still require Director approval.',
+                  'Buyer-only and Seller-only accounts can register freely. Only combined Buyer + Seller access requires Director authorisation.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: Colors.black54),
                 ),
@@ -1730,7 +1729,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
             Text(createAccount ? 'Register as a TAJIR client' : 'Client sign in',
               style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 8),
-            const Text('Choose one account to start with: Buyer or Seller. The Director may authorize both accounts if you need them.', textAlign: TextAlign.center,
+            const Text('Choose Buyer or Seller. You can use either account immediately; the Director must authorize access to both.', textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13, color: Colors.black54)),
             const SizedBox(height: 10),
             const Text('Your National ID is used to help prevent duplicate accounts. TAJIR stores a protected verification code, not the full ID number. Entering an ID does not mean it has been checked against government records.', textAlign: TextAlign.center,
@@ -1995,7 +1994,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    case 1:
     return sell
      ?CustomerMarketPage(customer:c!,mode:'sell')
-     :const CustomerLockedPage(title:'Sell products',message:'Buyer access is already active. Ask the Director to enable seller access if you also want to list products for sale.',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined);
+     :const CustomerLockedPage(title:'Sell products',message:'Your account has buyer-only access. Ask the Director to authorize both Buyer and Seller access if you need both.',imageUrl:TajirPictures.sell,icon:Icons.storefront_outlined);
    case 2:
     return CustomerMarketPage(customer:c!,mode:'requests');
    case 3:
