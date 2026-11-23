@@ -1282,8 +1282,8 @@ class AuthChoicePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
                 const Text(
-                  'Staff and service-provider accounts require Director approval. '
-                  'Selecting a workspace does not grant account permissions.',
+                  'Client registration is open. Buyer access starts immediately; the Director controls seller access. '
+                  'Staff and service-provider accounts still require Director approval.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: Colors.black54),
                 ),
@@ -5965,7 +5965,7 @@ class _CustomersPageState extends State<CustomersPage> {
     final name=TextEditingController(text:row?['full_name']?.toString()??'');
     final phone=TextEditingController(text:row?['phone']?.toString()??'');
     final email=TextEditingController(text:row?['email']?.toString()??'');
-    bool canBuy=row==null?true:row['marketplace_can_buy']==true;
+    bool canBuy=true;
     bool canSell=row==null?false:row['marketplace_can_sell']==true;
     String? error;
     final result=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(context,refresh)=>AlertDialog(
@@ -5974,9 +5974,9 @@ class _CustomersPageState extends State<CustomersPage> {
         TextField(controller:name,decoration:const InputDecoration(labelText:'Customer name')),
         TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
         TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
-        const Align(alignment:Alignment.centerLeft,child:Text('Marketplace permissions',style:TextStyle(fontWeight:FontWeight.bold))),
-        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Can buy'),value:canBuy,onChanged:(v)=>refresh(()=>canBuy=v??false)),
-        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Can sell'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
+        const Align(alignment:Alignment.centerLeft,child:Text('Marketplace access',style:TextStyle(fontWeight:FontWeight.bold))),
+        const ListTile(contentPadding:EdgeInsets.zero,leading:Icon(Icons.shopping_bag_outlined,color:brandGreen),title:Text('Buyer access'),subtitle:Text('Enabled automatically for every registered customer.')),
+        CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Approve seller access (buyer + seller)'),subtitle:const Text('Allows this customer to buy and list products for sale.'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
         if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
       ])),
       actions:[
