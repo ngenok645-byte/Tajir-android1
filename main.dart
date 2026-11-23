@@ -2456,10 +2456,12 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
     final marketplaceRows=await db.from('marketplace_purchase_requests').select('id,buyer_customer_id,listing_id,quantity,unit_price_kes,line_total_kes,message,status,created_at,listing:marketplace_listings!marketplace_purchase_requests_listing_id_fkey(product_name,unit,seller_customer_id)').eq('buyer_customer_id',widget.customer['id']).order('created_at',ascending:false);
     final tajirRows=await db.from('customer_product_requests').select('id,customer_id,quantity_requested,quantity_unit,quantity_kg,unit_price_per_kg,line_total_kes,note,status,created_at,products(name),product_variants(variant_name),branches(name)').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
     final customRows=await db.from('customer_custom_product_requests').select('id,customer_id,product_name,description,quantity,quantity_unit,proposed_unit_price_kes,agreed_unit_price_kes,director_response,request_direction,customer_confirmed_at,customer_response,customer_responded_at,status,created_at').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
+    final salesRows=await db.from('sales_orders').select('id,order_number,customer_id,status,total_amount,created_at,delivery_address,payment_mode').eq('customer_id',widget.customer['id']).order('created_at',ascending:false);
     r=[
      ...List<Map<String,dynamic>>.from(marketplaceRows),
      ...List<Map<String,dynamic>>.from(tajirRows).map((x)=>{...x,'_is_tajir_request':true}),
      ...List<Map<String,dynamic>>.from(customRows).map((x)=>{...x,'_is_custom_request':true}),
+     ...List<Map<String,dynamic>>.from(salesRows).map((x)=>{...x,'_is_sales_order':true}),
     ]..sort((a,b)=>DateTime.parse(b['created_at'].toString()).compareTo(DateTime.parse(a['created_at'].toString())));
    }
    if(widget.mode=='requests'){
@@ -2475,6 +2477,12 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
  }
 
 
+ String _displayOrderDate(dynamic value) {
+  final date = DateTime.tryParse((value ?? '').toString());
+  if (date == null) return 'Date not available';
+  final local = date.toLocal();
+  return '${local.day.toString().padLeft(2,'0')}/${local.month.toString().padLeft(2,'0')}/${local.year} ${local.hour.toString().padLeft(2,'0')}:${local.minute.toString().padLeft(2,'0')}';
+ }
  bool _isClearedOrder(Map<String,dynamic> row){
   final status=(row['status']??'').toString().toLowerCase();
   return const {'delivered','completed','fulfilled'}.contains(status);
@@ -2878,6 +2886,14 @@ class _CustomerMarketPageState extends State<CustomerMarketPage>{
      ));
     }
     if(widget.mode=='requests'){
+     if(r['_is_sales_order']==true){
+      return Card(child:ListTile(
+       leading:const Icon(Icons.local_shipping_outlined,color:brandGreen),
+       title:Text('Sales order ${(r['order_number']??r['id']).toString()}'),
+       subtitle:Text('Total: KES ${(r['total_amount']??'Pending').toString()} • Status: ${(r['status']??'pending').toString().replaceAll('_',' ')}\\nPlaced: ${_displayOrderDate(r['created_at'])}${(r['delivery_address']??'').toString().trim().isEmpty?'':'\\nDelivery: ${r['delivery_address']}'}'),
+       isThreeLine:true,
+      ));
+     }
      if(r['_is_custom_request']==true){
       final unit=(r['quantity_unit']??'KG').toString();
       final response=(r['director_response']??'').toString();
