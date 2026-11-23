@@ -4446,7 +4446,7 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
         final pricePerKg = numVal(row['unit_price_per_kg']);
         changes.addAll({'quantity_requested': q, 'quantity_kg': kg, 'line_total_kes': kg * pricePerKg, 'note': note.text.trim()});
       } else {
-        changes.add('delivery_address', delivery.text.trim());
+        changes['delivery_address'] = delivery.text.trim();
       }
       await db.from(source).update(changes).eq('id', row['id']);
       await load();
@@ -6937,12 +6937,12 @@ class _CustomersPageState extends State<CustomersPage> {
         CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Buyer access'),subtitle:const Text('Allow this customer to buy products.'),value:canBuy,onChanged:(v){
           final next=v??false;
           if(next&&canSell&&!directorAccess){refresh(()=>error='Only a TAJIR Director can grant both Buyer and Seller access.');return;}
-          refresh(()=>{canBuy=next;error=null;});
+          refresh(() { canBuy = next; error = null; });
         }),
         CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Seller access'),subtitle:Text(directorAccess?'Allow this customer to list and sell products.':'Only a TAJIR Director can enable both Buyer and Seller access.'),value:canSell,onChanged:(v){
           final next=v??false;
           if(next&&canBuy&&!directorAccess){refresh(()=>error='Only a TAJIR Director can grant both Buyer and Seller access.');return;}
-          refresh(()=>{canSell=next;error=null;});
+          refresh(() { canSell = next; error = null; });
         }),
         if(error!=null)Text(error!,style:const TextStyle(color:Colors.red)),
       ])),
