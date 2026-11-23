@@ -1202,8 +1202,8 @@ class AuthChoicePage extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Tractor Services', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
-                      Text('All tractor accounts in one place', style: TextStyle(fontSize: 10, color: Colors.black54)),
+                      Text('Tractor & Auto-Spare Services', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+                      Text('Machinery, repair and spare-parts accounts together', style: TextStyle(fontSize: 10, color: Colors.black54)),
                     ],
                   ),
                 ),
@@ -1213,6 +1213,7 @@ class AuthChoicePage extends StatelessWidget {
             roleRow(Icons.agriculture, 'Tractor Owner', 'Manage tractors and assign drivers'),
             roleRow(Icons.local_shipping_outlined, 'Tractor Driver', 'View and complete assigned jobs'),
             roleRow(Icons.handyman_outlined, 'Mechanic', 'Handle repairs and spare-part requests'),
+            roleRow(Icons.settings_outlined, 'Auto-Spare Owner', 'Manage spare-parts stock and fulfil requests'),
           ],
         ),
       ),
@@ -1281,19 +1282,6 @@ class AuthChoicePage extends StatelessWidget {
                         width: cardWidth,
                         height: 232,
                         child: _tractorGroupCard(context),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        height: 232,
-                        child: _accountCard(
-                          context,
-                          icon: Icons.settings_outlined,
-                          title: 'Auto-Spare Owner',
-                          roleColor: const Color(0xFF9A633F),
-                          subtitle: 'Manage spare-parts stock and fulfil authorised parts requests.',
-                          onLogin: () => _openLogin(context),
-                          onJoin: () => _explainApproval(context, 'Auto-Spare Owner'),
-                        ),
                       ),
                       SizedBox(
                         width: cardWidth,
