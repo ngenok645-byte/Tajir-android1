@@ -4293,7 +4293,7 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
   final db = Supabase.instance.client;
   bool loading = true, busy = false;
   String? error;
-  bool showCleared = false;
+  bool showCleared = false, showCancelled = false;
   List<Map<String,dynamic>> orders = [];
   Map<String,String> customerNames = {};
   Map<String,double> paidByOrder = {};
@@ -4403,6 +4403,64 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
     }
   }
 
+  Future<void> editOrderDetails(Map<String,dynamic> row) async {
+    final source=row['_source'].toString();
+    final field=source=='sales_orders'?'delivery_address':source=='marketplace_purchase_requests'?'message':'note';
+    final controller=TextEditingController(text:(row[field]??'').toString());
+    final accepted=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
+      title:const Text('Edit order details'),
+      content:TextField(
+        controller:controller,
+        maxLines:4,
+        decoration:InputDecoration(
+          labelText:field=='delivery_address'?'Delivery address':field=='message'?'Buyer message':'Order note',
+          border:const OutlineInputBorder(),
+        ),
+      ),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Save changes')),
+      ],
+    ));
+    if(accepted==true){
+      try{
+        await db.from(source).update({field:controller.text.trim().isEmpty?null:controller.text.trim()}).eq('id',row['id']);
+        await load();
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Order details updated.')));
+      }catch(e){
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not edit order: ${friendlyError(e)}')));
+      }
+    }
+    controller.dispose();
+  }
+
+  Future<void> cancelOrder(Map<String,dynamic> row) async {
+    final id=row['id'].toString();
+    final source=row['_source'].toString();
+    final status=(row['status']??'').toString().toLowerCase();
+    final paid=paidByOrder[id]??0;
+    if(isCleared(row)||paid>0.009||status=='paid'||status=='completed'){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('This order has been paid or fulfilled. Keep it in the records and use the appropriate status controls instead of deleting it.')));
+      return;
+    }
+    final confirmed=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
+      title:const Text('Remove this order?'),
+      content:const Text('The order will be marked Cancelled and hidden from the active order list. Its record is retained for audit and customer history; no financial record is erased.'),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Keep order')),
+        FilledButton(style:FilledButton.styleFrom(backgroundColor:Colors.red),onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Cancel order')),
+      ],
+    ));
+    if(confirmed!=true)return;
+    try{
+      await db.from(source).update({'status':'cancelled'}).eq('id',row['id']);
+      await load();
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Order cancelled. The audit record has been retained.')));
+    }catch(e){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not cancel order: ${friendlyError(e)}')));
+    }
+  }
+
   List<String> nextStatuses(Map<String,dynamic> row) {
     final status = (row['status'] ?? '').toString().toLowerCase();
     if (row['_source'] == 'sales_orders') {
@@ -4435,15 +4493,22 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
         const Text('New orders are approved automatically and appear here for TAJIR to monitor. Move each order through processing, dispatch, transit and delivery. Delivered orders move to Cleared Orders.', style:TextStyle(color:Colors.black54)),
         CheckboxListTile(
           value: !showCleared,
-          onChanged: (_) => setState(() => showCleared = false),
+          onChanged: (_) => setState(() { showCleared = false; showCancelled = false; }),
           title: const Text('Pending Orders', style:TextStyle(fontWeight:FontWeight.w600)),
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
         ),
         CheckboxListTile(
           value: showCleared,
-          onChanged: (_) => setState(() => showCleared = true),
+          onChanged: (_) => setState(() { showCleared = true; showCancelled = false; }),
           title: const Text('Cleared Orders', style:TextStyle(fontWeight:FontWeight.w600)),
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
+        ),
+        CheckboxListTile(
+          value: showCancelled,
+          onChanged: (_) => setState(() { showCancelled = true; }),
+          title: const Text('Cancelled Orders', style:TextStyle(fontWeight:FontWeight.w600)),
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
         ),
@@ -4482,12 +4547,25 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
               ],
               if ((r['delivery_address'] ?? '').toString().isNotEmpty) Text('Delivery: ${r['delivery_address']}'),
               const SizedBox(height:8),
-              if (actions.isNotEmpty) Align(
-                alignment:Alignment.centerRight,
-                child: Wrap(spacing:6, children: actions.map((next) => OutlinedButton(
-                  onPressed:busy?null:()=>updateStatus(r,next),
-                  child:Text(next.replaceAll('_',' ').toUpperCase()),
-                )).toList()),
+              if (!showCancelled) Wrap(
+                spacing:6,runSpacing:6,alignment:WrapAlignment.end,
+                children:[
+                  OutlinedButton.icon(
+                    onPressed:busy?null:()=>editOrderDetails(r),
+                    icon:const Icon(Icons.edit_outlined,size:17),
+                    label:const Text('Edit details'),
+                  ),
+                  if(!isCleared(r)&&(paid<=0.009)&&!['paid','completed','cancelled'].contains(status.toLowerCase()))
+                    TextButton.icon(
+                      onPressed:busy?null:()=>cancelOrder(r),
+                      icon:const Icon(Icons.delete_outline,color:Colors.red,size:17),
+                      label:const Text('Cancel order',style:TextStyle(color:Colors.red)),
+                    ),
+                  ...actions.map((next) => OutlinedButton(
+                    onPressed:busy?null:()=>updateStatus(r,next),
+                    child:Text(next.replaceAll('_',' ').toUpperCase()),
+                  )),
+                ],
               ),
               if (showCleared) const Text('DELIVERED • CLEARED', style:TextStyle(color:brandGreen,fontWeight:FontWeight.bold)),
             ]),
