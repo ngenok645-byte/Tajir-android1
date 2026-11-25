@@ -415,42 +415,49 @@ Future<void> showTajirNationalId(BuildContext context, String profileId) async {
 
 Future<void> addMyTajirNationalId(BuildContext context) async {
   final controller = TextEditingController();
+  final idNameController = TextEditingController();
   try {
-    final entered = await showDialog<String>(
+    final entered = await showDialog<List<String>>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Register your National ID'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Your full National ID is encrypted. Only you and an authorised TAJIR support can view it.'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Your National ID number and the name printed on it are encrypted and stored privately.'),
           const SizedBox(height: 12),
-          TextField(
-            controller: controller,
-            keyboardType: TextInputType.number,
-            maxLength: 8,
-            decoration: const InputDecoration(labelText: '7 or 8 digit National ID', border: OutlineInputBorder(), counterText: ''),
-          ),
-        ]),
+          TextField(controller: controller, keyboardType: TextInputType.number, maxLength: 8,
+            decoration: const InputDecoration(labelText: '7 or 8 digit National ID number', border: OutlineInputBorder(), counterText: '')),
+          const SizedBox(height: 12),
+          TextField(controller: idNameController, textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Full name exactly as printed on National ID', border: OutlineInputBorder())),
+        ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Save securely')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, [controller.text.trim(), idNameController.text.trim()]), child: const Text('Save securely')),
         ],
       ),
     );
     if (entered == null || !context.mounted) return;
-    if (entered.length < 7 || entered.length > 8 || int.tryParse(entered) == null) {
+    final id = entered[0];
+    final idName = entered[1].replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (id.length < 7 || id.length > 8 || int.tryParse(id) == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid 7 or 8 digit National ID.')));
       return;
     }
-    await Supabase.instance.client.rpc('register_my_national_id', params: {'p_national_id': entered});
+    if (idName.length < 2 || idName.length > 120) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter the full name exactly as printed on your National ID.')));
+      return;
+    }
+    await Supabase.instance.client.rpc('register_my_national_id', params: {
+      'p_national_id': id, 'p_national_id_full_name': idName,
+    });
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('National ID saved securely.')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('National ID details saved securely.')));
     await showTajirNationalId(context, Supabase.instance.client.auth.currentUser!.id);
   } catch (e) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(friendlyError(e))),
-    );
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
   } finally {
     controller.dispose();
+    idNameController.dispose();
   }
 }
 
@@ -1142,7 +1149,7 @@ class _ProviderRegistrationPageState extends State<ProviderRegistrationPage> {
               textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
             const SizedBox(height: 18),
             TextField(controller: name, textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
+              decoration: const InputDecoration(labelText: 'Full name for your TAJIR account', border: OutlineInputBorder())),
             const SizedBox(height: 12),
             TextField(controller: phone, keyboardType: TextInputType.phone,
               decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
@@ -1161,6 +1168,9 @@ class _ProviderRegistrationPageState extends State<ProviderRegistrationPage> {
               TextField(controller: services,
                 decoration: const InputDecoration(labelText: 'Services offered (separate with commas)', hintText: 'Engine repair, tyres, electrical', border: OutlineInputBorder())),
             ],
+            if (createAccount) const SizedBox(height: 12),
+            if (createAccount) TextField(controller: nationalIdFullName, textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Full name exactly as printed on National ID', helperText: 'Enter separately, exactly as it appears on your ID.', border: OutlineInputBorder())),
             const SizedBox(height: 12),
             TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
               decoration: const InputDecoration(labelText: 'Create four-digit PIN', border: OutlineInputBorder(), counterText: '')),
@@ -1778,6 +1788,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   final name = TextEditingController();
   final phone = TextEditingController();
   final nationalId = TextEditingController();
+  final nationalIdFullName = TextEditingController();
   final pin = TextEditingController();
   final confirmPin = TextEditingController();
   bool createAccount = true, busy = false;
@@ -1788,7 +1799,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
     createAccount = widget.startInCreateAccount;
   }
   @override void dispose() {
-    name.dispose(); phone.dispose(); nationalId.dispose(); pin.dispose(); confirmPin.dispose(); super.dispose();
+    name.dispose(); phone.dispose(); nationalId.dispose(); nationalIdFullName.dispose(); pin.dispose(); confirmPin.dispose(); super.dispose();
   }
 
   Future<void> showForgotPinHelp() async {
@@ -1924,6 +1935,10 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
           int.tryParse(nationalId.text.trim()) == null)) {
         throw const FormatException('Enter a valid Kenyan National ID number (7 or 8 digits).');
       }
+      final idName = nationalIdFullName.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+      if (createAccount && (idName.length < 2 || idName.length > 120)) {
+        throw const FormatException('Enter the full name exactly as printed on your National ID.');
+      }
       if (pin.text.length != 4 || int.tryParse(pin.text) == null) {
         throw const FormatException('Enter your four-digit PIN.');
       }
@@ -1932,7 +1947,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         if (pin.text != confirmPin.text) throw const FormatException('The PIN entries do not match.');
         final response = await db.functions.invoke(
           'tajir-customer-register',
-          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'national_id': nationalId.text.trim(), 'customer_type': selectedMarketplaceAccount},
+          body: {'full_name': name.text.trim(), 'phone': normalized, 'pin': pin.text, 'national_id': nationalId.text.trim(), 'national_id_full_name': idName, 'customer_type': selectedMarketplaceAccount},
         );
         final resultData = response.data;
         if (response.status != 200 || resultData is! Map || resultData['success'] != true) {
@@ -1940,7 +1955,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
           throw FormatException(data is Map ? (friendlyError(data['error'] ?? 'Something went wrong.') ?? 'Customer registration failed.') : 'Customer registration failed.');
         }
         await signInCustomerWithPin(db, normalized, pin.text);
-        await db.rpc('register_my_national_id', params: {'p_national_id': nationalId.text.trim()});
+        await db.rpc('register_my_national_id', params: {'p_national_id': nationalId.text.trim(), 'p_national_id_full_name': idName});
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const CustomerPortalPage()), (route) => false);
@@ -4150,21 +4165,36 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
   };
   @override void initState(){super.initState();load();}
   Future<void> load() async {
-    if(mounted)setState(()=>loading=true);
-    try{
-      final p=await db.from('profiles').select('id,display_name,phone,status,created_at,user_role_assignments(is_active,app_roles(code,name)),customers(active,marketplace_can_buy,marketplace_can_sell)').order('created_at',ascending:false).limit(500);
+    if(mounted)setState(() { loading=true; error=null; });
+    List<Map<String,dynamic>> loadedAccounts=[];
+    List<Map<String,dynamic>> loadedAudit=[];
+    Map<String,dynamic> loadedSummary={};
+    String? loadError;
+    try {
+      final p=await db.from('profiles')
+        .select('id,display_name,phone,status,created_at,user_role_assignments(is_active,app_roles(code,name)),customers!customers_profile_id_fkey(active,marketplace_can_buy,marketplace_can_sell)')
+        .order('created_at',ascending:false).limit(500);
+      loadedAccounts=List<Map<String,dynamic>>.from(p);
+    } catch(e) { loadError='Account directory: '+friendlyError(e); }
+    try {
       final a=await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').order('created_at',ascending:false).limit(25);
+      loadedAudit=List<Map<String,dynamic>>.from(a);
+    } catch (_) { loadedAudit=[]; }
+    try {
       final overview=await db.rpc('tajir_director_master_oversight_summary');
-      summary=Map<String,dynamic>.from(overview as Map);
-      accounts=List<Map<String,dynamic>>.from(p); audit=List<Map<String,dynamic>>.from(a); activity.clear();
-      final rawActivity=summary['activity'];
-      if(rawActivity is Map){
-        for(final entry in rawActivity.entries){
-          if(entry.value is num)activity[entry.key.toString()]=(entry.value as num).toInt();
-        }
+      loadedSummary=Map<String,dynamic>.from(overview as Map);
+    } catch(e) { loadError ??= 'Company summary: '+friendlyError(e); }
+    activity.clear();
+    final rawActivity=loadedSummary['activity'];
+    if(rawActivity is Map){
+      for(final entry in rawActivity.entries){
+        if(entry.value is num)activity[entry.key.toString()]=(entry.value as num).toInt();
       }
-      if(mounted)setState(()=>loading=false);
-    }catch(e){if(mounted)setState(() { loading=false; error=friendlyError(e); });}
+    }
+    if(mounted)setState(() {
+      accounts=loadedAccounts; audit=loadedAudit; summary=loadedSummary;
+      error=loadError; loading=false;
+    });
   }
   List<String> roleCodes(Map<String,dynamic> a){
     final roles=<String>[];
@@ -4270,7 +4300,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     Row(children:[const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('TAJIR Master Oversight',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),Text('Company-wide, read-only supervision across TAJIR accounts and operations.') ])),IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh))]),
     if(loading)const LinearProgressIndicator(),
     if(error!=null)Text('Could not load oversight data: '+error!,style:const TextStyle(color:Colors.red)),
-    if(!loading&&error==null)...[
+    if(!loading)...[
       GridView.count(crossAxisCount:MediaQuery.of(context).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:2.2,children:[
         metric('Profiles',(summary['profiles_total']??0).toString(),Icons.people_alt),
         metric('Active',(summary['profiles_active']??0).toString(),Icons.verified_user),
@@ -4500,6 +4530,34 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
     await updateStatus(row, 'cancelled');
   }
 
+  Future<void> permanentlyDeleteCancelledOrder(Map<String,dynamic> row) async {
+    if ((row['status'] ?? '').toString().toLowerCase() != 'cancelled') return;
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Permanently delete cancelled order?'),
+      content: const Text('TAJIR will check for linked payments, sales, delivery, refund or item records first. Orders with linked financial or fulfilment records will be retained. Deletion is recorded in the audit trail.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep order')),
+        FilledButton(style: FilledButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete permanently')),
+      ],
+    ));
+    if (ok != true || !mounted) return;
+    setState(() => busy = true);
+    try {
+      await db.rpc('tajir_director_permanently_delete_cancelled_order', params: {
+        'p_source_table': row['_source'].toString(), 'p_order_id': row['id'].toString(),
+      });
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cancelled order permanently deleted and audit trail updated.')));
+    } catch (e) {
+      final raw=e.toString().toLowerCase();
+      final message=raw.contains('linked payment') || raw.contains('linked sale') || raw.contains('linked delivery') || raw.contains('linked refund') || raw.contains('linked item')
+        ? 'This order has linked financial or fulfilment records and was retained to protect the audit trail.'
+        : 'Could not permanently delete order: '+friendlyError(e);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    } finally { if (mounted) setState(() => busy = false); }
+  }
+
   Future<void> updateStatus(Map<String,dynamic> row, String status) async {
     if (busy) return;
     setState(() => busy = true);
@@ -4613,6 +4671,13 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
                     child:Text(next.replaceAll('_',' ').toUpperCase()),
                   )),
                 ]),
+              if (!isCleared(r) && status.toLowerCase() == 'cancelled')
+                Align(alignment: Alignment.centerRight, child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                  onPressed: busy ? null : () => permanentlyDeleteCancelledOrder(r),
+                  icon: const Icon(Icons.delete_forever_outlined, size: 18),
+                  label: const Text('Delete permanently'),
+                )),
               if (showCleared) const Text('DELIVERED • CLEARED', style:TextStyle(color:brandGreen,fontWeight:FontWeight.bold)),
             ]),
           ));
