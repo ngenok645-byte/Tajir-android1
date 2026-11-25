@@ -3809,6 +3809,11 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
     switch (widget.roleCode) {
       case 'tractor_owner':
         out.add(Padding(padding:const EdgeInsets.only(bottom:10),child:Align(alignment:Alignment.centerLeft,child:FilledButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>Scaffold(appBar:AppBar(title:Text('TAJIR Land Measure')),body:TajirLandMeasurePage()))),icon:const Icon(Icons.square_foot),label:const Text('Measure farm land')))));
+        out.add(Padding(padding: const EdgeInsets.only(bottom: 10), child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerPortalPage())),
+          icon: const Icon(Icons.storefront_outlined),
+          label: const Text('Open my Buyer / Seller account'),
+        ))));
         out.add(sectionTitle('Registered tractor assets', primary.length));
         out.add(Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
