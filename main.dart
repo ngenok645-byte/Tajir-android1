@@ -4231,76 +4231,134 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
   int volume(String c)=>(tables[c]??[]).fold<int>(0,(n,t)=>n+(activity[t]??0));
   IconData roleIcon(String c){switch(c){case 'director':return Icons.admin_panel_settings;case 'buyer':return Icons.shopping_cart;case 'seller':return Icons.storefront;case 'worker':return Icons.groups;case 'tractor_owner':return Icons.agriculture;case 'driver':return Icons.local_shipping;case 'mechanic':return Icons.handyman;default:return Icons.settings;}}
   Future<void> inspectAccount(Map<String,dynamic> a) async {
-    final uid=db.auth.currentUser?.id;if(uid==null)return;
-    final id=a['id'].toString();final name=(a['display_name']??'TAJIR account').toString();
+    final uid=db.auth.currentUser?.id;
+    if(uid==null){
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content:Text('Your TAJIR session has expired. Sign in again.')));
+      return;
+    }
+    final id=(a['id']??'').toString();
+    final name=(a['display_name']??'TAJIR account').toString();
+    if(id.isEmpty)return;
+
+    // Account access must not depend on writing an audit row. Read each source
+    // independently so one unavailable activity table cannot block oversight.
+    List<Map<String,dynamic>> activityRows=[];
+    List<Map<String,dynamic>> events=[];
+    List<Map<String,dynamic>> changeEvents=[];
+    final warnings=<String>[];
     try{
-      await db.from('audit_logs').insert({'actor_user_id':uid,'action':'director_account_viewed','entity_schema':'public','entity_table':'profiles','entity_id':id,'reason':'TAJIR opened read-only account overview: '+name,'after_data':{'view_mode':'read_only'}});
-      final activityRaw = await db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':id});
-      final eventsRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('actor_user_id',id).order('created_at',ascending:false).limit(15);
-      final profileChangesRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('entity_table','profiles').eq('entity_id',id).order('created_at',ascending:false).limit(15);
-      final assignmentLogsRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at,before_data,after_data').inFilter('entity_table',['user_role_assignments','user_branch_assignments']).order('created_at',ascending:false).limit(250);
-      final activityRows=List<Map<String,dynamic>>.from(activityRaw);
-      final events=List<Map<String,dynamic>>.from(eventsRaw);
-      final profileChanges=List<Map<String,dynamic>>.from(profileChangesRaw);
-      final assignmentLogs=List<Map<String,dynamic>>.from(assignmentLogsRaw).where((e){
+      final raw=await db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':id});
+      activityRows=List<Map<String,dynamic>>.from(raw as List);
+    }catch(e){warnings.add('Operational activity: '+friendlyError(e));}
+    try{
+      final raw=await db.from('audit_logs')
+        .select('id,actor_user_id,action,entity_table,entity_id,reason,created_at')
+        .eq('actor_user_id',id).order('created_at',ascending:false).limit(20);
+      events=List<Map<String,dynamic>>.from(raw);
+    }catch(e){warnings.add('Account activity history: '+friendlyError(e));}
+    try{
+      final profileRaw=await db.from('audit_logs')
+        .select('id,actor_user_id,action,entity_table,entity_id,reason,created_at')
+        .eq('entity_table','profiles').eq('entity_id',id)
+        .order('created_at',ascending:false).limit(15);
+      final assignmentRaw=await db.from('audit_logs')
+        .select('id,actor_user_id,action,entity_table,entity_id,reason,created_at,before_data,after_data')
+        .inFilter('entity_table',['user_role_assignments','user_branch_assignments'])
+        .order('created_at',ascending:false).limit(250);
+      final assignmentLogs=List<Map<String,dynamic>>.from(assignmentRaw).where((e){
         final before=e['before_data'];final after=e['after_data'];
-        return (before is Map && before['user_id']?.toString()==id) || (after is Map && after['user_id']?.toString()==id);
-      }).toList();
-      final changeEvents=<Map<String,dynamic>>[...profileChanges,...assignmentLogs]
-        ..sort((x,y)=>DateTime.tryParse((y['created_at']??'').toString())?.compareTo(DateTime.tryParse((x['created_at']??'').toString())??DateTime.fromMillisecondsSinceEpoch(0))??0);
-      if(!mounted)return;
-      final status=(a['status']??'unknown').toString();final assigned=roleCodes(a);
-      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (pageContext) => Scaffold(
-        appBar: AppBar(title: Text(name), actions: [
-          IconButton(tooltip: 'Close account dashboard', icon: const Icon(Icons.close), onPressed: () => Navigator.pop(pageContext)),
-        ]),
-        body: ListView(padding: const EdgeInsets.all(16), children: [
-          Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Row(children: [Icon(Icons.visibility_outlined, color: brandGreen), SizedBox(width: 8), Text('TAJIR READ-ONLY ACCOUNT DASHBOARD', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))]),
-            const SizedBox(height: 12),
-            Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            Row(children: [
-              Expanded(child: Text('Phone: '+((a['phone']??'Not provided').toString()))),
-              if ((a['phone']??'').toString().trim().isNotEmpty)
-                IconButton(
-                  tooltip: 'Call registered number',
-                  icon: const Icon(Icons.call, color: brandGreen),
-                  onPressed: () async {
-                    try { await callTajirPhone(a['phone'].toString()); }
-                    catch (e) { if (pageContext.mounted) ScaffoldMessenger.of(pageContext).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
-                  },
-                ),
+        return (before is Map&&before['user_id']?.toString()==id)||
+          (after is Map&&after['user_id']?.toString()==id);
+      });
+      changeEvents=[...List<Map<String,dynamic>>.from(profileRaw),...assignmentLogs];
+      changeEvents.sort((x,y)=>
+        (DateTime.tryParse((y['created_at']??'').toString())??DateTime.fromMillisecondsSinceEpoch(0))
+        .compareTo(DateTime.tryParse((x['created_at']??'').toString())??DateTime.fromMillisecondsSinceEpoch(0)));
+    }catch(e){warnings.add('Role and profile change history: '+friendlyError(e));}
+
+    if(!mounted)return;
+    final status=(a['status']??'unknown').toString();
+    final assigned=roleCodes(a);
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder:(pageContext)=>Scaffold(
+      appBar:AppBar(title:Text(name),actions:[
+        IconButton(tooltip:'Close account dashboard',icon:const Icon(Icons.close),
+          onPressed:()=>Navigator.pop(pageContext)),
+      ]),
+      body:ListView(padding:const EdgeInsets.all(16),children:[
+        Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(
+          crossAxisAlignment:CrossAxisAlignment.start,children:[
+            const Row(children:[Icon(Icons.admin_panel_settings,color:brandGreen),
+              SizedBox(width:8),Expanded(child:Text('TAJIR MASTER ACCOUNT OVERSIGHT',
+                style:TextStyle(fontWeight:FontWeight.bold,fontSize:12)))]),
+            const SizedBox(height:12),
+            Text(name,style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
+            Row(children:[
+              Expanded(child:Text('Phone: '+((a['phone']??'Not provided').toString()))),
+              if((a['phone']??'').toString().trim().isNotEmpty)
+                IconButton(tooltip:'Call registered number',icon:const Icon(Icons.call,color:brandGreen),
+                  onPressed:()async{try{await callTajirPhone(a['phone'].toString());}
+                    catch(e){if(pageContext.mounted)ScaffoldMessenger.of(pageContext).showSnackBar(
+                      SnackBar(content:Text(friendlyError(e))));}}),
             ]),
             Text('Account status: '+status.replaceAll('_',' ')),
-            const SizedBox(height: 8),
-            Wrap(spacing: 6, runSpacing: 6, children: assigned.isEmpty
-              ? [const Chip(label: Text('No active role'))]
-              : assigned.map((r) => Chip(label: Text(r.replaceAll('_',' ')))).toList()),
+            const SizedBox(height:8),
+            Wrap(spacing:6,runSpacing:6,children:assigned.isEmpty
+              ?[const Chip(label:Text('No active role'))]
+              :assigned.map((r)=>Chip(label:Text(r.replaceAll('_',' ')))).toList()),
           ]))),
-          const SizedBox(height: 12),
-          const Text('Orders, payments and operational activity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          Text(activityRows.length.toString()+' linked activity records returned for this account'),
-          if(activityRows.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(14), child: Text('No linked operational records were found for this account.'))),
-          ...activityRows.map((e) => Card(child: ListTile(
-            leading: const Icon(Icons.receipt_long_outlined, color: brandGreen),
-            title: Text((e['activity_type']??'Activity').toString()+' • '+(e['reference']??'Record').toString()),
-            subtitle: Text((e['status']??'').toString().replaceAll('_',' ')+' • '+(e['activity_at']??'').toString()+'\\n'+(e['details']??'').toString()),
-            trailing: e['amount']==null ? null : Text('KES '+(e['amount'] as num).toStringAsFixed(2)),
-          ))),
-          const SizedBox(height: 12),
-          const Text('Changes to this account and its access', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          if(changeEvents.isEmpty) const Text('No account or role changes have been recorded.'),
-          ...changeEvents.take(20).map((e) => ListTile(dense:true, leading:const Icon(Icons.manage_history), title:Text((e['action']??'Change').toString().replaceAll('_',' ')+' • '+(e['entity_table']??'account').toString()), subtitle:Text((e['reason']??'Account access or profile change').toString()+'\\n'+(e['created_at']??'').toString()))),
-          const SizedBox(height:12),
-          const Text('Activity performed by this account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          if(events.isEmpty) const Text('No activity is recorded for this account yet.'),
-          ...events.take(20).map((e) => ListTile(dense:true, leading:const Icon(Icons.history), title:Text((e['action']??'Activity').toString().replaceAll('_',' ')), subtitle:Text((e['entity_table']??'Account').toString()+' • '+(e['created_at']??'').toString()))),
-          const SizedBox(height:8),
-          const Text('This is a read-only oversight dashboard. PINs and passwords remain private. It does not sign in as the user or change their credentials.', style:TextStyle(fontSize:12,color:Colors.black54)),
-        ]),
-      )));
-      await load();
-    }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not open audited account view: '+friendlyError(e))));}
+        if(warnings.isNotEmpty)Card(child:Padding(padding:const EdgeInsets.all(12),
+          child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            const Text('Some records could not be loaded',style:TextStyle(fontWeight:FontWeight.bold)),
+            ...warnings.map((w)=>Padding(padding:const EdgeInsets.only(top:5),child:Text(w,
+              style:const TextStyle(fontSize:12,color:Colors.deepOrange)))),
+            const Text('The account overview remains available; refresh after checking the connection or permissions.',
+              style:TextStyle(fontSize:12)),
+          ]))),
+        const SizedBox(height:12),
+        const Text('Orders, payments and operational activity',
+          style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+        Text(activityRows.length.toString()+' linked operational records'),
+        if(activityRows.isEmpty)const Card(child:Padding(padding:EdgeInsets.all(14),
+          child:Text('No linked operational records were found, or this activity source is unavailable.'))),
+        ...activityRows.map((e)=>Card(child:ListTile(
+          leading:const Icon(Icons.receipt_long_outlined,color:brandGreen),
+          title:Text((e['activity_type']??'Activity').toString()+' • '+(e['reference']??'Record').toString()),
+          subtitle:Text((e['status']??'').toString().replaceAll('_',' ')+' • '+(e['activity_at']??'').toString()+'\\n'+(e['details']??'').toString()),
+          trailing:e['amount']==null?null:Text('KES '+(e['amount'] as num).toStringAsFixed(2)),
+        ))),
+        const SizedBox(height:12),
+        const Text('Changes to this account and its access',
+          style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+        if(changeEvents.isEmpty)const Text('No account or role changes are recorded, or the audit history is unavailable.'),
+        ...changeEvents.take(20).map((e)=>ListTile(dense:true,
+          leading:const Icon(Icons.manage_history),
+          title:Text((e['action']??'Change').toString().replaceAll('_',' ')+' • '+(e['entity_table']??'account').toString()),
+          subtitle:Text((e['reason']??'Account access or profile change').toString()+'\\n'+(e['created_at']??'').toString()))),
+        const SizedBox(height:12),
+        const Text('Activity performed by this account',
+          style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+        if(events.isEmpty)const Text('No activity is recorded for this account yet.'),
+        ...events.take(20).map((e)=>ListTile(dense:true,
+          leading:const Icon(Icons.history),
+          title:Text((e['action']??'Activity').toString().replaceAll('_',' ')),
+          subtitle:Text((e['entity_table']??'Account').toString()+' • '+(e['created_at']??'').toString()))),
+        const SizedBox(height:8),
+        const Text('TAJIR oversight is read-only for account credentials. PINs and passwords remain private.',
+          style:TextStyle(fontSize:12,color:Colors.black54)),
+      ]),
+    )));
+    // Record the inspection after the screen has opened. Audit failure must
+    // never prevent TAJIR from viewing the account.
+    try{
+      await db.from('audit_logs').insert({
+        'actor_user_id':uid,'action':'director_account_viewed',
+        'entity_schema':'public','entity_table':'profiles','entity_id':id,
+        'reason':'TAJIR opened read-only account overview: '+name,
+        'after_data':{'view_mode':'read_only'}
+      });
+    }catch(_){}
+    await load();
   }
   Widget metric(String label,String value,IconData icon)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[Icon(icon,color:brandGreen,size:28),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(value,style:const TextStyle(fontSize:21,fontWeight:FontWeight.bold)),Text(label,style:const TextStyle(fontSize:12,color:Colors.black54))]))])));
   @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
