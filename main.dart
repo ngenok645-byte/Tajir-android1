@@ -1689,6 +1689,11 @@ class _LoginPageState extends State<LoginPage> {
           throw const FormatException('Enter a four-digit PIN.');
         }
         if (setupDirector) {
+          const allowedDirectorPhones = {'0713971207', '254713971207', '0700020140', '254700020140'};
+          final directorDigits = normalized.replaceAll('+', '');
+          if (!allowedDirectorPhones.contains(directorDigits)) {
+            throw const FormatException('TAJIR Director registration is restricted to Mercy (0713971207) and Edwin (0700020140). Register using your own role instead.');
+          }
           if (pin.text != confirmPin.text) {
             throw const FormatException('The PIN entries do not match.');
           }
