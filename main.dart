@@ -3952,7 +3952,7 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
   bool loading = true, saving = false;
   String error = '';
   Map<String,dynamic>? owner;
-  List<Map<String,dynamic>> tractors = [];
+  List<Map<String,dynamic>> tractors = [], bookings = [];
   String get uid => db.auth.currentUser!.id;
 
   @override void initState() { super.initState(); load(); }
@@ -3967,6 +3967,10 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
       final rows = await db.from('tractor_owner_service_fleet').select()
         .eq('owner_profile_id', owner!['id']).order('created_at', ascending: false);
       tractors = List<Map<String,dynamic>>.from(rows);
+      final bookingRows = await db.from('tractor_owner_service_bookings')
+        .select('id,job_number,service_type,service_location,county,region,village,quantity,pricing_unit,total_charge,booked_for,status,customer_name,customer_phone,assigned_driver_profile_id')
+        .eq('owner_profile_id', owner!['id']).order('created_at', ascending: false);
+      bookings = List<Map<String,dynamic>>.from(bookingRows);
     } catch (e) {
       error = friendlyError(e);
     } finally {
@@ -4108,6 +4112,26 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
         ]),
         const Padding(padding:EdgeInsets.only(top:6),child:Text('Your trading account starts with Buyer access. TAJIR must separately authorize Seller access before you can list products for sale.',style:TextStyle(fontSize:12,color:Colors.black54))),
         const SizedBox(height:8),
+        Text('My fleet (${tractors.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+        if(tractors.isEmpty) const Text('No tractors added yet. You can add owned, borrowed or leased equipment without a registration or serial number.'),
+        const SizedBox(height:18),
+        Text('Incoming service bookings (${bookings.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+        if(bookings.isEmpty) const Text('No customer bookings have been assigned to your fleet yet.'),
+        ...bookings.map((b) {
+          final area=[b['county'],b['region'],b['village']].where((v)=>v!=null && v.toString().trim().isNotEmpty).join(' • ');
+          final when=b['booked_for']==null?'Date not set':DateTime.tryParse(b['booked_for'].toString())?.toLocal().toString().substring(0,16)??'Date not set';
+          return Card(child:ListTile(
+            isThreeLine:true,
+            leading:const Icon(Icons.assignment_outlined),
+            title:Text('${b['job_number']} • ${b['service_type']}'),
+            subtitle:Text('${b['customer_name']??'Customer'} • ${b['customer_phone']??'No phone'}\\n${b['service_location']} • ${area.isEmpty?'Area not specified':area}\\n${b['quantity']} ${b['pricing_unit']} • ${when}'),
+            trailing:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
+              Text('KES ${b['total_charge']}',style:const TextStyle(fontWeight:FontWeight.bold)),
+              Text((b['status']??'booked').toString().replaceAll('_',' '),style:const TextStyle(fontSize:11)),
+            ]),
+          ));
+        }),
+        const SizedBox(height:18),
         Text('My fleet (${tractors.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
         if(tractors.isEmpty) const Text('No tractors added yet. You can add owned, borrowed or leased equipment without a registration or serial number.'),
         ...tractors.map((t) {
