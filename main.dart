@@ -3974,6 +3974,22 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
     }
   }
 
+  Future<void> openTradingAccount() async {
+    if (saving) return;
+    setState(() => saving = true);
+    try {
+      await db.rpc('ensure_tractor_owner_customer_account');
+      if (!mounted) return;
+      await Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerPortalPage()));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not link your TAJIR trading account: ${friendlyError(e)}')),
+      );
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   Future<void> addTractor() async {
     final name = TextEditingController();
     final model = TextEditingController();
@@ -4086,7 +4102,11 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
       if(error.isNotEmpty) Padding(padding:const EdgeInsets.symmetric(vertical:12),child:Text(error,style:const TextStyle(color:Colors.red))),
       if(!loading && error.isEmpty) ...[
         Card(child:ListTile(leading:const Icon(Icons.agriculture),title:Text((owner?['full_name']??'Tractor owner').toString()),subtitle:Text('Account: ${owner?['status']??'registered'}'))),
-        Align(alignment:Alignment.centerLeft,child:FilledButton.icon(onPressed:saving?null:addTractor,icon:const Icon(Icons.add),label:const Text('Add tractor'))),
+        Wrap(spacing:8,runSpacing:8,children:[
+          FilledButton.icon(onPressed:saving?null:addTractor,icon:const Icon(Icons.add),label:const Text('Add tractor')),
+          OutlinedButton.icon(onPressed:saving?null:openTradingAccount,icon:saving?const SizedBox(width:16,height:16,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.storefront_outlined),label:const Text('Open my TAJIR Trading account')),
+        ]),
+        const Padding(padding:EdgeInsets.only(top:6),child:Text('Your trading account starts with Buyer access. TAJIR must separately authorize Seller access before you can list products for sale.',style:TextStyle(fontSize:12,color:Colors.black54))),
         const SizedBox(height:8),
         Text('My fleet (${tractors.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
         if(tractors.isEmpty) const Text('No tractors added yet. You can add owned, borrowed or leased equipment without a registration or serial number.'),
