@@ -4172,7 +4172,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     String? loadError;
     try {
       final p=await db.from('profiles')
-        .select('id,display_name,phone,status,created_at,user_role_assignments(is_active,app_roles(code,name)),customers!customers_profile_id_fkey(active,marketplace_can_buy,marketplace_can_sell)')
+        .select('id,display_name,phone,status,created_at,user_role_assignments!user_role_assignments_user_id_fkey(is_active,app_roles(code,name)),customers!customers_profile_id_fkey(active,marketplace_can_buy,marketplace_can_sell)')
         .order('created_at',ascending:false).limit(500);
       loadedAccounts=List<Map<String,dynamic>>.from(p);
     } catch(e) { loadError='Account directory: '+friendlyError(e); }
