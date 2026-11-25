@@ -3820,9 +3820,9 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           label: const Text('Open my Buyer / Seller account'),
         ))));
         out.add(Padding(padding: const EdgeInsets.only(bottom: 10), child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TractorServicesPage())),
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TractorOwnerServiceFleetPage())),
           icon: const Icon(Icons.agriculture),
-          label: const Text('Open Tractor Services Dashboard'),
+          label: const Text('Manage My Tractor Services'),
         ))));
         out.add(sectionTitle('Registered tractor assets', primary.length));
         out.add(Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
@@ -3939,6 +3939,146 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         if (!loading && error.isNotEmpty) OutlinedButton.icon(onPressed: load, icon: const Icon(Icons.refresh), label: const Text('Try again')),
       ],
     )),
+  );
+}
+
+class TractorOwnerServiceFleetPage extends StatefulWidget {
+  const TractorOwnerServiceFleetPage({super.key});
+  @override State<TractorOwnerServiceFleetPage> createState() => _TractorOwnerServiceFleetPageState();
+}
+
+class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetPage> {
+  final db = Supabase.instance.client;
+  bool loading = true, saving = false;
+  String error = '';
+  Map<String,dynamic>? owner;
+  List<Map<String,dynamic>> tractors = [];
+  String get uid => db.auth.currentUser!.id;
+
+  @override void initState() { super.initState(); load(); }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = ''; });
+    try {
+      owner = await db.from('tractor_owner_profiles')
+        .select('id,full_name,phone,status')
+        .eq('profile_id', uid).maybeSingle();
+      if (owner == null) throw const FormatException('Your tractor-owner profile is not linked to this login. Please complete tractor-owner registration.');
+      final rows = await db.from('tractor_owner_service_fleet').select()
+        .eq('owner_profile_id', owner!['id']).order('created_at', ascending: false);
+      tractors = List<Map<String,dynamic>>.from(rows);
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> addTractor() async {
+    final name = TextEditingController();
+    final model = TextEditingController();
+    final county = TextEditingController();
+    final region = TextEditingController();
+    final village = TextEditingController();
+    final notes = TextEditingController();
+    String ownership = 'owned';
+    final selectedServices = <String>{'ploughing'};
+    const serviceOptions = <String>['ploughing','harrowing','tilling','spraying','transport'];
+    try {
+      final ok = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Add tractor to my fleet'),
+          content: SizedBox(width: 440, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: name, decoration: const InputDecoration(labelText: 'Tractor name or fleet label *')),
+            TextField(controller: model, decoration: const InputDecoration(labelText: 'Make / model (optional)')),
+            DropdownButtonFormField<String>(value: ownership, decoration: const InputDecoration(labelText: 'Ownership'),
+              items: const [DropdownMenuItem(value:'owned',child:Text('Owned')),DropdownMenuItem(value:'borrowed',child:Text('Borrowed')),DropdownMenuItem(value:'leased',child:Text('Leased'))],
+              onChanged: (v) => setDialogState(() => ownership = v ?? 'owned')),
+            const SizedBox(height: 8),
+            Align(alignment: Alignment.centerLeft, child: Text('Services offered', style: Theme.of(context).textTheme.titleSmall)),
+            ...serviceOptions.map((s) => CheckboxListTile(dense:true,contentPadding:EdgeInsets.zero,title:Text(s[0].toUpperCase()+s.substring(1)),value:selectedServices.contains(s),onChanged:(v)=>setDialogState((){if(v==true){selectedServices.add(s);}else{selectedServices.remove(s);}}))),
+            TextField(controller: county, decoration: const InputDecoration(labelText: 'Operating county')),
+            TextField(controller: region, decoration: const InputDecoration(labelText: 'Region / sub-county')),
+            TextField(controller: village, decoration: const InputDecoration(labelText: 'Village / area')),
+            TextField(controller: notes, maxLines:2, decoration: const InputDecoration(labelText: 'Notes (optional)')),
+          ]))),
+          actions: [
+            TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+            FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Save tractor')),
+          ],
+        ),
+      ));
+      if (ok != true) return;
+      if (name.text.trim().isEmpty) throw const FormatException('Enter a tractor name or fleet label.');
+      if (selectedServices.isEmpty) throw const FormatException('Choose at least one service.');
+      if (owner == null) await load();
+      await db.from('tractor_owner_service_fleet').insert({
+        'owner_profile_id': owner!['id'],
+        'tractor_name': name.text.trim(),
+        'make_model': model.text.trim().isEmpty ? null : model.text.trim(),
+        'ownership_type': ownership,
+        'operating_county': county.text.trim().isEmpty ? null : county.text.trim(),
+        'operating_region': region.text.trim().isEmpty ? null : region.text.trim(),
+        'operating_village': village.text.trim().isEmpty ? null : village.text.trim(),
+        'services': selectedServices.toList(),
+        'notes': notes.text.trim().isEmpty ? null : notes.text.trim(),
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Tractor added to your independent service fleet.')));
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));
+    } finally {
+      name.dispose(); model.dispose(); county.dispose(); region.dispose(); village.dispose(); notes.dispose();
+    }
+  }
+
+  Future<void> updateAvailability(Map<String,dynamic> row, String status) async {
+    try {
+      await db.from('tractor_owner_service_fleet').update({'status':status,'updated_at':DateTime.now().toUtc().toIso8601String()})
+        .eq('id',row['id']).eq('owner_profile_id',owner!['id']);
+      await load();
+    } catch(e) {
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));
+    }
+  }
+
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('My Tractor Services'), actions: [
+      IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh),tooltip:'Refresh'),
+    ]),
+    body: RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+      const TajirDirectorContacts(),
+      const Text('My independent tractor business',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
+      const Text('Manage your own fleet and operating areas here. A TAJIR company branch is not required.'),
+      if(loading) const LinearProgressIndicator(),
+      if(error.isNotEmpty) Padding(padding:const EdgeInsets.symmetric(vertical:12),child:Text(error,style:const TextStyle(color:Colors.red))),
+      if(!loading && error.isEmpty) ...[
+        Card(child:ListTile(leading:const Icon(Icons.agriculture),title:Text((owner?['full_name']??'Tractor owner').toString()),subtitle:Text('Account: ${owner?['status']??'registered'}'))),
+        Align(alignment:Alignment.centerLeft,child:FilledButton.icon(onPressed:saving?null:addTractor,icon:const Icon(Icons.add),label:const Text('Add tractor'))),
+        const SizedBox(height:8),
+        Text('My fleet (${tractors.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+        if(tractors.isEmpty) const Text('No tractors added yet. You can add owned, borrowed or leased equipment without a registration or serial number.'),
+        ...tractors.map((t) {
+          final area=[t['operating_county'],t['operating_region'],t['operating_village']].where((v)=>v!=null && v.toString().trim().isNotEmpty).join(' • ');
+          final services=(t['services'] is List ? (t['services'] as List).join(', ') : '').toString();
+          return Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Text((t['tractor_name']??'Tractor').toString(),style:const TextStyle(fontWeight:FontWeight.bold,fontSize:17)),
+            Text('${t['make_model']??'Model not specified'} • ${t['ownership_type']??'owned'}'),
+            Text('Operating area: ${area.isEmpty?'Not set':area}'),
+            Text('Services: ${services.isEmpty?'Not set':services}'),
+            Row(children:[
+              const Text('Availability: '),
+              DropdownButton<String>(value:(t['status']??'available').toString(),items:const [
+                DropdownMenuItem(value:'available',child:Text('Available')),
+                DropdownMenuItem(value:'busy',child:Text('Busy')),
+                DropdownMenuItem(value:'maintenance',child:Text('Maintenance')),
+                DropdownMenuItem(value:'inactive',child:Text('Inactive')),
+              ],onChanged:(v)=>v==null?null:updateAvailability(t,v)),
+            ]),
+          ])));
+        }),
+      ],
+    ])),
   );
 }
 
