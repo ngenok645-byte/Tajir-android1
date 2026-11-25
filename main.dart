@@ -1142,7 +1142,7 @@ class _ProviderRegistrationPageState extends State<ProviderRegistrationPage> {
               textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
             const SizedBox(height: 18),
             TextField(controller: name, textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'Full name', border: OutlineInputBorder())),
+              decoration: const InputDecoration(labelText: 'Full name exactly as printed on National ID', helperText: 'Enter every name in the same order as shown on your ID.', border: OutlineInputBorder())),
             const SizedBox(height: 12),
             TextField(controller: phone, keyboardType: TextInputType.phone,
               decoration: const InputDecoration(labelText: 'Phone number', hintText: '07XXXXXXXX', border: OutlineInputBorder())),
@@ -4152,11 +4152,51 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
   Future<void> load() async {
     if(mounted)setState(()=>loading=true);
     try{
+      // Load the directory independently from optional reporting RPCs. A missing
+      // summary function must never make the whole Master Oversight screen blank.
       final p=await db.from('profiles').select('id,display_name,phone,status,created_at,user_role_assignments(is_active,app_roles(code,name)),customers(active,marketplace_can_buy,marketplace_can_sell)').order('created_at',ascending:false).limit(500);
-      final a=await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').order('created_at',ascending:false).limit(25);
-      final overview=await db.rpc('tajir_director_master_oversight_summary');
-      summary=Map<String,dynamic>.from(overview as Map);
-      accounts=List<Map<String,dynamic>>.from(p); audit=List<Map<String,dynamic>>.from(a); activity.clear();
+      accounts=List<Map<String,dynamic>>.from(p);
+      audit=[];
+      activity.clear();
+      summary={};
+      try {
+        final a=await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').order('created_at',ascending:false).limit(25);
+        audit=List<Map<String,dynamic>>.from(a);
+      } catch (_) {
+        // Keep the directory usable when audit-log read access is unavailable.
+      }
+      var summaryLoaded=false;
+      try {
+        final overview=await db.rpc('tajir_director_master_oversight_summary');
+        if(overview is Map) {
+          summary=Map<String,dynamic>.from(overview);
+          summaryLoaded=true;
+        }
+      } catch (_) {
+        // Fall back to reliable profile/role counts below; do not fail the page.
+      }
+      if(!summaryLoaded) {
+        final departments=<String,int>{};
+        var active=0, pending=0, suspended=0;
+        for(final account in accounts) {
+          final status=(account['status']??'').toString().toLowerCase();
+          if(status=='active') active++;
+          if(status=='pending') pending++;
+          if(status=='suspended'||status=='disabled') suspended++;
+          for(final role in roleCodes(account)) {
+            departments[role]=(departments[role]??0)+1;
+          }
+        }
+        summary={
+          'profiles_total':accounts.length,
+          'profiles_active':active,
+          'profiles_pending':pending,
+          'profiles_suspended':suspended,
+          'department_accounts':departments,
+          'activity':<String,int>{},
+          'oversight_notice':'Live account directory loaded. Detailed operational totals are temporarily unavailable because the reporting service did not respond.',
+        };
+      }
       final rawActivity=summary['activity'];
       if(rawActivity is Map){
         for(final entry in rawActivity.entries){
@@ -4198,7 +4238,14 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     final id=a['id'].toString();final name=(a['display_name']??'TAJIR account').toString();
     try{
       await db.from('audit_logs').insert({'actor_user_id':uid,'action':'director_account_viewed','entity_schema':'public','entity_table':'profiles','entity_id':id,'reason':'TAJIR opened read-only account overview: '+name,'after_data':{'view_mode':'read_only'}});
-      final activityRaw = await db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':id});
+      dynamic activityRaw;
+      try {
+        activityRaw = await db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':id});
+      } catch (_) {
+        // The account dashboard and audit trail should still open if the optional
+        // operational-activity RPC is missing or temporarily unavailable.
+        activityRaw = <Map<String,dynamic>>[];
+      }
       final eventsRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('actor_user_id',id).order('created_at',ascending:false).limit(15);
       final profileChangesRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at').eq('entity_table','profiles').eq('entity_id',id).order('created_at',ascending:false).limit(15);
       final assignmentLogsRaw = await db.from('audit_logs').select('id,actor_user_id,action,entity_table,entity_id,reason,created_at,before_data,after_data').inFilter('entity_table',['user_role_assignments','user_branch_assignments']).order('created_at',ascending:false).limit(250);
@@ -4270,6 +4317,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     Row(children:[const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('TAJIR Master Oversight',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),Text('Company-wide, read-only supervision across TAJIR accounts and operations.') ])),IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh))]),
     if(loading)const LinearProgressIndicator(),
     if(error!=null)Text('Could not load oversight data: '+error!,style:const TextStyle(color:Colors.red)),
+    if(summary['oversight_notice']!=null)Padding(padding:const EdgeInsets.only(top:8),child:Text(summary['oversight_notice'].toString(),style:const TextStyle(color:Colors.orange))),
     if(!loading&&error==null)...[
       GridView.count(crossAxisCount:MediaQuery.of(context).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:2.2,children:[
         metric('Profiles',(summary['profiles_total']??0).toString(),Icons.people_alt),
@@ -4500,6 +4548,39 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
     await updateStatus(row, 'cancelled');
   }
 
+  Future<void> permanentlyDeleteCancelledOrder(Map<String,dynamic> row) async {
+    final status=(row['status']??'').toString().toLowerCase();
+    final orderId=row['id'].toString();
+    if (!['cancelled','declined'].contains(status)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Only cancelled or declined orders can be permanently deleted.')));
+      return;
+    }
+    if (numVal(paidByOrder[orderId])>0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('This order has recorded payments. Keep it for financial audit and reconciliation.')));
+      return;
+    }
+    final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+      title:const Text('Permanently delete this cancelled order?'),
+      content:const Text('This permanently removes the order record and cannot be undone. Orders with recorded payments are protected.'),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Keep order')),
+        FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Delete permanently')),
+      ],
+    ));
+    if(ok!=true||!mounted)return;
+    if(busy)return;
+    setState(()=>busy=true);
+    try {
+      await db.from(row['_source'].toString()).delete().eq('id',row['id']);
+      await load();
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Cancelled order permanently deleted.')));
+    } catch(e) {
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not permanently delete order: ${friendlyError(e)}')));
+    } finally {
+      if(mounted)setState(()=>busy=false);
+    }
+  }
+
   Future<void> updateStatus(Map<String,dynamic> row, String status) async {
     if (busy) return;
     setState(() => busy = true);
@@ -4613,6 +4694,12 @@ class _DirectorOrdersPageState extends State<DirectorOrdersPage> {
                     child:Text(next.replaceAll('_',' ').toUpperCase()),
                   )),
                 ]),
+              if (['cancelled','declined'].contains(status.toLowerCase()))
+                Align(alignment:Alignment.centerRight,child:TextButton.icon(
+                  onPressed:busy?null:()=>permanentlyDeleteCancelledOrder(r),
+                  icon:const Icon(Icons.delete_forever_outlined,color:Colors.red),
+                  label:const Text('Delete permanently',style:TextStyle(color:Colors.red)),
+                )),
               if (showCleared) const Text('DELIVERED • CLEARED', style:TextStyle(color:brandGreen,fontWeight:FontWeight.bold)),
             ]),
           ));
