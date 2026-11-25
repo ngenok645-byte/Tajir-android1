@@ -4986,12 +4986,36 @@ class _HomeShellState extends State<HomeShell> {
   }
   Future<void> loadAccess() async {
     try {
-      final rows = await Supabase.instance.client.from('user_role_assignments').select('app_roles(code)').eq('user_id', Supabase.instance.client.auth.currentUser!.id).eq('is_active', true);
-      final allowed = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'director');
-      final finance = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'accountant');
-      final manager = rows.any((r) => r['app_roles'] is Map && (r['app_roles'] as Map)['code'] == 'branch_manager');
-      if (mounted) setState(() { director = allowed; accountant = finance; branchManager = manager; accessLoaded = true; index = 0; });
-    } catch (_) { if (mounted) setState(() { director = false; accountant = false; branchManager = false; accessError = 'Could not verify your role permissions. Please sign in again.'; accessLoaded = true; index = 0; }); }
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) throw StateError('Your session has expired. Please sign in again.');
+      // Read role assignments and role catalogue separately. This avoids a
+      // fragile nested PostgREST relationship lookup blocking the main TAJIR
+      // dashboard when the embedded relationship cannot be resolved.
+      final assignments = await client.from('user_role_assignments')
+        .select('role_id,is_active')
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+      final roleIds = assignments.map((r) => r['role_id'].toString()).toSet().toList();
+      final roles = roleIds.isEmpty
+        ? <Map<String,dynamic>>[]
+        : List<Map<String,dynamic>>.from(await client.from('app_roles')
+            .select('id,code').inFilter('id', roleIds));
+      final codes = roles.map((r) => (r['code'] ?? '').toString()).toSet();
+      final allowed = codes.contains('director');
+      final finance = codes.contains('accountant');
+      final manager = codes.contains('branch_manager');
+      if (mounted) setState(() {
+        director = allowed; accountant = finance; branchManager = manager;
+        accessError = null; accessLoaded = true; index = 0;
+      });
+    } catch (e) {
+      if (mounted) setState(() {
+        director = false; accountant = false; branchManager = false;
+        accessError = friendlyError(e);
+        accessLoaded = true; index = 0;
+      });
+    }
   }
   void selectPage(int value) { if (value >= 0 && value < pages.length) setState(() => index = value); }
   void openMoreMenu() {
