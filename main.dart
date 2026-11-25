@@ -3994,6 +3994,23 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
     }
   }
 
+  Future<void> takeBookingAsDriver(Map<String,dynamic> booking) async {
+    try {
+      await db.rpc('tractor_owner_take_booking_as_driver', params: {
+        'p_booking_id': booking['id'],
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You are now assigned as the driver for this job.')),
+      );
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
+    }
+  }
+
   Future<void> addTractor() async {
     final name = TextEditingController();
     final model = TextEditingController();
@@ -4117,16 +4134,32 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
         ...bookings.map((b) {
           final area=[b['county'],b['region'],b['village']].where((v)=>v!=null && v.toString().trim().isNotEmpty).join(' • ');
           final when=b['booked_for']==null?'Date not set':DateTime.tryParse(b['booked_for'].toString())?.toLocal().toString().substring(0,16)??'Date not set';
-          return Card(child:ListTile(
-            isThreeLine:true,
-            leading:const Icon(Icons.assignment_outlined),
-            title:Text('${b['job_number']} • ${b['service_type']}'),
-            subtitle:Text('${b['customer_name']??'Customer'} • ${b['customer_phone']??'No phone'}\\n${b['service_location']} • ${area.isEmpty?'Area not specified':area}\\n${b['quantity']} ${b['pricing_unit']} • ${when}'),
-            trailing:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
-              Text('KES ${b['total_charge']}',style:const TextStyle(fontWeight:FontWeight.bold)),
-              Text((b['status']??'booked').toString().replaceAll('_',' '),style:const TextStyle(fontSize:11)),
-            ]),
-          ));
+          final assignedDriver=(b['assigned_driver_profile_id']??'').toString();
+          final ownerIsDriver=assignedDriver==uid;
+          final noDriver=assignedDriver.isEmpty;
+          return Card(child:Padding(padding:const EdgeInsets.all(10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            ListTile(
+              contentPadding:EdgeInsets.zero,
+              isThreeLine:true,
+              leading:const Icon(Icons.assignment_outlined),
+              title:Text('${b['job_number']} • ${b['service_type']}'),
+              subtitle:Text('${b['customer_name']??'Customer'} • ${b['customer_phone']??'No phone'}\\n${b['service_location']} • ${area.isEmpty?'Area not specified':area}\\n${b['quantity']} ${b['pricing_unit']} • ${when}'),
+              trailing:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
+                Text('KES ${b['total_charge']}',style:const TextStyle(fontWeight:FontWeight.bold)),
+                Text((b['status']??'booked').toString().replaceAll('_',' '),style:const TextStyle(fontSize:11)),
+              ]),
+            ),
+            if(ownerIsDriver)
+              const Chip(avatar:Icon(Icons.person_pin_circle_outlined,size:18),label:Text('You are driving this job'))
+            else if(noDriver)
+              Align(alignment:Alignment.centerLeft,child:OutlinedButton.icon(
+                onPressed:()=>takeBookingAsDriver(b),
+                icon:const Icon(Icons.drive_eta_outlined),
+                label:const Text('I will drive this job'),
+              ))
+            else
+              const Text('A driver is already assigned to this job.',style:TextStyle(fontSize:12,color:Colors.black54)),
+          ])));
         }),
         const SizedBox(height:18),
         Text('My fleet (${tractors.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
