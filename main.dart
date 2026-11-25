@@ -4032,6 +4032,38 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
     }
   }
 
+  Future<void> editOperatingArea(Map<String,dynamic> row) async {
+    final county=TextEditingController(text:(row['operating_county']??'').toString());
+    final region=TextEditingController(text:(row['operating_region']??'').toString());
+    final village=TextEditingController(text:(row['operating_village']??'').toString());
+    try {
+      final ok=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
+        title:const Text('Update operating area'),
+        content:Column(mainAxisSize:MainAxisSize.min,children:[
+          TextField(controller:county,decoration:const InputDecoration(labelText:'County')),
+          TextField(controller:region,decoration:const InputDecoration(labelText:'Region / sub-county')),
+          TextField(controller:village,decoration:const InputDecoration(labelText:'Village / area')),
+        ]),
+        actions:[
+          TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+          FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Save area')),
+        ],
+      ));
+      if(ok!=true)return;
+      await db.from('tractor_owner_service_fleet').update({
+        'operating_county':county.text.trim().isEmpty?null:county.text.trim(),
+        'operating_region':region.text.trim().isEmpty?null:region.text.trim(),
+        'operating_village':village.text.trim().isEmpty?null:village.text.trim(),
+        'updated_at':DateTime.now().toUtc().toIso8601String(),
+      }).eq('id',row['id']).eq('owner_profile_id',owner!['id']);
+      await load();
+    } catch(e) {
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));
+    } finally {
+      county.dispose();region.dispose();village.dispose();
+    }
+  }
+
   Future<void> updateAvailability(Map<String,dynamic> row, String status) async {
     try {
       await db.from('tractor_owner_service_fleet').update({'status':status,'updated_at':DateTime.now().toUtc().toIso8601String()})
@@ -4066,6 +4098,7 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
             Text('${t['make_model']??'Model not specified'} • ${t['ownership_type']??'owned'}'),
             Text('Operating area: ${area.isEmpty?'Not set':area}'),
             Text('Services: ${services.isEmpty?'Not set':services}'),
+            Align(alignment:Alignment.centerLeft,child:TextButton.icon(onPressed:()=>editOperatingArea(t),icon:const Icon(Icons.location_on_outlined),label:const Text('Edit operating area'))),
             Row(children:[
               const Text('Availability: '),
               DropdownButton<String>(value:(t['status']??'available').toString(),items:const [
