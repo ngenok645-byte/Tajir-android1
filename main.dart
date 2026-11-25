@@ -3814,6 +3814,11 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           icon: const Icon(Icons.storefront_outlined),
           label: const Text('Open my Buyer / Seller account'),
         ))));
+        out.add(Padding(padding: const EdgeInsets.only(bottom: 10), child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TractorServicesPage())),
+          icon: const Icon(Icons.agriculture),
+          label: const Text('Open Tractor Services Dashboard'),
+        ))));
         out.add(sectionTitle('Registered tractor assets', primary.length));
         out.add(Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
