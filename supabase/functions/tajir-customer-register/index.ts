@@ -20,11 +20,13 @@ Deno.serve(async (req) => {
     const customerType = b.customer_type === "seller" ? "seller" : b.customer_type === "buyer" || b.customer_type == null ? "buyer" : "";
     const fullName = typeof b.full_name === "string" ? b.full_name.trim().replace(/\s+/g, " ") : "";
     const nationalId = typeof b.national_id === "string" ? b.national_id.replace(/[^0-9]/g, "") : "";
+    const nationalIdFullName = typeof b.national_id_full_name === "string" ? b.national_id_full_name.trim().replace(/\\s+/g, " ") : "";
     if (!customerType || typeof b.phone !== "string" || !/^\d{4}$/.test(pin) ||
         fullName.length < 2 || fullName.length > 120 ||
+        nationalIdFullName.length < 2 || nationalIdFullName.length > 120 ||
         !/^[0-9]{7,8}$/.test(nationalId)) {
       return Response.json({
-        error: "Enter your full legal name as shown on your National ID, valid Kenyan phone number, National ID number, and four-digit PIN.",
+        error: "Enter your TAJIR account name, the full name exactly as printed on your National ID, a valid Kenyan phone number, National ID number, and four-digit PIN.",
       }, { status: 400 });
     }
     const phone = normalizePhone(b.phone);
@@ -55,6 +57,7 @@ Deno.serve(async (req) => {
           p_phone: phone,
           p_pin: pin,
           p_national_id: nationalId,
+          p_national_id_full_name: nationalIdFullName,
           p_customer_type: customerType,
         });
         if (completionError) throw completionError;
@@ -81,6 +84,7 @@ Deno.serve(async (req) => {
       p_phone: phone,
       p_pin: pin,
       p_national_id: nationalId,
+      p_national_id_full_name: nationalIdFullName,
       p_customer_type: customerType,
     });
     if (completionError) throw completionError;
