@@ -4842,25 +4842,20 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     )));
     if(saved==true){
       try{
-        final before=<String,dynamic>{'profile':profile,'customer':customer};
-        await db.from('profiles').update({'display_name':name.text.trim(),'phone':phone.text.trim(),'status':status,'updated_at':DateTime.now().toUtc().toIso8601String()}).eq('id',id);
+        await db.rpc('tajir_director_update_account_record',params:{
+          'p_table':'profiles','p_record_id':id,'p_profile_id':id,
+          'p_patch':{'display_name':name.text.trim(),'phone':phone.text.trim(),'status':status}
+        });
         if(customer!=null){
-          await db.from('customers').update({
-            'full_name':name.text.trim(),'phone':phone.text.trim(),'email':email.text.trim().isEmpty?null:email.text.trim(),
-            'active':active,'marketplace_can_buy':canBuy,'marketplace_can_sell':canSell,
-            'customer_type':canBuy&&canSell?'both':canSell?'seller':'buyer',
-          }).eq('id',customer['id']);
-        }
-        try{
-          await db.from('audit_logs').insert({
-            'actor_user_id':db.auth.currentUser!.id,'action':'director_account_edited',
-            'entity_schema':'public','entity_table':'profiles','entity_id':id,
-            'reason':'TAJIR director edited account profile and access settings',
-            'before_data':before,
-            'after_data':{'display_name':name.text.trim(),'phone':phone.text.trim(),'status':status,
-              if(customer!=null)'customer':{'active':active,'marketplace_can_buy':canBuy,'marketplace_can_sell':canSell}},
+          await db.rpc('tajir_director_update_account_record',params:{
+            'p_table':'customers','p_record_id':customer['id'],'p_profile_id':id,
+            'p_patch':{
+              'full_name':name.text.trim(),'phone':phone.text.trim(),'email':email.text.trim().isEmpty?null:email.text.trim(),
+              'active':active,'marketplace_can_buy':canBuy,'marketplace_can_sell':canSell,
+              'customer_type':canBuy&&canSell?'both':canSell?'seller':'buyer',
+            }
           });
-        }catch(_){}
+        }
         if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Account details updated.')));
         await load();
       }catch(e){
