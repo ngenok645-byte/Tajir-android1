@@ -3889,7 +3889,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'accepted'), child: const Text('Accept job')));
           } else if (!widget.adminPreview && jobStatus == 'accepted') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'in_progress'), child: const Text('Start work')));
-          } else if (jobStatus == 'in_progress') {
+          } else if (!widget.adminPreview && jobStatus == 'in_progress') {
             jobActions.add(OutlinedButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'waiting_parts'), child: const Text('Waiting for parts')));
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'completed'), child: const Text('Complete job')));
           } else if (!widget.adminPreview && jobStatus == 'waiting_parts') {
