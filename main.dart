@@ -4509,7 +4509,7 @@ class _DirectorAccountRecordsPageState extends State<DirectorAccountRecordsPage>
     final keys=fields[table]??const <String>[];
     final controllers=<String,TextEditingController>{};
     final bools=<String,bool>{};
-    for(final k in keys){final v=row[k];if(v is bool)bools[k]=v;else controllers[k]=TextEditingController(text:v?.toString()??'');}
+    for(final k in keys){final v=row[k];if(v is bool)bools[k]=v;else controllers[k]=TextEditingController(text:v is List?v.join(', '):(v?.toString()??''));}
     final result=await showDialog<Map<String,dynamic>>(context:context,builder:(d)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:Text('Edit '+title(row)),
       content:ConstrainedBox(constraints:const BoxConstraints(maxWidth:520,maxHeight:520),child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
