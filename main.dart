@@ -3788,17 +3788,17 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   Widget partRequestCard(Map<String,dynamic> row) {
     final status = (row['status'] ?? 'requested').toString();
     final buttons = <Widget>[];
-    if (widget.roleCode == 'auto_spares_owner' && status == 'requested') {
+    if (!widget.adminPreview && widget.roleCode == 'auto_spares_owner' && status == 'requested') {
       buttons.add(TextButton(onPressed: busy ? null : () => updatePartRequest(row,'accepted'), child: const Text('Accept')));
       buttons.add(TextButton(onPressed: busy ? null : () => updatePartRequest(row,'declined'), child: const Text('Decline')));
     }
-    if (widget.roleCode == 'auto_spares_owner' && status == 'accepted') {
+    if (!widget.adminPreview && widget.roleCode == 'auto_spares_owner' && status == 'accepted') {
       buttons.add(FilledButton(onPressed: busy ? null : () => updatePartRequest(row,'supplied'), child: const Text('Mark supplied')));
     }
-    if (widget.roleCode == 'mechanic' && status == 'requested') {
+    if (!widget.adminPreview && widget.roleCode == 'mechanic' && status == 'requested') {
       buttons.add(TextButton(onPressed: busy ? null : () => updatePartRequest(row,'cancelled'), child: const Text('Cancel request')));
     }
-    if (widget.roleCode == 'mechanic' && status == 'supplied') {
+    if (!widget.adminPreview && widget.roleCode == 'mechanic' && status == 'supplied') {
       buttons.add(FilledButton(onPressed: busy ? null : () => updatePartRequest(row,'installed'), child: const Text('Mark installed')));
     }
     return recordCard(
