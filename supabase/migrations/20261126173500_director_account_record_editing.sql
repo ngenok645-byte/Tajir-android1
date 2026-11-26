@@ -21,7 +21,7 @@ end $$;
 CREATE OR REPLACE FUNCTION public.tajir_director_update_account_record(p_table text, p_record_id uuid, p_profile_id uuid, p_patch jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
- SECURITY INVOKER
+ SECURITY DEFINER
  SET search_path TO ''
 AS $function$
 declare
