@@ -5754,15 +5754,26 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
     final db=Supabase.instance.client;
     final id=account['user_id'].toString();
     try {
+      // Load each oversight section independently so one optional query cannot
+      // prevent the director from opening the selected account.
+      final unavailableSections=<String>[];
+      Future<dynamic> safeSection(String label, Future<dynamic> Function() request) async {
+        try { return await request(); }
+        catch(e) {
+          unavailableSections.add(label);
+          debugPrint('TAJIR account section "$label" unavailable: $e');
+          return <dynamic>[];
+        }
+      }
       final results=await Future.wait<dynamic>([
-        db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':id}),
-        db.from('audit_logs').select('id,action,entity_table,reason,created_at')
-          .eq('actor_user_id',id).order('created_at',ascending:false).limit(50),
-        db.from('audit_logs').select('id,action,entity_table,reason,created_at')
+        safeSection('Linked activity',()=>db.rpc('tajir_director_get_account_activity',params:{'p_profile_id':id})),
+        safeSection('Account activity log',()=>db.from('audit_logs').select('id,action,entity_table,reason,created_at')
+          .eq('actor_user_id',id).order('created_at',ascending:false).limit(50)),
+        safeSection('Profile change history',()=>db.from('audit_logs').select('id,action,entity_table,reason,created_at')
           .eq('entity_table','profiles').eq('entity_id',id)
-          .order('created_at',ascending:false).limit(30),
-        db.from('user_branch_assignments').select('branch_id,started_at,ended_at,branches(name)')
-          .eq('user_id',id).order('started_at',ascending:false),
+          .order('created_at',ascending:false).limit(30)),
+        safeSection('Branch assignments',()=>db.from('user_branch_assignments').select('branch_id,started_at,ended_at,branches(name)')
+          .eq('user_id',id).order('started_at',ascending:false)),
       ]);
       final activity=List<Map<String,dynamic>>.from(results[0]);
       final events=List<Map<String,dynamic>>.from(results[1]);
@@ -5770,7 +5781,7 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
       final branches=List<Map<String,dynamic>>.from(results[3]);
       if(!mounted)return;
       await Navigator.of(context).push(MaterialPageRoute<void>(builder:(pageContext)=>Scaffold(
-        appBar:AppBar(title:Text((account['name']??'Worker account').toString()),actions:[
+        appBar:AppBar(title:Text((account['name']??'Account').toString()),actions:[
           if((account['phone']??'').toString().trim().isNotEmpty)
             IconButton(tooltip:'Call account',icon:const Icon(Icons.call),onPressed:()async{
               try{await callTajirPhone(account['phone'].toString());}
@@ -5779,7 +5790,7 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
         ]),
         body:ListView(padding:const EdgeInsets.all(16),children:[
           Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            const Text('TAJIR WORKER ACCOUNT DASHBOARD',style:TextStyle(fontWeight:FontWeight.bold,color:brandGreen)),
+            Text('TAJIR ACCOUNT DASHBOARD • '+(account['roles'] as List<String>).join(' / ').toUpperCase(),style:const TextStyle(fontWeight:FontWeight.bold,color:brandGreen)),
             const SizedBox(height:10),
             Text((account['name']??'Worker').toString(),style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
             Text('Phone: '+((account['phone']??'Not provided').toString())),
@@ -5790,8 +5801,9 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
             if((account['phone']??'').toString().trim().isNotEmpty)
               Align(alignment:Alignment.centerLeft,child:FilledButton.icon(
                 onPressed:()async{try{await callTajirPhone(account['phone'].toString());}catch(e){if(pageContext.mounted)ScaffoldMessenger.of(pageContext).showSnackBar(SnackBar(content:Text(friendlyError(e))));}},
-                icon:const Icon(Icons.call),label:const Text('Call worker'))),
+                icon:const Icon(Icons.call),label:const Text('Call account'))),
           ]))),
+          if(unavailableSections.isNotEmpty) Card(color:Colors.amber.shade50,child:Padding(padding:const EdgeInsets.all(12),child:Text('Some optional records could not be loaded: '+unavailableSections.join(', ')+'. The account overview is still available.'))),
           const SizedBox(height:12),
           Text('All linked work, orders, deliveries and payments (${activity.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
           if(activity.isEmpty)const Card(child:Padding(padding:EdgeInsets.all(14),child:Text('No operational activity has been recorded for this account.'))),
@@ -7551,12 +7563,22 @@ class _CustomersPageState extends State<CustomersPage> {
     final db=Supabase.instance.client;
     try {
       final id=customer['id'];
+      // Optional history failures should not block the client overview.
+      final unavailableSections=<String>[];
+      Future<dynamic> safeSection(String label, Future<dynamic> Function() request) async {
+        try { return await request(); }
+        catch(e) {
+          unavailableSections.add(label);
+          debugPrint('TAJIR client section "$label" unavailable: $e');
+          return <dynamic>[];
+        }
+      }
       final results=await Future.wait<dynamic>([
-        db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode').eq('customer_id',id).order('sale_date',ascending:false),
-        db.from('customer_payments').select('id,payment_number,sale_id,order_id,amount,method,status,provider_reference,provider_transaction_id,received_at,verified_at,created_at').eq('customer_id',id).order('created_at',ascending:false),
-        db.from('sales_orders').select('id,order_number,status,total_amount,fulfilment_method,delivery_address,requested_delivery_at,confirmed_delivery_at,created_at,payment_mode').eq('customer_id',id).order('created_at',ascending:false),
-        db.from('customer_order_reviews').select('id,order_type,order_id,rating,review_text,created_at').eq('reviewer_customer_id',id).order('created_at',ascending:false),
-        db.from('user_role_assignments').select('app_roles(code)').eq('user_id',db.auth.currentUser!.id).eq('is_active',true),
+        safeSection('Sales history',()=>db.from('sales').select('id,sale_number,sale_date,total_amount,payment_mode').eq('customer_id',id).order('sale_date',ascending:false)),
+        safeSection('Payments',()=>db.from('customer_payments').select('id,payment_number,sale_id,order_id,amount,method,status,provider_reference,provider_transaction_id,received_at,verified_at,created_at').eq('customer_id',id).order('created_at',ascending:false)),
+        safeSection('Orders',()=>db.from('sales_orders').select('id,order_number,status,total_amount,fulfilment_method,delivery_address,requested_delivery_at,confirmed_delivery_at,created_at,payment_mode').eq('customer_id',id).order('created_at',ascending:false)),
+        safeSection('Reviews',()=>db.from('customer_order_reviews').select('id,order_type,order_id,rating,review_text,created_at').eq('reviewer_customer_id',id).order('created_at',ascending:false)),
+        safeSection('Viewer permissions',()=>db.from('user_role_assignments').select('app_roles(code)').eq('user_id',db.auth.currentUser!.id).eq('is_active',true)),
       ]);
       final sales=List<Map<String,dynamic>>.from(results[0]);
       final payments=List<Map<String,dynamic>>.from(results[1]);
@@ -7615,6 +7637,7 @@ class _CustomersPageState extends State<CustomersPage> {
               ]),
             ],
           ]))),
+          if(unavailableSections.isNotEmpty) Card(color:Colors.amber.shade50,child:Padding(padding:const EdgeInsets.all(12),child:Text('Some optional client records could not be loaded: '+unavailableSections.join(', ')+'. Available records are shown below.'))),
           const SizedBox(height:12),
           GridView.count(crossAxisCount:MediaQuery.of(pageContext).size.width>=700?4:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),childAspectRatio:2.15,children:[
             _customerMetric('Total sales','KES ${totalSales.toStringAsFixed(2)}',Icons.shopping_bag_outlined),
