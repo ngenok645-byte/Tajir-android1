@@ -156,7 +156,7 @@ begin
 
   return v_after;
 end;
-$function$
+$function$;
 
 revoke all on function public.tajir_director_update_account_record(text,uuid,uuid,jsonb) from public, anon;
 grant execute on function public.tajir_director_update_account_record(text,uuid,uuid,jsonb) to authenticated;
