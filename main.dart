@@ -2347,6 +2347,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    appBar:AppBar(
     title:Text(onSection?sectionTitle(selectedSection!):'TAJIR - '+c!['full_name'].toString()),
     actions:[
+     if(widget.adminPreview)IconButton(tooltip:'Edit linked records',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.profileIdOverride!,roleCode:'customer',roleName:'Client'))),icon:const Icon(Icons.edit_note)),
      IconButton(tooltip:'Check for TAJIR updates',onPressed:()=>checkCustomerUpdates(showStatus:true),icon:const Icon(Icons.system_update_alt)),
      if(!widget.adminPreview)IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
      IconButton(tooltip:'Refresh',onPressed:onSection?()=>setState((){}):load,icon:const Icon(Icons.refresh)),
@@ -3625,7 +3626,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   }
 
   Future<void> updatePartRequest(Map<String,dynamic> row, String nextStatus) async {
-    if (busy) return;
+    if (busy || widget.adminPreview) return;
     setState(() => busy = true);
     try {
       await db.from('repair_part_requests').update({'status': nextStatus}).eq('id', row['id']);
@@ -3657,6 +3658,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
       ])));
 
   Future<void> updateDriverJob(Map<String,dynamic> row, String nextStatus) async {
+    if(widget.adminPreview)return;
     double? hoursWorked;
     if (nextStatus == 'completed') {
       final hours = TextEditingController();
@@ -3705,6 +3707,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   }
 
   Future<void> addSparePart() async {
+    if(widget.adminPreview)return;
     if (profile == null || profile!['status'] != 'approved') {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your spare-parts shop must be approved before adding stock.')));
       return;
@@ -3762,7 +3765,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   }
 
   Future<void> updateMechanicJobStatus(Map<String,dynamic> row, String nextStatus) async {
-    if (busy) return;
+    if (busy || widget.adminPreview) return;
     setState(() => busy = true);
     try {
       await db.rpc('update_my_mechanic_job_status', params: {
@@ -3819,12 +3822,12 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
     switch (widget.roleCode) {
       case 'tractor_owner':
         out.add(Padding(padding:const EdgeInsets.only(bottom:10),child:Align(alignment:Alignment.centerLeft,child:FilledButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>Scaffold(appBar:AppBar(title:Text('TAJIR Land Measure')),body:TajirLandMeasurePage()))),icon:const Icon(Icons.square_foot),label:const Text('Measure farm land')))));
-        out.add(Padding(padding: const EdgeInsets.only(bottom: 10), child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
+        if(!widget.adminPreview)out.add(Padding(padding: const EdgeInsets.only(bottom: 10), child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerPortalPage())),
           icon: const Icon(Icons.storefront_outlined),
           label: const Text('Open my Buyer / Seller account'),
         ))));
-        out.add(Padding(padding: const EdgeInsets.only(bottom: 10), child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
+        if(!widget.adminPreview)out.add(Padding(padding: const EdgeInsets.only(bottom: 10), child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TractorOwnerServiceFleetPage())),
           icon: const Icon(Icons.agriculture),
           label: const Text('Manage My Tractor Services'),
@@ -3855,9 +3858,9 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         for (final r in primary) {
           final jobStatus = (r['status'] ?? '').toString();
           final jobActions = <Widget>[];
-          if (jobStatus == 'confirmed') {
+          if (!widget.adminPreview && jobStatus == 'confirmed') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateDriverJob(r, 'in_progress'), child: const Text('Start job')));
-          } else if (jobStatus == 'in_progress') {
+          } else if (!widget.adminPreview && jobStatus == 'in_progress') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateDriverJob(r, 'completed'), child: const Text('Complete job')));
           }
           final clientPhone = (r['farmer_phone'] ?? '').toString().trim();
@@ -3882,14 +3885,14 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         for (final r in primary) {
           final jobStatus = (r['status'] ?? '').toString();
           final jobActions = <Widget>[];
-          if (jobStatus == 'requested') {
+          if (!widget.adminPreview && jobStatus == 'requested') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'accepted'), child: const Text('Accept job')));
-          } else if (jobStatus == 'accepted') {
+          } else if (!widget.adminPreview && jobStatus == 'accepted') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'in_progress'), child: const Text('Start work')));
           } else if (jobStatus == 'in_progress') {
             jobActions.add(OutlinedButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'waiting_parts'), child: const Text('Waiting for parts')));
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'completed'), child: const Text('Complete job')));
-          } else if (jobStatus == 'waiting_parts') {
+          } else if (!widget.adminPreview && jobStatus == 'waiting_parts') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'in_progress'), child: const Text('Resume work')));
           }
           out.add(recordCard('${r['job_number'] ?? 'Repair job'}',
@@ -3903,7 +3906,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         break;
       case 'auto_spares_owner':
         out.add(sectionTitle('Spare-parts inventory', primary.length));
-        out.add(Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
+        if(!widget.adminPreview)out.add(Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
           onPressed: busy || profile == null || profile!['status'] != 'approved' ? null : addSparePart,
           icon: const Icon(Icons.add_box_outlined),
           label: const Text('Add spare part'),
@@ -3924,6 +3927,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
 
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(widget.roleName + (widget.adminPreview ? ' • TAJIR view' : '')), actions: [
+      if(widget.adminPreview)IconButton(tooltip:'Edit linked records',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.profileIdOverride!,roleCode:widget.roleCode,roleName:widget.roleName))),icon:const Icon(Icons.edit_note)),
       TextButton.icon(onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update), label: const Text('Update')),
       if(!widget.adminPreview)IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
@@ -4295,6 +4299,7 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
 
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(widget.adminPreview ? 'Worker dashboard • TAJIR view' : 'Worker dashboard'), actions: [
+      if(widget.adminPreview)IconButton(tooltip:'Edit linked records',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.profileIdOverride!,roleCode:'worker',roleName:'Worker'))),icon:const Icon(Icons.edit_note)),
       TextButton.icon(onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update), label: const Text('Update')),
       if(!widget.adminPreview)IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
@@ -4403,6 +4408,146 @@ class BrandMark extends StatelessWidget {
   ]);
 }
 
+
+
+class DirectorAccountRecordsPage extends StatefulWidget {
+  final String profileId,roleCode,roleName;
+  const DirectorAccountRecordsPage({super.key,required this.profileId,required this.roleCode,required this.roleName});
+  @override State<DirectorAccountRecordsPage> createState()=>_DirectorAccountRecordsPageState();
+}
+class _DirectorAccountRecordsPageState extends State<DirectorAccountRecordsPage>{
+  final db=Supabase.instance.client;
+  bool loading=true,saving=false;
+  String error='';
+  final List<Map<String,dynamic>> sections=[];
+  static const Map<String,List<String>> fields={
+    'profiles':['display_name','phone','status'],
+    'customers':['full_name','phone','email','active','marketplace_can_buy','marketplace_can_sell'],
+    'customer_product_requests':['quantity_requested','note','status','unit_price_per_kg','line_total_kes'],
+    'customer_custom_product_requests':['product_name','description','quantity','quantity_unit','proposed_unit_price_kes','status','director_response','agreed_unit_price_kes'],
+    'customer_payments':['amount','method','status','provider_reference'],
+    'sales_orders':['status','delivery_address','subtotal','discount_total','delivery_fee','total_amount','customer_notes','staff_notes','payment_mode'],
+    'sales':['sale_date','subtotal','discount_total','delivery_income','total_amount','payment_mode'],
+    'marketplace_listings':['product_name','description','quantity','unit','price_per_unit','location','status'],
+    'staff_tasks':['title','description','due_at','status','review_notes'],
+    'staff_attendance':['check_in_at','check_out_at'],
+    'staff_activity_reports':['report_date','activity_type','quantity','location','description','status','review_notes'],
+    'worker_issue_reports':['issue_type','description','status'],
+    'tractor_owner_profiles':['full_name','phone','company_name','status','operating_mode'],
+    'tractor_owner_assets':['verification_status','verified_at'],
+    'tractor_owner_service_fleet':['tractor_name','make_model','ownership_type','operating_county','operating_region','operating_village','services','status','notes'],
+    'tractor_owner_service_bookings':['service_type','service_location','county','region','village','quantity','unit_rate','total_charge','booked_for','status','notes','customer_name','customer_phone'],
+    'tractor_repair_jobs':['issue_description','location','status','estimated_cost_kes','final_cost_kes'],
+    'tractor_service_jobs':['farmer_name','farmer_phone','service_type','service_location','area_acres','booked_for','hours_worked','rate','total_charge','status','notes','county','region','village'],
+    'tractor_job_expenses':['expense_type','description','amount','paid_by_owner'],
+    'tractor_job_payments':['amount','method','status','provider_reference'],
+    'tractor_maintenance_records':['maintenance_date','maintenance_type','description','cost','engine_hours','next_service_date'],
+    'mechanic_profiles':['business_name','phone','location','services','status'],
+    'repair_part_requests':['quantity','agreed_unit_price_kes','status'],
+    'auto_spares_profiles':['shop_name','phone','location','status'],
+    'auto_spares_inventory':['part_name','part_reference','description','quantity','unit','price_kes','status'],
+    'vehicles':['registration_number','make','model','active','notes'],
+    'vehicle_records':['record_type','record_date','destination','purpose','distance_km','odometer_km','fuel_litres','amount','description']
+  };
+  Future<void> add(String table,String label,String filter,String value)async{
+    if(value.isEmpty)return;
+    final result=await db.from(table).select().eq(filter,value).limit(80);
+    final rows=List<Map<String,dynamic>>.from(result);
+    if(rows.isNotEmpty)sections.add({'table':table,'label':label,'rows':rows});
+  }
+  Future<String> related(String table)async{
+    final r=await db.from(table).select('id').eq('profile_id',widget.profileId).maybeSingle();
+    return (r?['id']??'').toString();
+  }
+  @override void initState(){super.initState();load();}
+  Future<void> load()async{
+    if(mounted)setState(()=>loading=true);sections.clear();error='';
+    try{
+      await add('profiles','Account profile','id',widget.profileId);
+      switch(widget.roleCode){
+        case 'customer':
+          final c=await db.from('customers').select('id').eq('profile_id',widget.profileId).maybeSingle();
+          final id=(c?['id']??'').toString();
+          await add('customers','Customer account','profile_id',widget.profileId);
+          for(final t in ['customer_product_requests','customer_custom_product_requests','customer_payments','sales_orders','sales'])await add(t,t.replaceAll('_',' '),'customer_id',id);
+          await add('marketplace_listings','Marketplace listings','seller_customer_id',id);break;
+        case 'worker':
+          await add('staff_tasks','Assigned tasks','assigned_to',widget.profileId);
+          await add('staff_attendance','Attendance','user_id',widget.profileId);
+          await add('staff_activity_reports','Activity reports','worker_id',widget.profileId);
+          await add('worker_issue_reports','Issue reports','worker_profile_id',widget.profileId);break;
+        case 'tractor_owner':
+          final id=await related('tractor_owner_profiles');
+          await add('tractor_owner_profiles','Owner profile','profile_id',widget.profileId);
+          await add('tractor_owner_assets','Tractor assets','owner_id',id);
+          await add('tractor_owner_service_fleet','Service fleet','owner_profile_id',id);
+          await add('tractor_owner_service_bookings','Service bookings','owner_profile_id',id);
+          await add('tractor_repair_jobs','Repair jobs','owner_user_id',widget.profileId);break;
+        case 'driver':
+          await add('tractor_service_jobs','Assigned tractor jobs','operator_id',widget.profileId);
+          await add('vehicles','Assigned vehicles','driver_id',widget.profileId);
+          await add('vehicle_records','Vehicle records','driver_id',widget.profileId);break;
+        case 'mechanic':
+          final id=await related('mechanic_profiles');
+          await add('mechanic_profiles','Mechanic profile','profile_id',widget.profileId);
+          await add('tractor_repair_jobs','Repair jobs','mechanic_id',id);
+          await add('repair_part_requests','Parts requests','mechanic_id',id);break;
+        case 'auto_spares_owner':
+          final id=await related('auto_spares_profiles');
+          await add('auto_spares_profiles','Shop profile','profile_id',widget.profileId);
+          await add('auto_spares_inventory','Spare-parts inventory','shop_id',id);
+          await add('repair_part_requests','Parts requests','shop_id',id);break;
+      }
+    }catch(e){error=friendlyError(e);}
+    finally{if(mounted)setState(()=>loading=false);}
+  }
+  String title(Map<String,dynamic> r){
+    for(final k in ['job_number','order_number','full_name','display_name','business_name','company_name','shop_name','title','product_name','part_name','tractor_name','task_number']){if(r[k]!=null&&r[k].toString().isNotEmpty)return r[k].toString();}
+    return 'Record '+(r['id']??'').toString();
+  }
+  Future<void> edit(String table,Map<String,dynamic> row)async{
+    final keys=fields[table]??const <String>[];
+    final controllers=<String,TextEditingController>{};
+    final bools=<String,bool>{};
+    for(final k in keys){final v=row[k];if(v is bool)bools[k]=v;else controllers[k]=TextEditingController(text:v?.toString()??'');}
+    final result=await showDialog<Map<String,dynamic>>(context:context,builder:(d)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
+      title:Text('Edit '+title(row)),
+      content:ConstrainedBox(constraints:const BoxConstraints(maxWidth:520,maxHeight:520),child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        ...keys.map((k)=>bools.containsKey(k)?SwitchListTile(contentPadding:EdgeInsets.zero,title:Text(k.replaceAll('_',' ')),value:bools[k]!,onChanged:(v)=>refresh(()=>bools[k]=v)):Padding(padding:const EdgeInsets.only(bottom:8),child:TextField(controller:controllers[k],minLines:1,maxLines:3,decoration:InputDecoration(labelText:k.replaceAll('_',' '),border:const OutlineInputBorder())))),
+        const Text('The saved change is added to the TAJIR audit log.',style:TextStyle(fontSize:12))
+      ]))),
+      actions:[TextButton(onPressed:()=>Navigator.pop(d),child:const Text('Cancel')),FilledButton(onPressed:(){
+        final patch=<String,dynamic>{};
+        for(final k in keys){if(bools.containsKey(k)){patch[k]=bools[k];continue;}final raw=controllers[k]!.text.trim();if(raw.isEmpty){patch[k]=null;continue;}
+          if(k.contains('amount')||k.contains('price')||k.contains('quantity')||k.contains('cost')||k.contains('acres')||k.contains('hours')||k.contains('rate')||k.endsWith('_km')||k.contains('litres')||['subtotal','discount_total','delivery_fee','total_amount','unit_rate','line_total_kes'].contains(k)){
+            final n=double.tryParse(raw);if(n==null){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Enter a valid number for '+k)));return;}patch[k]=n;
+          }else if(k=='services'){patch[k]=raw.split(',').map((x)=>x.trim()).where((x)=>x.isNotEmpty).toList();}
+          else{patch[k]=raw;}
+        }Navigator.pop(d,patch);
+      },child:const Text('Save changes'))]
+    )));
+    if(result!=null&&result.isNotEmpty){
+      setState(()=>saving=true);
+      try{await db.rpc('tajir_director_update_account_record',params:{'p_table':table,'p_record_id':row['id'],'p_profile_id':widget.profileId,'p_patch':result});
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Record updated and audit log saved.')));await load();
+      }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+      finally{if(mounted)setState(()=>saving=false);}
+    }
+    for(final c in controllers.values)c.dispose();
+  }
+  @override Widget build(BuildContext context)=>Scaffold(
+    appBar:AppBar(title:Text('Edit '+widget.roleName+' records'),actions:[IconButton(onPressed:loading||saving?null:load,icon:const Icon(Icons.refresh))]),
+    body:loading?const Center(child:CircularProgressIndicator()):error.isNotEmpty?Center(child:Padding(padding:const EdgeInsets.all(24),child:Text(error))):ListView(padding:const EdgeInsets.all(16),children:[
+      Card(child:ListTile(leading:const Icon(Icons.admin_panel_settings,color:brandGreen),title:Text(widget.roleName+' • director access'),subtitle:const Text('Only records linked to this account are listed. PINs and National ID data are excluded.'))),
+      if(saving)const LinearProgressIndicator(),
+      if(sections.isEmpty)const Text('No editable records were found for this account.'),
+      ...sections.map((s)=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Padding(padding:const EdgeInsets.only(top:14,bottom:6),child:Text(s['label'],style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold))),
+        ...(s['rows'] as List<Map<String,dynamic>>).map((r)=>Card(child:ListTile(title:Text(title(r)),subtitle:Text(['status','phone','location','quantity','amount','total_charge'].where((k)=>r[k]!=null).map((k)=>k+': '+r[k].toString()).join(' • ')),trailing:IconButton(onPressed:saving?null:()=>edit(s['table'],r),icon:const Icon(Icons.edit_outlined))))
+      ]))
+    ])
+  );
+}
 
 class DirectorMasterOversightPage extends StatefulWidget {
   const DirectorMasterOversightPage({super.key});
