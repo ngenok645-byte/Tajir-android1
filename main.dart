@@ -2202,7 +2202,9 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
   );
 }
 class CustomerPortalPage extends StatefulWidget {
- const CustomerPortalPage({super.key});
+ final String? profileIdOverride;
+ final bool adminPreview;
+ const CustomerPortalPage({super.key,this.profileIdOverride,this.adminPreview=false});
  @override State<CustomerPortalPage> createState()=>_CustomerPortalPageState();
 }
 class _CustomerPortalPageState extends State<CustomerPortalPage>{
@@ -2237,8 +2239,8 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
   if(mounted)setState(()=>busy=true);
   try{
    final db=Supabase.instance.client;
-   final userId=db.auth.currentUser!.id;
-   final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',userId).maybeSingle();
+   final userId=widget.profileIdOverride??db.auth.currentUser!.id;
+   final r=await db.from('customers').select('id,profile_id,full_name,phone,email,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',userId).maybeSingle();
    if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');
    if(mounted)setState(()=>c=Map<String,dynamic>.from(r));
   }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
@@ -2303,6 +2305,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
   // Only show marketplace cards granted to this account. Shared services and
   // account tools remain available to both Buyer and Seller accounts.
   final dashboardCards=<Widget>[
+   if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director view'),subtitle:Text('You are viewing this customer dashboard as an authorised director. Customer actions that require the customer’s own sign-in remain unavailable.'))),
    if(buy)Row(children:[
     Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse products available in the marketplace',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0)),
     const SizedBox(width:8),
@@ -3541,7 +3544,9 @@ class AccountRouter extends StatelessWidget {
 class RoleWorkspacePage extends StatefulWidget {
   final String roleCode;
   final String roleName;
-  const RoleWorkspacePage({super.key, required this.roleCode, required this.roleName});
+  final String? profileIdOverride;
+  final bool adminPreview;
+  const RoleWorkspacePage({super.key, required this.roleCode, required this.roleName,this.profileIdOverride,this.adminPreview=false});
   @override State<RoleWorkspacePage> createState() => _RoleWorkspacePageState();
 }
 
@@ -3554,7 +3559,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
 
   @override void initState() { super.initState(); load(); WidgetsBinding.instance.addPostFrameCallback((_) => promptForTajirUpdate(context)); }
 
-  String get uid => db.auth.currentUser!.id;
+  String get uid => widget.profileIdOverride ?? db.auth.currentUser!.id;
   String money(dynamic value) => 'KES ${(double.tryParse((value ?? 0).toString()) ?? 0).toStringAsFixed(2)}';
 
   Future<void> load() async {
@@ -3918,7 +3923,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   }
 
   @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(widget.roleName), actions: [
+    appBar: AppBar(title: Text(widget.roleName + (widget.adminPreview ? ' • TAJIR view' : '')), actions: [
       TextButton.icon(onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update), label: const Text('Update')),
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
@@ -3930,8 +3935,9 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
       padding: const EdgeInsets.all(18),
       children: [
         const TajirDirectorContacts(),
+       if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director view'),subtitle:Text('Viewing the selected service-provider dashboard and linked records. The preview does not sign in as the account holder.'))),
        Text('${widget.roleName} workspace', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        const Text('Your records are limited by your signed-in account permissions.'),
+        Text(widget.adminPreview ? 'Records linked to the selected account.' : 'Your records are limited by your signed-in account permissions.'),
         if (loading) const LinearProgressIndicator(),
         if (error.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 12),
           child: Text(error, style: const TextStyle(color: Colors.red))),
@@ -4190,7 +4196,9 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
 }
 
 class WorkerWorkspacePage extends StatefulWidget {
-  const WorkerWorkspacePage({super.key});
+  final String? profileIdOverride;
+  final bool adminPreview;
+  const WorkerWorkspacePage({super.key,this.profileIdOverride,this.adminPreview=false});
   @override State<WorkerWorkspacePage> createState() => _WorkerWorkspacePageState();
 }
 
@@ -4201,7 +4209,7 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
   String? branchId;
   List<Map<String,dynamic>> branches = [], tasks = [], attendance = [];
 
-  String get uid => db.auth.currentUser!.id;
+  String get uid => widget.profileIdOverride ?? db.auth.currentUser!.id;
   Map<String,dynamic>? get activeShift {
     for (final row in attendance) {
       if (row['check_out_at'] == null) return row;
@@ -4286,7 +4294,7 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
   }
 
   @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Worker dashboard'), actions: [
+    appBar: AppBar(title: Text(widget.adminPreview ? 'Worker dashboard • TAJIR view' : 'Worker dashboard'), actions: [
       TextButton.icon(onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update), label: const Text('Update')),
       IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
@@ -4298,15 +4306,16 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
       padding: const EdgeInsets.all(18),
       children: [
         const TajirDirectorContacts(),
-        const Text('My work and attendance', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        const Text('Only tasks and attendance linked to your signed-in account are shown.'),
+        if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director view'),subtitle:Text('Viewing this worker’s dashboard records. Attendance actions are disabled in this preview.'))),
+        const Text('Work and attendance', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        Text(widget.adminPreview ? 'Records linked to the selected worker account.' : 'Only tasks and attendance linked to your signed-in account are shown.'),
         if (loading) const LinearProgressIndicator(),
         if (error.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 12),
           child: Text(error, style: const TextStyle(color: Colors.red))),
         if (!loading && error.isEmpty) ...[
           const SizedBox(height: 12),
           const Text('Attendance', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          if (activeShift == null && branches.isNotEmpty) DropdownButtonFormField<String>(
+          if (!widget.adminPreview && activeShift == null && branches.isNotEmpty) DropdownButtonFormField<String>(
             value: branchId,
             decoration: const InputDecoration(labelText: 'Assigned branch'),
             items: branches.map((b) => DropdownMenuItem<String>(
@@ -4314,10 +4323,10 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
             onChanged: busy ? null : (value) => setState(() => branchId = value),
           ),
           if (branches.isEmpty) const Text('No active branch assignment was found. Contact the TAJIR before recording attendance.'),
-          if (activeShift == null)
+          if (!widget.adminPreview && activeShift == null)
             FilledButton.icon(onPressed: busy || branchId == null ? null : () => recordAttendance(true),
               icon: const Icon(Icons.login), label: const Text('Check in')),
-          if (activeShift != null) Card(child: ListTile(
+          if (!widget.adminPreview && activeShift != null) Card(child: ListTile(
             leading: const Icon(Icons.timer, color: brandGreen),
             title: const Text('You are checked in'),
             subtitle: Text('Since ' + (activeShift!['check_in_at'] ?? '').toString()),
@@ -4332,9 +4341,9 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
           ...tasks.map((task) {
             final status = (task['status'] ?? 'pending').toString();
             Widget? action;
-            if (status == 'pending') {
+            if (!widget.adminPreview && status == 'pending') {
               action = FilledButton.tonal(onPressed: busy ? null : () => updateTask(task, 'in_progress'), child: const Text('Start task'));
-            } else if (status == 'in_progress') {
+            } else if (!widget.adminPreview && status == 'in_progress') {
               action = FilledButton(onPressed: busy ? null : () => updateTask(task, 'submitted'), child: const Text('Submit task'));
             }
             return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
@@ -4568,6 +4577,23 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
               style:TextStyle(fontSize:12)),
           ]))),
         const SizedBox(height:12),
+        Wrap(spacing:8,runSpacing:8,children:[
+          if(assigned.contains('buyer')||assigned.contains('seller'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'customer'),icon:const Icon(Icons.person),label:const Text('Open Client dashboard')),
+          if(assigned.contains('worker'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'worker'),icon:const Icon(Icons.groups),label:const Text('Open Worker dashboard')),
+          if(assigned.contains('tractor_owner'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'tractor_owner'),icon:const Icon(Icons.agriculture),label:const Text('Open Tractor Owner dashboard')),
+          if(assigned.contains('driver'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'driver'),icon:const Icon(Icons.local_shipping),label:const Text('Open Driver dashboard')),
+          if(assigned.contains('mechanic'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'mechanic'),icon:const Icon(Icons.handyman),label:const Text('Open Mechanic dashboard')),
+          if(assigned.contains('auto_spares_owner'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'auto_spares_owner'),icon:const Icon(Icons.build),label:const Text('Open Auto-spares dashboard')),
+          if(!assigned.contains('director'))
+            FilledButton.icon(onPressed:()=>editAccount(a),icon:const Icon(Icons.edit),label:const Text('Edit account')),
+        ]),
+        const SizedBox(height:12),
         const Text('Orders, payments and operational activity',
           style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
         Text(activityRows.length.toString()+' linked operational records'),
@@ -4596,7 +4622,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
           title:Text((e['action']??'Activity').toString().replaceAll('_',' ')),
           subtitle:Text((e['entity_table']??'Account').toString()+' • '+(e['created_at']??'').toString()))),
         const SizedBox(height:8),
-        const Text('TAJIR oversight is read-only for account credentials. PINs and passwords remain private.',
+        const Text('PINs and passwords remain private. Director dashboard access never signs in as the selected user.',
           style:TextStyle(fontSize:12,color:Colors.black54)),
       ]),
     )));
@@ -4612,9 +4638,96 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     }catch(_){}
     await load();
   }
+  Future<void> openAccountDashboard(String profileId,String role) async {
+    final Widget page;
+    if(role=='customer') {
+      page=CustomerPortalPage(profileIdOverride:profileId,adminPreview:true);
+    } else if(role=='worker') {
+      page=WorkerWorkspacePage(profileIdOverride:profileId,adminPreview:true);
+    } else {
+      const names={'tractor_owner':'Tractor Owner','driver':'Driver','mechanic':'Mechanic','auto_spares_owner':'Auto-spares Owner'};
+      page=RoleWorkspacePage(roleCode:role,roleName:names[role]??'Service Provider',profileIdOverride:profileId,adminPreview:true);
+    }
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>page));
+    if(mounted)await load();
+  }
+
+  Future<void> editAccount(Map<String,dynamic> account) async {
+    final id=(account['id']??'').toString();
+    if(id.isEmpty)return;
+    final profile=await db.from('profiles').select('id,display_name,phone,status').eq('id',id).maybeSingle();
+    if(profile==null)return;
+    final customer=await db.from('customers').select('id,full_name,phone,email,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',id).maybeSingle();
+    final name=TextEditingController(text:(customer?['full_name']??profile['display_name']??'').toString());
+    final phone=TextEditingController(text:(customer?['phone']??profile['phone']??'').toString());
+    final email=TextEditingController(text:(customer?['email']??'').toString());
+    var status=(profile['status']??'pending').toString();
+    var active=customer?['active']==true;
+    var canBuy=customer?['marketplace_can_buy']==true;
+    var canSell=customer?['marketplace_can_sell']==true;
+    String? formError;
+    final saved=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
+      title:const Text('Edit TAJIR account'),
+      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:name,decoration:const InputDecoration(labelText:'Full name')),
+        TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
+        if(customer!=null)TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
+        DropdownButtonFormField<String>(value:status,decoration:const InputDecoration(labelText:'Account status'),items:const [
+          DropdownMenuItem(value:'pending',child:Text('Pending')),
+          DropdownMenuItem(value:'active',child:Text('Active')),
+          DropdownMenuItem(value:'suspended',child:Text('Suspended')),
+          DropdownMenuItem(value:'disabled',child:Text('Disabled')),
+        ],onChanged:(v){if(v!=null)refresh(()=>status=v);}),
+        if(customer!=null)...[
+          SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Customer active'),value:active,onChanged:(v)=>refresh(()=>active=v)),
+          CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Buyer access'),value:canBuy,onChanged:(v)=>refresh(()=>canBuy=v??false)),
+          CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Seller access'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
+        ],
+        if(formError!=null)Text(formError!,style:const TextStyle(color:Colors.red)),
+        const Text('PINs and passwords cannot be viewed or changed here.',style:TextStyle(fontSize:12,color:Colors.black54)),
+      ])),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+        FilledButton(onPressed:(){
+          if(name.text.trim().isEmpty||phone.text.trim().isEmpty){refresh(()=>formError='Full name and phone number are required.');return;}
+          if(customer!=null&&!canBuy&&!canSell){refresh(()=>formError='Enable Buyer, Seller, or both before saving.');return;}
+          Navigator.pop(dialogContext,true);
+        },child:const Text('Save changes')),
+      ],
+    )));
+    if(saved==true){
+      try{
+        final before=<String,dynamic>{'profile':profile,'customer':customer};
+        await db.from('profiles').update({'display_name':name.text.trim(),'phone':phone.text.trim(),'status':status,'updated_at':DateTime.now().toUtc().toIso8601String()}).eq('id',id);
+        if(customer!=null){
+          await db.from('customers').update({
+            'full_name':name.text.trim(),'phone':phone.text.trim(),'email':email.text.trim().isEmpty?null:email.text.trim(),
+            'active':active,'marketplace_can_buy':canBuy,'marketplace_can_sell':canSell,
+            'customer_type':canBuy&&canSell?'both':canSell?'seller':'buyer',
+          }).eq('id',customer['id']);
+        }
+        try{
+          await db.from('audit_logs').insert({
+            'actor_user_id':db.auth.currentUser!.id,'action':'director_account_edited',
+            'entity_schema':'public','entity_table':'profiles','entity_id':id,
+            'reason':'TAJIR director edited account profile and access settings',
+            'before_data':before,
+            'after_data':{'display_name':name.text.trim(),'phone':phone.text.trim(),'status':status,
+              if(customer!=null)'customer':{'active':active,'marketplace_can_buy':canBuy,'marketplace_can_sell':canSell}},
+          });
+        }catch(_){}
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Account details updated.')));
+        await load();
+      }catch(e){
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));
+      }
+    }
+    name.dispose();phone.dispose();email.dispose();
+  }
+
   Widget metric(String label,String value,IconData icon)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[Icon(icon,color:brandGreen,size:28),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(value,style:const TextStyle(fontSize:21,fontWeight:FontWeight.bold)),Text(label,style:const TextStyle(fontSize:12,color:Colors.black54))]))])));
   @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
-    Row(children:[const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('TAJIR Master Oversight',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),Text('Company-wide, read-only supervision across TAJIR accounts and operations.') ])),IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh))]),
+    Row(children:[const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('TAJIR Master Oversight',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),Text('Company-wide access to account dashboards, account settings and operational oversight.') ])),IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh))]),
     if(loading)const LinearProgressIndicator(),
     if(error!=null)Text('Could not load oversight data: '+error!,style:const TextStyle(color:Colors.red)),
     if(!loading)...[
@@ -4632,7 +4745,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
         Text((volume(r['code']!)<0?'Unavailable':volume(r['code']!).toString())+' recent records',style:const TextStyle(fontSize:11,color:Colors.black54)),
       ])))).toList()),
       const SizedBox(height:12),const Text('Account directory',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
-      const Text('Latest 500 accounts are shown here. Tap an account to inspect its status, assigned roles and recorded activity. This does not sign in as that user.'),
+      const Text('Latest 500 accounts are shown here. Open the linked department dashboard or edit account details without signing in as that user.'),
       ...accounts.map((a){
         final assigned=roleCodes(a);
         final phone=(a['phone']??'').toString().trim();
