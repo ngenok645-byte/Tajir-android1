@@ -4543,7 +4543,7 @@ class _DirectorAccountRecordsPageState extends State<DirectorAccountRecordsPage>
       if(sections.isEmpty)const Text('No editable records were found for this account.'),
       ...sections.map((s)=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Padding(padding:const EdgeInsets.only(top:14,bottom:6),child:Text(s['label'],style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold))),
-        ...(s['rows'] as List<Map<String,dynamic>>).map((r)=>Card(child:ListTile(title:Text(title(r)),subtitle:Text(['status','phone','location','quantity','amount','total_charge'].where((k)=>r[k]!=null).map((k)=>k+': '+r[k].toString()).join(' • ')),trailing:IconButton(onPressed:saving?null:()=>edit(s['table'],r),icon:const Icon(Icons.edit_outlined))))
+        ...(s['rows'] as List<Map<String,dynamic>>).map((r)=>Card(child:ListTile(title:Text(title(r)),subtitle:Text(['status','phone','location','quantity','amount','total_charge'].where((k)=>r[k]!=null).map((k)=>k+': '+r[k].toString()).join(' • ')),trailing:IconButton(onPressed:saving?null:()=>edit(s['table'],r),icon:const Icon(Icons.edit_outlined)))))
       ]))
     ])
   );
