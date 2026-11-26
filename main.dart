@@ -2295,7 +2295,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[
     Text(error??'Account unavailable'),
     FilledButton(onPressed:load,child:const Text('Retry')),
-    TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))
+    if(!widget.adminPreview)TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))
    ]))
   );
 
@@ -2323,12 +2323,12 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    const SizedBox(height:10),
    homeTile(title:'PURCHASE REQUESTS',subtitle:'View and follow up your product requests',imageUrl:TajirPictures.orders,icon:Icons.receipt_long_outlined,section:2),
    const SizedBox(height:12),
-   OutlinedButton.icon(
+   if(!widget.adminPreview)OutlinedButton.icon(
     onPressed: () => showTajirNationalId(context, Supabase.instance.client.auth.currentUser!.id),
     icon: const Icon(Icons.verified_user_outlined),
     label: const Text('View my National ID'),
    ),
-   OutlinedButton.icon(
+   if(!widget.adminPreview)OutlinedButton.icon(
     onPressed: () => addMyTajirNationalId(context),
     icon: const Icon(Icons.add_moderator_outlined),
     label: const Text('Add or retry National ID registration'),
@@ -2348,9 +2348,9 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
     title:Text(onSection?sectionTitle(selectedSection!):'TAJIR - '+c!['full_name'].toString()),
     actions:[
      IconButton(tooltip:'Check for TAJIR updates',onPressed:()=>checkCustomerUpdates(showStatus:true),icon:const Icon(Icons.system_update_alt)),
-     IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
+     if(!widget.adminPreview)IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
      IconButton(tooltip:'Refresh',onPressed:onSection?()=>setState((){}):load,icon:const Icon(Icons.refresh)),
-     IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
+     if(!widget.adminPreview)IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
     ],
    ),
    body:Column(children:[
@@ -3925,10 +3925,10 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(widget.roleName + (widget.adminPreview ? ' • TAJIR view' : '')), actions: [
       TextButton.icon(onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update), label: const Text('Update')),
-      IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
+      if(!widget.adminPreview)IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
-      IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
+      if(!widget.adminPreview)IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
     ]),
     body: RefreshIndicator(onRefresh: load, child: ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -4296,10 +4296,10 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
   @override Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(widget.adminPreview ? 'Worker dashboard • TAJIR view' : 'Worker dashboard'), actions: [
       TextButton.icon(onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update), label: const Text('Update')),
-      IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
+      if(!widget.adminPreview)IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
-      IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
+      if(!widget.adminPreview)IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
     ]),
     body: RefreshIndicator(onRefresh: load, child: ListView(
       physics: const AlwaysScrollableScrollPhysics(),
