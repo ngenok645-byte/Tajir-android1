@@ -2202,7 +2202,9 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
   );
 }
 class CustomerPortalPage extends StatefulWidget {
- const CustomerPortalPage({super.key});
+ final String? profileIdOverride;
+ final bool adminPreview;
+ const CustomerPortalPage({super.key,this.profileIdOverride,this.adminPreview=false});
  @override State<CustomerPortalPage> createState()=>_CustomerPortalPageState();
 }
 class _CustomerPortalPageState extends State<CustomerPortalPage>{
@@ -2237,8 +2239,8 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
   if(mounted)setState(()=>busy=true);
   try{
    final db=Supabase.instance.client;
-   final userId=db.auth.currentUser!.id;
-   final r=await db.from('customers').select('id,full_name,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',userId).maybeSingle();
+   final userId=widget.profileIdOverride??db.auth.currentUser!.id;
+   final r=await db.from('customers').select('id,profile_id,full_name,phone,email,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',userId).maybeSingle();
    if(r==null||r['active']!=true)throw const FormatException('Customer account unavailable or inactive.');
    if(mounted)setState(()=>c=Map<String,dynamic>.from(r));
   }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
@@ -2293,7 +2295,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    body:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[
     Text(error??'Account unavailable'),
     FilledButton(onPressed:load,child:const Text('Retry')),
-    TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))
+    if(!widget.adminPreview)TextButton(onPressed:()=>Supabase.instance.client.auth.signOut(),child:const Text('Sign out'))
    ]))
   );
 
@@ -2303,6 +2305,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
   // Only show marketplace cards granted to this account. Shared services and
   // account tools remain available to both Buyer and Seller accounts.
   final dashboardCards=<Widget>[
+   if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director view'),subtitle:Text('You are viewing this customer dashboard as an authorised director. Customer actions that require the customer’s own sign-in remain unavailable.'))),
    if(buy)Row(children:[
     Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse products available in the marketplace',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0)),
     const SizedBox(width:8),
@@ -2320,12 +2323,12 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    const SizedBox(height:10),
    homeTile(title:'PURCHASE REQUESTS',subtitle:'View and follow up your product requests',imageUrl:TajirPictures.orders,icon:Icons.receipt_long_outlined,section:2),
    const SizedBox(height:12),
-   OutlinedButton.icon(
+   if(!widget.adminPreview)OutlinedButton.icon(
     onPressed: () => showTajirNationalId(context, Supabase.instance.client.auth.currentUser!.id),
     icon: const Icon(Icons.verified_user_outlined),
     label: const Text('View my National ID'),
    ),
-   OutlinedButton.icon(
+   if(!widget.adminPreview)OutlinedButton.icon(
     onPressed: () => addMyTajirNationalId(context),
     icon: const Icon(Icons.add_moderator_outlined),
     label: const Text('Add or retry National ID registration'),
@@ -2344,10 +2347,11 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    appBar:AppBar(
     title:Text(onSection?sectionTitle(selectedSection!):'TAJIR - '+c!['full_name'].toString()),
     actions:[
+     if(widget.adminPreview)IconButton(tooltip:'Edit linked records',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.profileIdOverride!,roleCode:'customer',roleName:'Client'))),icon:const Icon(Icons.edit_note)),
      IconButton(tooltip:'Check for TAJIR updates',onPressed:()=>checkCustomerUpdates(showStatus:true),icon:const Icon(Icons.system_update_alt)),
-     IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
+     if(!widget.adminPreview)IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
      IconButton(tooltip:'Refresh',onPressed:onSection?()=>setState((){}):load,icon:const Icon(Icons.refresh)),
-     IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
+     if(!widget.adminPreview)IconButton(tooltip:'Sign out',onPressed:()=>Supabase.instance.client.auth.signOut(),icon:const Icon(Icons.logout))
     ],
    ),
    body:Column(children:[
@@ -3541,7 +3545,9 @@ class AccountRouter extends StatelessWidget {
 class RoleWorkspacePage extends StatefulWidget {
   final String roleCode;
   final String roleName;
-  const RoleWorkspacePage({super.key, required this.roleCode, required this.roleName});
+  final String? profileIdOverride;
+  final bool adminPreview;
+  const RoleWorkspacePage({super.key, required this.roleCode, required this.roleName,this.profileIdOverride,this.adminPreview=false});
   @override State<RoleWorkspacePage> createState() => _RoleWorkspacePageState();
 }
 
@@ -3554,7 +3560,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
 
   @override void initState() { super.initState(); load(); WidgetsBinding.instance.addPostFrameCallback((_) => promptForTajirUpdate(context)); }
 
-  String get uid => db.auth.currentUser!.id;
+  String get uid => widget.profileIdOverride ?? db.auth.currentUser!.id;
   String money(dynamic value) => 'KES ${(double.tryParse((value ?? 0).toString()) ?? 0).toStringAsFixed(2)}';
 
   Future<void> load() async {
@@ -3620,7 +3626,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   }
 
   Future<void> updatePartRequest(Map<String,dynamic> row, String nextStatus) async {
-    if (busy) return;
+    if (busy || widget.adminPreview) return;
     setState(() => busy = true);
     try {
       await db.from('repair_part_requests').update({'status': nextStatus}).eq('id', row['id']);
@@ -3652,6 +3658,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
       ])));
 
   Future<void> updateDriverJob(Map<String,dynamic> row, String nextStatus) async {
+    if(widget.adminPreview)return;
     double? hoursWorked;
     if (nextStatus == 'completed') {
       final hours = TextEditingController();
@@ -3700,6 +3707,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   }
 
   Future<void> addSparePart() async {
+    if(widget.adminPreview)return;
     if (profile == null || profile!['status'] != 'approved') {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your spare-parts shop must be approved before adding stock.')));
       return;
@@ -3757,7 +3765,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   }
 
   Future<void> updateMechanicJobStatus(Map<String,dynamic> row, String nextStatus) async {
-    if (busy) return;
+    if (busy || widget.adminPreview) return;
     setState(() => busy = true);
     try {
       await db.rpc('update_my_mechanic_job_status', params: {
@@ -3780,17 +3788,17 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   Widget partRequestCard(Map<String,dynamic> row) {
     final status = (row['status'] ?? 'requested').toString();
     final buttons = <Widget>[];
-    if (widget.roleCode == 'auto_spares_owner' && status == 'requested') {
+    if (!widget.adminPreview && widget.roleCode == 'auto_spares_owner' && status == 'requested') {
       buttons.add(TextButton(onPressed: busy ? null : () => updatePartRequest(row,'accepted'), child: const Text('Accept')));
       buttons.add(TextButton(onPressed: busy ? null : () => updatePartRequest(row,'declined'), child: const Text('Decline')));
     }
-    if (widget.roleCode == 'auto_spares_owner' && status == 'accepted') {
+    if (!widget.adminPreview && widget.roleCode == 'auto_spares_owner' && status == 'accepted') {
       buttons.add(FilledButton(onPressed: busy ? null : () => updatePartRequest(row,'supplied'), child: const Text('Mark supplied')));
     }
-    if (widget.roleCode == 'mechanic' && status == 'requested') {
+    if (!widget.adminPreview && widget.roleCode == 'mechanic' && status == 'requested') {
       buttons.add(TextButton(onPressed: busy ? null : () => updatePartRequest(row,'cancelled'), child: const Text('Cancel request')));
     }
-    if (widget.roleCode == 'mechanic' && status == 'supplied') {
+    if (!widget.adminPreview && widget.roleCode == 'mechanic' && status == 'supplied') {
       buttons.add(FilledButton(onPressed: busy ? null : () => updatePartRequest(row,'installed'), child: const Text('Mark installed')));
     }
     return recordCard(
@@ -3814,12 +3822,12 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
     switch (widget.roleCode) {
       case 'tractor_owner':
         out.add(Padding(padding:const EdgeInsets.only(bottom:10),child:Align(alignment:Alignment.centerLeft,child:FilledButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>Scaffold(appBar:AppBar(title:Text('TAJIR Land Measure')),body:TajirLandMeasurePage()))),icon:const Icon(Icons.square_foot),label:const Text('Measure farm land')))));
-        out.add(Padding(padding: const EdgeInsets.only(bottom: 10), child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
+        if(!widget.adminPreview)out.add(Padding(padding: const EdgeInsets.only(bottom: 10), child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerPortalPage())),
           icon: const Icon(Icons.storefront_outlined),
           label: const Text('Open my Buyer / Seller account'),
         ))));
-        out.add(Padding(padding: const EdgeInsets.only(bottom: 10), child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
+        if(!widget.adminPreview)out.add(Padding(padding: const EdgeInsets.only(bottom: 10), child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TractorOwnerServiceFleetPage())),
           icon: const Icon(Icons.agriculture),
           label: const Text('Manage My Tractor Services'),
@@ -3850,9 +3858,9 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         for (final r in primary) {
           final jobStatus = (r['status'] ?? '').toString();
           final jobActions = <Widget>[];
-          if (jobStatus == 'confirmed') {
+          if (!widget.adminPreview && jobStatus == 'confirmed') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateDriverJob(r, 'in_progress'), child: const Text('Start job')));
-          } else if (jobStatus == 'in_progress') {
+          } else if (!widget.adminPreview && jobStatus == 'in_progress') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateDriverJob(r, 'completed'), child: const Text('Complete job')));
           }
           final clientPhone = (r['farmer_phone'] ?? '').toString().trim();
@@ -3877,14 +3885,14 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         for (final r in primary) {
           final jobStatus = (r['status'] ?? '').toString();
           final jobActions = <Widget>[];
-          if (jobStatus == 'requested') {
+          if (!widget.adminPreview && jobStatus == 'requested') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'accepted'), child: const Text('Accept job')));
-          } else if (jobStatus == 'accepted') {
+          } else if (!widget.adminPreview && jobStatus == 'accepted') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'in_progress'), child: const Text('Start work')));
-          } else if (jobStatus == 'in_progress') {
+          } else if (!widget.adminPreview && jobStatus == 'in_progress') {
             jobActions.add(OutlinedButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'waiting_parts'), child: const Text('Waiting for parts')));
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'completed'), child: const Text('Complete job')));
-          } else if (jobStatus == 'waiting_parts') {
+          } else if (!widget.adminPreview && jobStatus == 'waiting_parts') {
             jobActions.add(FilledButton(onPressed: busy ? null : () => updateMechanicJobStatus(r, 'in_progress'), child: const Text('Resume work')));
           }
           out.add(recordCard('${r['job_number'] ?? 'Repair job'}',
@@ -3898,7 +3906,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         break;
       case 'auto_spares_owner':
         out.add(sectionTitle('Spare-parts inventory', primary.length));
-        out.add(Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
+        if(!widget.adminPreview)out.add(Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
           onPressed: busy || profile == null || profile!['status'] != 'approved' ? null : addSparePart,
           icon: const Icon(Icons.add_box_outlined),
           label: const Text('Add spare part'),
@@ -3918,20 +3926,22 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
   }
 
   @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(widget.roleName), actions: [
+    appBar: AppBar(title: Text(widget.roleName + (widget.adminPreview ? ' • TAJIR view' : '')), actions: [
+      if(widget.adminPreview)IconButton(tooltip:'Edit linked records',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.profileIdOverride!,roleCode:widget.roleCode,roleName:widget.roleName))),icon:const Icon(Icons.edit_note)),
       TextButton.icon(onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update), label: const Text('Update')),
-      IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
+      if(!widget.adminPreview)IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
-      IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
+      if(!widget.adminPreview)IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
     ]),
     body: RefreshIndicator(onRefresh: load, child: ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(18),
       children: [
         const TajirDirectorContacts(),
+       if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director view'),subtitle:Text('Viewing the selected service-provider dashboard and linked records. The preview does not sign in as the account holder.'))),
        Text('${widget.roleName} workspace', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        const Text('Your records are limited by your signed-in account permissions.'),
+        Text(widget.adminPreview ? 'Records linked to the selected account.' : 'Your records are limited by your signed-in account permissions.'),
         if (loading) const LinearProgressIndicator(),
         if (error.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 12),
           child: Text(error, style: const TextStyle(color: Colors.red))),
@@ -4190,7 +4200,9 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
 }
 
 class WorkerWorkspacePage extends StatefulWidget {
-  const WorkerWorkspacePage({super.key});
+  final String? profileIdOverride;
+  final bool adminPreview;
+  const WorkerWorkspacePage({super.key,this.profileIdOverride,this.adminPreview=false});
   @override State<WorkerWorkspacePage> createState() => _WorkerWorkspacePageState();
 }
 
@@ -4201,7 +4213,7 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
   String? branchId;
   List<Map<String,dynamic>> branches = [], tasks = [], attendance = [];
 
-  String get uid => db.auth.currentUser!.id;
+  String get uid => widget.profileIdOverride ?? db.auth.currentUser!.id;
   Map<String,dynamic>? get activeShift {
     for (final row in attendance) {
       if (row['check_out_at'] == null) return row;
@@ -4286,27 +4298,29 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
   }
 
   @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Worker dashboard'), actions: [
+    appBar: AppBar(title: Text(widget.adminPreview ? 'Worker dashboard • TAJIR view' : 'Worker dashboard'), actions: [
+      if(widget.adminPreview)IconButton(tooltip:'Edit linked records',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.profileIdOverride!,roleCode:'worker',roleName:'Worker'))),icon:const Icon(Icons.edit_note)),
       TextButton.icon(onPressed: () => promptForTajirUpdate(context, showCurrent: true), icon: const Icon(Icons.system_update), label: const Text('Update')),
-      IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
+      if(!widget.adminPreview)IconButton(tooltip: 'Account security', onPressed: () => Navigator.push(context,
         MaterialPageRoute(builder: (_) => const AccountSecurityPage())), icon: const Icon(Icons.shield_outlined)),
       IconButton(tooltip: 'Refresh', onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
-      IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
+      if(!widget.adminPreview)IconButton(tooltip: 'Sign out', onPressed: () => db.auth.signOut(), icon: const Icon(Icons.logout)),
     ]),
     body: RefreshIndicator(onRefresh: load, child: ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(18),
       children: [
         const TajirDirectorContacts(),
-        const Text('My work and attendance', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        const Text('Only tasks and attendance linked to your signed-in account are shown.'),
+        if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director view'),subtitle:Text('Viewing this worker’s dashboard records. Attendance actions are disabled in this preview.'))),
+        const Text('Work and attendance', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        Text(widget.adminPreview ? 'Records linked to the selected worker account.' : 'Only tasks and attendance linked to your signed-in account are shown.'),
         if (loading) const LinearProgressIndicator(),
         if (error.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 12),
           child: Text(error, style: const TextStyle(color: Colors.red))),
         if (!loading && error.isEmpty) ...[
           const SizedBox(height: 12),
           const Text('Attendance', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          if (activeShift == null && branches.isNotEmpty) DropdownButtonFormField<String>(
+          if (!widget.adminPreview && activeShift == null && branches.isNotEmpty) DropdownButtonFormField<String>(
             value: branchId,
             decoration: const InputDecoration(labelText: 'Assigned branch'),
             items: branches.map((b) => DropdownMenuItem<String>(
@@ -4314,10 +4328,10 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
             onChanged: busy ? null : (value) => setState(() => branchId = value),
           ),
           if (branches.isEmpty) const Text('No active branch assignment was found. Contact the TAJIR before recording attendance.'),
-          if (activeShift == null)
+          if (!widget.adminPreview && activeShift == null)
             FilledButton.icon(onPressed: busy || branchId == null ? null : () => recordAttendance(true),
               icon: const Icon(Icons.login), label: const Text('Check in')),
-          if (activeShift != null) Card(child: ListTile(
+          if (!widget.adminPreview && activeShift != null) Card(child: ListTile(
             leading: const Icon(Icons.timer, color: brandGreen),
             title: const Text('You are checked in'),
             subtitle: Text('Since ' + (activeShift!['check_in_at'] ?? '').toString()),
@@ -4332,9 +4346,9 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
           ...tasks.map((task) {
             final status = (task['status'] ?? 'pending').toString();
             Widget? action;
-            if (status == 'pending') {
+            if (!widget.adminPreview && status == 'pending') {
               action = FilledButton.tonal(onPressed: busy ? null : () => updateTask(task, 'in_progress'), child: const Text('Start task'));
-            } else if (status == 'in_progress') {
+            } else if (!widget.adminPreview && status == 'in_progress') {
               action = FilledButton(onPressed: busy ? null : () => updateTask(task, 'submitted'), child: const Text('Submit task'));
             }
             return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(
@@ -4394,6 +4408,146 @@ class BrandMark extends StatelessWidget {
   ]);
 }
 
+
+
+class DirectorAccountRecordsPage extends StatefulWidget {
+  final String profileId,roleCode,roleName;
+  const DirectorAccountRecordsPage({super.key,required this.profileId,required this.roleCode,required this.roleName});
+  @override State<DirectorAccountRecordsPage> createState()=>_DirectorAccountRecordsPageState();
+}
+class _DirectorAccountRecordsPageState extends State<DirectorAccountRecordsPage>{
+  final db=Supabase.instance.client;
+  bool loading=true,saving=false;
+  String error='';
+  final List<Map<String,dynamic>> sections=[];
+  static const Map<String,List<String>> fields={
+    'profiles':['display_name','phone','status'],
+    'customers':['full_name','phone','email','active','marketplace_can_buy','marketplace_can_sell'],
+    'customer_product_requests':['quantity_requested','note','status','unit_price_per_kg','line_total_kes'],
+    'customer_custom_product_requests':['product_name','description','quantity','quantity_unit','proposed_unit_price_kes','status','director_response','agreed_unit_price_kes'],
+    'customer_payments':['amount','method','status','provider_reference'],
+    'sales_orders':['status','delivery_address','subtotal','discount_total','delivery_fee','total_amount','customer_notes','staff_notes','payment_mode'],
+    'sales':['sale_date','subtotal','discount_total','delivery_income','total_amount','payment_mode'],
+    'marketplace_listings':['product_name','description','quantity','unit','price_per_unit','location','status'],
+    'staff_tasks':['title','description','due_at','status','review_notes'],
+    'staff_attendance':['check_in_at','check_out_at'],
+    'staff_activity_reports':['report_date','activity_type','quantity','location','description','status','review_notes'],
+    'worker_issue_reports':['issue_type','description','status'],
+    'tractor_owner_profiles':['full_name','phone','company_name','status','operating_mode'],
+    'tractor_owner_assets':['verification_status','verified_at'],
+    'tractor_owner_service_fleet':['tractor_name','make_model','ownership_type','operating_county','operating_region','operating_village','services','status','notes'],
+    'tractor_owner_service_bookings':['service_type','service_location','county','region','village','quantity','unit_rate','total_charge','booked_for','status','notes','customer_name','customer_phone'],
+    'tractor_repair_jobs':['issue_description','location','status','estimated_cost_kes','final_cost_kes'],
+    'tractor_service_jobs':['farmer_name','farmer_phone','service_type','service_location','area_acres','booked_for','hours_worked','rate','total_charge','status','notes','county','region','village'],
+    'tractor_job_expenses':['expense_type','description','amount','paid_by_owner'],
+    'tractor_job_payments':['amount','method','status','provider_reference'],
+    'tractor_maintenance_records':['maintenance_date','maintenance_type','description','cost','engine_hours','next_service_date'],
+    'mechanic_profiles':['business_name','phone','location','services','status'],
+    'repair_part_requests':['quantity','agreed_unit_price_kes','status'],
+    'auto_spares_profiles':['shop_name','phone','location','status'],
+    'auto_spares_inventory':['part_name','part_reference','description','quantity','unit','price_kes','status'],
+    'vehicles':['registration_number','make','model','active','notes'],
+    'vehicle_records':['record_type','record_date','destination','purpose','distance_km','odometer_km','fuel_litres','amount','description']
+  };
+  Future<void> add(String table,String label,String filter,String value)async{
+    if(value.isEmpty)return;
+    final result=await db.from(table).select().eq(filter,value).limit(80);
+    final rows=List<Map<String,dynamic>>.from(result);
+    if(rows.isNotEmpty)sections.add({'table':table,'label':label,'rows':rows});
+  }
+  Future<String> related(String table)async{
+    final r=await db.from(table).select('id').eq('profile_id',widget.profileId).maybeSingle();
+    return (r?['id']??'').toString();
+  }
+  @override void initState(){super.initState();load();}
+  Future<void> load()async{
+    if(mounted)setState(()=>loading=true);sections.clear();error='';
+    try{
+      await add('profiles','Account profile','id',widget.profileId);
+      switch(widget.roleCode){
+        case 'customer':
+          final c=await db.from('customers').select('id').eq('profile_id',widget.profileId).maybeSingle();
+          final id=(c?['id']??'').toString();
+          await add('customers','Customer account','profile_id',widget.profileId);
+          for(final t in ['customer_product_requests','customer_custom_product_requests','customer_payments','sales_orders','sales'])await add(t,t.replaceAll('_',' '),'customer_id',id);
+          await add('marketplace_listings','Marketplace listings','seller_customer_id',id);break;
+        case 'worker':
+          await add('staff_tasks','Assigned tasks','assigned_to',widget.profileId);
+          await add('staff_attendance','Attendance','user_id',widget.profileId);
+          await add('staff_activity_reports','Activity reports','worker_id',widget.profileId);
+          await add('worker_issue_reports','Issue reports','worker_profile_id',widget.profileId);break;
+        case 'tractor_owner':
+          final id=await related('tractor_owner_profiles');
+          await add('tractor_owner_profiles','Owner profile','profile_id',widget.profileId);
+          await add('tractor_owner_assets','Tractor assets','owner_id',id);
+          await add('tractor_owner_service_fleet','Service fleet','owner_profile_id',id);
+          await add('tractor_owner_service_bookings','Service bookings','owner_profile_id',id);
+          await add('tractor_repair_jobs','Repair jobs','owner_user_id',widget.profileId);break;
+        case 'driver':
+          await add('tractor_service_jobs','Assigned tractor jobs','operator_id',widget.profileId);
+          await add('vehicles','Assigned vehicles','driver_id',widget.profileId);
+          await add('vehicle_records','Vehicle records','driver_id',widget.profileId);break;
+        case 'mechanic':
+          final id=await related('mechanic_profiles');
+          await add('mechanic_profiles','Mechanic profile','profile_id',widget.profileId);
+          await add('tractor_repair_jobs','Repair jobs','mechanic_id',id);
+          await add('repair_part_requests','Parts requests','mechanic_id',id);break;
+        case 'auto_spares_owner':
+          final id=await related('auto_spares_profiles');
+          await add('auto_spares_profiles','Shop profile','profile_id',widget.profileId);
+          await add('auto_spares_inventory','Spare-parts inventory','shop_id',id);
+          await add('repair_part_requests','Parts requests','shop_id',id);break;
+      }
+    }catch(e){error=friendlyError(e);}
+    finally{if(mounted)setState(()=>loading=false);}
+  }
+  String title(Map<String,dynamic> r){
+    for(final k in ['job_number','order_number','full_name','display_name','business_name','company_name','shop_name','title','product_name','part_name','tractor_name','task_number']){if(r[k]!=null&&r[k].toString().isNotEmpty)return r[k].toString();}
+    return 'Record '+(r['id']??'').toString();
+  }
+  Future<void> edit(String table,Map<String,dynamic> row)async{
+    final keys=fields[table]??const <String>[];
+    final controllers=<String,TextEditingController>{};
+    final bools=<String,bool>{};
+    for(final k in keys){final v=row[k];if(v is bool)bools[k]=v;else controllers[k]=TextEditingController(text:v is List?v.join(', '):(v?.toString()??''));}
+    final result=await showDialog<Map<String,dynamic>>(context:context,builder:(d)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
+      title:Text('Edit '+title(row)),
+      content:ConstrainedBox(constraints:const BoxConstraints(maxWidth:520,maxHeight:520),child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        ...keys.map((k)=>bools.containsKey(k)?SwitchListTile(contentPadding:EdgeInsets.zero,title:Text(k.replaceAll('_',' ')),value:bools[k]!,onChanged:(v)=>refresh(()=>bools[k]=v)):Padding(padding:const EdgeInsets.only(bottom:8),child:TextField(controller:controllers[k],minLines:1,maxLines:3,decoration:InputDecoration(labelText:k.replaceAll('_',' '),border:const OutlineInputBorder())))),
+        const Text('The saved change is added to the TAJIR audit log.',style:TextStyle(fontSize:12))
+      ]))),
+      actions:[TextButton(onPressed:()=>Navigator.pop(d),child:const Text('Cancel')),FilledButton(onPressed:(){
+        final patch=<String,dynamic>{};
+        for(final k in keys){if(bools.containsKey(k)){patch[k]=bools[k];continue;}final raw=controllers[k]!.text.trim();if(raw.isEmpty){patch[k]=null;continue;}
+          if(k.contains('amount')||k.contains('price')||k.contains('quantity')||k.contains('cost')||k.contains('acres')||k.contains('hours')||k.contains('rate')||k.endsWith('_km')||k.contains('litres')||['subtotal','discount_total','delivery_fee','total_amount','unit_rate','line_total_kes'].contains(k)){
+            final n=double.tryParse(raw);if(n==null){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Enter a valid number for '+k)));return;}patch[k]=n;
+          }else if(k=='services'){patch[k]=raw.split(',').map((x)=>x.trim()).where((x)=>x.isNotEmpty).toList();}
+          else{patch[k]=raw;}
+        }Navigator.pop(d,patch);
+      },child:const Text('Save changes'))]
+    )));
+    if(result!=null&&result.isNotEmpty){
+      setState(()=>saving=true);
+      try{await db.rpc('tajir_director_update_account_record',params:{'p_table':table,'p_record_id':row['id'],'p_profile_id':widget.profileId,'p_patch':result});
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Record updated and audit log saved.')));await load();
+      }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+      finally{if(mounted)setState(()=>saving=false);}
+    }
+    for(final c in controllers.values)c.dispose();
+  }
+  @override Widget build(BuildContext context)=>Scaffold(
+    appBar:AppBar(title:Text('Edit '+widget.roleName+' records'),actions:[IconButton(onPressed:loading||saving?null:load,icon:const Icon(Icons.refresh))]),
+    body:loading?const Center(child:CircularProgressIndicator()):error.isNotEmpty?Center(child:Padding(padding:const EdgeInsets.all(24),child:Text(error))):ListView(padding:const EdgeInsets.all(16),children:[
+      Card(child:ListTile(leading:const Icon(Icons.admin_panel_settings,color:brandGreen),title:Text(widget.roleName+' • director access'),subtitle:const Text('Only records linked to this account are listed. PINs and National ID data are excluded.'))),
+      if(saving)const LinearProgressIndicator(),
+      if(sections.isEmpty)const Text('No editable records were found for this account.'),
+      ...sections.map((s)=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Padding(padding:const EdgeInsets.only(top:14,bottom:6),child:Text(s['label'],style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold))),
+        ...(s['rows'] as List<Map<String,dynamic>>).map((r)=>Card(child:ListTile(title:Text(title(r)),subtitle:Text(['status','phone','location','quantity','amount','total_charge'].where((k)=>r[k]!=null).map((k)=>k+': '+r[k].toString()).join(' • ')),trailing:IconButton(onPressed:saving?null:()=>edit(s['table'],r),icon:const Icon(Icons.edit_outlined)))))
+      ]))
+    ])
+  );
+}
 
 class DirectorMasterOversightPage extends StatefulWidget {
   const DirectorMasterOversightPage({super.key});
@@ -4568,6 +4722,23 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
               style:TextStyle(fontSize:12)),
           ]))),
         const SizedBox(height:12),
+        Wrap(spacing:8,runSpacing:8,children:[
+          if(assigned.contains('buyer')||assigned.contains('seller'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'customer'),icon:const Icon(Icons.person),label:const Text('Open Client dashboard')),
+          if(assigned.contains('worker'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'worker'),icon:const Icon(Icons.groups),label:const Text('Open Worker dashboard')),
+          if(assigned.contains('tractor_owner'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'tractor_owner'),icon:const Icon(Icons.agriculture),label:const Text('Open Tractor Owner dashboard')),
+          if(assigned.contains('driver'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'driver'),icon:const Icon(Icons.local_shipping),label:const Text('Open Driver dashboard')),
+          if(assigned.contains('mechanic'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'mechanic'),icon:const Icon(Icons.handyman),label:const Text('Open Mechanic dashboard')),
+          if(assigned.contains('auto_spares_owner'))
+            OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'auto_spares_owner'),icon:const Icon(Icons.build),label:const Text('Open Auto-spares dashboard')),
+          if(!assigned.contains('director'))
+            FilledButton.icon(onPressed:()=>editAccount(a),icon:const Icon(Icons.edit),label:const Text('Edit account')),
+        ]),
+        const SizedBox(height:12),
         const Text('Orders, payments and operational activity',
           style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
         Text(activityRows.length.toString()+' linked operational records'),
@@ -4596,7 +4767,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
           title:Text((e['action']??'Activity').toString().replaceAll('_',' ')),
           subtitle:Text((e['entity_table']??'Account').toString()+' • '+(e['created_at']??'').toString()))),
         const SizedBox(height:8),
-        const Text('TAJIR oversight is read-only for account credentials. PINs and passwords remain private.',
+        const Text('PINs and passwords remain private. Director dashboard access never signs in as the selected user.',
           style:TextStyle(fontSize:12,color:Colors.black54)),
       ]),
     )));
@@ -4612,9 +4783,91 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     }catch(_){}
     await load();
   }
+  Future<void> openAccountDashboard(String profileId,String role) async {
+    final Widget page;
+    if(role=='customer') {
+      page=CustomerPortalPage(profileIdOverride:profileId,adminPreview:true);
+    } else if(role=='worker') {
+      page=WorkerWorkspacePage(profileIdOverride:profileId,adminPreview:true);
+    } else {
+      const names={'tractor_owner':'Tractor Owner','driver':'Driver','mechanic':'Mechanic','auto_spares_owner':'Auto-spares Owner'};
+      page=RoleWorkspacePage(roleCode:role,roleName:names[role]??'Service Provider',profileIdOverride:profileId,adminPreview:true);
+    }
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>page));
+    if(mounted)await load();
+  }
+
+  Future<void> editAccount(Map<String,dynamic> account) async {
+    final id=(account['id']??'').toString();
+    if(id.isEmpty)return;
+    final profile=await db.from('profiles').select('id,display_name,phone,status').eq('id',id).maybeSingle();
+    if(profile==null)return;
+    final customer=await db.from('customers').select('id,full_name,phone,email,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',id).maybeSingle();
+    final name=TextEditingController(text:(customer?['full_name']??profile['display_name']??'').toString());
+    final phone=TextEditingController(text:(customer?['phone']??profile['phone']??'').toString());
+    final email=TextEditingController(text:(customer?['email']??'').toString());
+    var status=(profile['status']??'pending').toString();
+    var active=customer?['active']==true;
+    var canBuy=customer?['marketplace_can_buy']==true;
+    var canSell=customer?['marketplace_can_sell']==true;
+    String? formError;
+    final saved=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
+      title:const Text('Edit TAJIR account'),
+      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:name,decoration:const InputDecoration(labelText:'Full name')),
+        TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
+        if(customer!=null)TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
+        DropdownButtonFormField<String>(value:status,decoration:const InputDecoration(labelText:'Account status'),items:const [
+          DropdownMenuItem(value:'pending',child:Text('Pending')),
+          DropdownMenuItem(value:'active',child:Text('Active')),
+          DropdownMenuItem(value:'suspended',child:Text('Suspended')),
+          DropdownMenuItem(value:'disabled',child:Text('Disabled')),
+        ],onChanged:(v){if(v!=null)refresh(()=>status=v);}),
+        if(customer!=null)...[
+          SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Customer active'),value:active,onChanged:(v)=>refresh(()=>active=v)),
+          CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Buyer access'),value:canBuy,onChanged:(v)=>refresh(()=>canBuy=v??false)),
+          CheckboxListTile(contentPadding:EdgeInsets.zero,title:const Text('Seller access'),value:canSell,onChanged:(v)=>refresh(()=>canSell=v??false)),
+        ],
+        if(formError!=null)Text(formError!,style:const TextStyle(color:Colors.red)),
+        const Text('PINs and passwords cannot be viewed or changed here.',style:TextStyle(fontSize:12,color:Colors.black54)),
+      ])),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+        FilledButton(onPressed:(){
+          if(name.text.trim().isEmpty||phone.text.trim().isEmpty){refresh(()=>formError='Full name and phone number are required.');return;}
+          if(customer!=null&&!canBuy&&!canSell){refresh(()=>formError='Enable Buyer, Seller, or both before saving.');return;}
+          Navigator.pop(dialogContext,true);
+        },child:const Text('Save changes')),
+      ],
+    )));
+    if(saved==true){
+      try{
+        await db.rpc('tajir_director_update_account_record',params:{
+          'p_table':'profiles','p_record_id':id,'p_profile_id':id,
+          'p_patch':{'display_name':name.text.trim(),'phone':phone.text.trim(),'status':status}
+        });
+        if(customer!=null){
+          await db.rpc('tajir_director_update_account_record',params:{
+            'p_table':'customers','p_record_id':customer['id'],'p_profile_id':id,
+            'p_patch':{
+              'full_name':name.text.trim(),'phone':phone.text.trim(),'email':email.text.trim().isEmpty?null:email.text.trim(),
+              'active':active,'marketplace_can_buy':canBuy,'marketplace_can_sell':canSell,
+              'customer_type':canBuy&&canSell?'both':canSell?'seller':'buyer',
+            }
+          });
+        }
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Account details updated.')));
+        await load();
+      }catch(e){
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));
+      }
+    }
+    name.dispose();phone.dispose();email.dispose();
+  }
+
   Widget metric(String label,String value,IconData icon)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[Icon(icon,color:brandGreen,size:28),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(value,style:const TextStyle(fontSize:21,fontWeight:FontWeight.bold)),Text(label,style:const TextStyle(fontSize:12,color:Colors.black54))]))])));
   @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
-    Row(children:[const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('TAJIR Master Oversight',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),Text('Company-wide, read-only supervision across TAJIR accounts and operations.') ])),IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh))]),
+    Row(children:[const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('TAJIR Master Oversight',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),Text('Company-wide access to account dashboards, account settings and operational oversight.') ])),IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh))]),
     if(loading)const LinearProgressIndicator(),
     if(error!=null)Text('Could not load oversight data: '+error!,style:const TextStyle(color:Colors.red)),
     if(!loading)...[
@@ -4632,7 +4885,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
         Text((volume(r['code']!)<0?'Unavailable':volume(r['code']!).toString())+' recent records',style:const TextStyle(fontSize:11,color:Colors.black54)),
       ])))).toList()),
       const SizedBox(height:12),const Text('Account directory',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
-      const Text('Latest 500 accounts are shown here. Tap an account to inspect its status, assigned roles and recorded activity. This does not sign in as that user.'),
+      const Text('Latest 500 accounts are shown here. Open the linked department dashboard or edit account details without signing in as that user.'),
       ...accounts.map((a){
         final assigned=roleCodes(a);
         final phone=(a['phone']??'').toString().trim();
