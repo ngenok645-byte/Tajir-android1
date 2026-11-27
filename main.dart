@@ -4803,6 +4803,9 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     final profile=await db.from('profiles').select('id,display_name,phone,status').eq('id',id).maybeSingle();
     if(profile==null)return;
     final customer=await db.from('customers').select('id,full_name,phone,email,active,marketplace_can_buy,marketplace_can_sell').eq('profile_id',id).maybeSingle();
+    final branchOptions=List<Map<String,dynamic>>.from(await db.from('branches').select('id,name,code').eq('is_active',true).order('name'));
+    final currentAssignments=List<Map<String,dynamic>>.from(await db.from('user_branch_assignments').select('branch_id').eq('user_id',id).isFilter('ended_at',null).order('assigned_at',ascending:false));
+    var selectedBranchId=currentAssignments.isEmpty?'':(currentAssignments.first['branch_id']??'').toString();
     final name=TextEditingController(text:(customer?['full_name']??profile['display_name']??'').toString());
     final phone=TextEditingController(text:(customer?['phone']??profile['phone']??'').toString());
     final email=TextEditingController(text:(customer?['email']??'').toString());
@@ -4817,6 +4820,10 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
         TextField(controller:name,decoration:const InputDecoration(labelText:'Full name')),
         TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number')),
         if(customer!=null)TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)')),
+        DropdownButtonFormField<String>(value:selectedBranchId,decoration:const InputDecoration(labelText:'Assigned branch'),items:[
+          const DropdownMenuItem(value:'',child:Text('No branch assigned')),
+          ...branchOptions.map((b)=>DropdownMenuItem(value:b['id'].toString(),child:Text((b['name']??b['code']??'Branch').toString()))),
+        ],onChanged:(v){if(v!=null)refresh(()=>selectedBranchId=v);}),
         DropdownButtonFormField<String>(value:status,decoration:const InputDecoration(labelText:'Account status'),items:const [
           DropdownMenuItem(value:'pending',child:Text('Pending')),
           DropdownMenuItem(value:'active',child:Text('Active')),
@@ -4846,6 +4853,15 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
           'p_table':'profiles','p_record_id':id,'p_profile_id':id,
           'p_patch':{'display_name':name.text.trim(),'phone':phone.text.trim(),'status':status}
         });
+        final chosenBranch=selectedBranchId.trim();
+        final previousBranch=currentAssignments.isEmpty?'':(currentAssignments.first['branch_id']??'').toString();
+        if(chosenBranch!=previousBranch){
+          await db.from('user_branch_assignments').update({'ended_at':DateTime.now().toUtc().toIso8601String()}).eq('user_id',id).isFilter('ended_at',null);
+          if(chosenBranch.isNotEmpty){
+            await db.from('user_branch_assignments').insert({'user_id':id,'branch_id':chosenBranch,'assigned_by':db.auth.currentUser!.id});
+          }
+          try{await db.from('audit_logs').insert({'actor_user_id':db.auth.currentUser!.id,'action':'director_branch_assignment_changed','entity_schema':'public','entity_table':'user_branch_assignments','entity_id':id,'reason':'TAJIR director changed account branch assignment','before_data':{'branch_id':previousBranch.isEmpty?null:previousBranch},'after_data':{'branch_id':chosenBranch.isEmpty?null:chosenBranch}});}catch(_){}
+        }
         if(customer!=null){
           await db.rpc('tajir_director_update_account_record',params:{
             'p_table':'customers','p_record_id':customer['id'],'p_profile_id':id,
