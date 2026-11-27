@@ -4349,6 +4349,31 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
     }
   }
 
+  Future<void> directorEditWorkerTask(Map<String,dynamic> row) async {
+    if(!widget.adminPreview||widget.profileIdOverride==null||busy||row['id']==null)return;
+    const keys=['title','description','status','review_notes'];
+    final controllers=<String,TextEditingController>{};
+    for(final key in keys){controllers[key]=TextEditingController(text:row[key]?.toString()??'');}
+    try{
+      final patch=await showDialog<Map<String,dynamic>>(context:context,builder:(d)=>AlertDialog(
+        title:Text('Edit '+(row['task_number']??'worker task').toString()),
+        content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:keys.map((key)=>Padding(
+          padding:const EdgeInsets.only(bottom:8),child:TextField(controller:controllers[key],minLines:1,maxLines:3,
+            decoration:InputDecoration(labelText:key.replaceAll('_',' '),border:const OutlineInputBorder())))).toList())),
+        actions:[TextButton(onPressed:()=>Navigator.pop(d),child:const Text('Cancel')),
+          FilledButton(onPressed:()=>Navigator.pop(d,{for(final key in keys)key:controllers[key]!.text.trim().isEmpty?null:controllers[key]!.text.trim()}),child:const Text('Save changes'))]
+      ));
+      if(patch==null)return;
+      setState(()=>busy=true);
+      await db.rpc('tajir_director_update_account_record',params:{
+        'p_table':'staff_tasks','p_record_id':row['id'],'p_profile_id':widget.profileIdOverride,'p_patch':patch
+      });
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Worker task updated and audited.')));
+      await load();
+    }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
+    finally{for(final c in controllers.values){c.dispose();}if(mounted)setState(()=>busy=false);}
+  }
+
   Future<void> updateTask(Map<String,dynamic> task, String status) async {
     if (busy) return;
     setState(() => busy = true);
@@ -4425,6 +4450,9 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
                   style: const TextStyle(fontWeight: FontWeight.bold)),
                 if ((task['description'] ?? '').toString().isNotEmpty) Text(task['description'].toString()),
                 Text('Status: ' + status + ' • Due: ' + (task['due_at'] ?? 'Not specified').toString()),
+                if (widget.adminPreview) Align(alignment:Alignment.centerRight,child:IconButton(
+                  tooltip:'Edit this worker task',icon:const Icon(Icons.edit_outlined),
+                  onPressed:busy?null:()=>directorEditWorkerTask(task))),
                 if (action != null) Align(alignment: Alignment.centerRight, child: action),
               ],
             )));
