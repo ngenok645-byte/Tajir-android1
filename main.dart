@@ -4806,6 +4806,7 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
     final branchOptions=List<Map<String,dynamic>>.from(await db.from('branches').select('id,name,code').eq('is_active',true).order('name'));
     final currentAssignments=List<Map<String,dynamic>>.from(await db.from('user_branch_assignments').select('branch_id').eq('user_id',id).isFilter('ended_at',null).order('assigned_at',ascending:false));
     var selectedBranchId=currentAssignments.isEmpty?'':(currentAssignments.first['branch_id']??'').toString();
+    if(!branchOptions.any((b)=>b['id'].toString()==selectedBranchId))selectedBranchId='';
     final name=TextEditingController(text:(customer?['full_name']??profile['display_name']??'').toString());
     final phone=TextEditingController(text:(customer?['phone']??profile['phone']??'').toString());
     final email=TextEditingController(text:(customer?['email']??'').toString());
