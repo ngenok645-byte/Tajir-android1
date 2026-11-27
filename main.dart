@@ -248,6 +248,54 @@ Future<Map<String, dynamic>?> readTajirOfflineData(String name) async {
   }
 }
 
+// Driver job status changes are stored on-device when connectivity is lost.
+// The same job/status pair is replaced rather than duplicated in the queue.
+Future<void> queueTajirDriverJobUpdate({
+  required String jobId,
+  required String status,
+  double? hoursWorked,
+}) async {
+  final user = Supabase.instance.client.auth.currentUser;
+  if (user == null) throw StateError('Sign in before saving an offline job update.');
+  final prefs = await SharedPreferences.getInstance();
+  final key = 'tajir_pending_driver_updates_${user.id}';
+  final queue = (prefs.getStringList(key) ?? <String>[])
+      .map((v) => Map<String, dynamic>.from(jsonDecode(v) as Map)).toList();
+  queue.removeWhere((item) => item['job_id']?.toString() == jobId);
+  queue.add({
+    'job_id': jobId,
+    'status': status,
+    'hours_worked': hoursWorked,
+    'queued_at': DateTime.now().toUtc().toIso8601String(),
+  });
+  await prefs.setStringList(key, queue.map(jsonEncode).toList());
+}
+
+Future<int> syncTajirOfflineDriverUpdates() async {
+  final user = Supabase.instance.client.auth.currentUser;
+  if (user == null) return 0;
+  final prefs = await SharedPreferences.getInstance();
+  final key = 'tajir_pending_driver_updates_${user.id}';
+  final queue = (prefs.getStringList(key) ?? <String>[])
+      .map((v) => Map<String, dynamic>.from(jsonDecode(v) as Map)).toList();
+  final remaining = <Map<String, dynamic>>[];
+  var synced = 0;
+  for (final item in queue) {
+    try {
+      await Supabase.instance.client.rpc('update_my_assigned_tractor_job', params: {
+        'p_job_id': item['job_id'],
+        'p_status': item['status'],
+        'p_hours_worked': item['hours_worked'],
+      });
+      synced++;
+    } catch (_) {
+      remaining.add(item);
+    }
+  }
+  await prefs.setStringList(key, remaining.map(jsonEncode).toList());
+  return synced;
+}
+
 Future<Map<String, dynamic>> checkTajirUpdate() async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
   try {
@@ -3653,6 +3701,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           secondary = List<Map<String,dynamic>>.from(jobs);
           break;
         case 'driver':
+          await syncTajirOfflineDriverUpdates();
           final jobs = await db.from('tractor_service_jobs')
             .select('id,job_number,service_type,service_location,booked_for,status,total_charge,tractor_id,operator_id,farmer_name,farmer_phone')
             .eq('operator_id', uid).order('booked_for', ascending: false);
@@ -3687,8 +3736,24 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           }
           break;
       }
+      await saveTajirOfflineData('workspace_${widget.roleCode}', {
+        'profile': profile,
+        'primary': primary,
+        'secondary': secondary,
+        'requests': requests,
+        'saved_at': DateTime.now().toUtc().toIso8601String(),
+      });
     } catch (e) {
-      error = 'Could not load your workspace: ${friendlyError(e)}';
+      final cached = await readTajirOfflineData('workspace_${widget.roleCode}');
+      if (cached != null) {
+        profile = cached['profile'] is Map ? Map<String,dynamic>.from(cached['profile'] as Map) : null;
+        primary = List<Map<String,dynamic>>.from(cached['primary'] as List? ?? const []);
+        secondary = List<Map<String,dynamic>>.from(cached['secondary'] as List? ?? const []);
+        requests = List<Map<String,dynamic>>.from(cached['requests'] as List? ?? const []);
+        error = 'Offline mode: showing saved records. New changes will sync when connection returns.';
+      } else {
+        error = 'Could not load your workspace: ${friendlyError(e)}';
+      }
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -3837,7 +3902,25 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
       );
       await load();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+      final raw = e.toString().toLowerCase();
+      if (raw.contains('socketexception') || raw.contains('failed host lookup') ||
+          raw.contains('network is unreachable') || raw.contains('connection refused') ||
+          raw.contains('timed out')) {
+        try {
+          await queueTajirDriverJobUpdate(
+            jobId: row['id'].toString(),
+            status: nextStatus,
+            hoursWorked: hoursWorked,
+          );
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Saved on this phone. This job update is waiting to sync when internet returns.')),
+          );
+        } catch (queueError) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(queueError))));
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -3969,7 +4052,23 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           icon: const Icon(Icons.agriculture),
           label: const Text('Manage My Tractor Services'),
         ))));
-        out.add(sectionTitle('Registered tractor assets', primary.length));
+        out.add(Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('TRACTOR OWNER WORKSPACE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1)),
+              const SizedBox(height: 8),
+              const Text('Manage your equipment, service bookings and repairs from one place.'),
+              const SizedBox(height: 10),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                ActionChip(avatar: const Icon(Icons.agriculture), label: const Text('My tractor services'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TractorOwnerServiceFleetPage()))),
+                ActionChip(avatar: const Icon(Icons.square_foot), label: const Text('Measure land'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('TAJIR Land Measure')), body: const TajirLandMeasurePage()))),
+                ActionChip(avatar: const Icon(Icons.build_circle_outlined), label: const Text('Repairs & parts'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('Repair and spare-parts marketplace')), body: const SafeArea(child: RepairMarketplacePage())))),
+              ]),
+            ]),
+          ),
+        ));
+        out.add(sectionTitle('My tractors', primary.length));
         out.add(Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
             appBar: AppBar(title: const Text('Repair and spare-parts marketplace')),
@@ -3990,7 +4089,20 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         break;
       case 'driver':
         out.add(Padding(padding:const EdgeInsets.only(bottom:10),child:Align(alignment:Alignment.centerLeft,child:FilledButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>Scaffold(appBar:AppBar(title:Text('TAJIR Land Measure')),body:TajirLandMeasurePage()))),icon:const Icon(Icons.square_foot),label:const Text('Measure farm land')))));
-        out.add(sectionTitle('My assigned tractor jobs', primary.length));
+        out.add(Card(child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('DRIVER WORKSPACE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1)),
+            const SizedBox(height: 8),
+            const Text('Your daily steps: open an assigned job, contact the client, start work, then mark it complete.'),
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('TAJIR Land Measure')), body: const TajirLandMeasurePage()))),
+              icon: const Icon(Icons.square_foot), label: const Text('Measure farm land'),
+            ),
+          ]),
+        )));
+        out.add(sectionTitle('Assigned jobs • Start / Complete', primary.length));
         if (primary.isEmpty) out.add(const Text('No jobs are currently assigned to you.'));
         for (final r in primary) {
           final jobStatus = (r['status'] ?? '').toString();
