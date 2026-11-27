@@ -2247,6 +2247,56 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
   if(mounted)setState(()=>busy=false);
  }
 
+ Future<void> directorEditCustomerAccount() async {
+  if(!widget.adminPreview||widget.profileIdOverride==null||c==null||busy)return;
+  final name=TextEditingController(text:(c!['full_name']??'').toString());
+  final phone=TextEditingController(text:(c!['phone']??'').toString());
+  final email=TextEditingController(text:(c!['email']??'').toString());
+  var active=c!['active']==true;
+  var canBuy=c!['marketplace_can_buy']==true;
+  var canSell=c!['marketplace_can_sell']==true;
+  try{
+   final patch=await showDialog<Map<String,dynamic>>(context:context,builder:(d){
+    return StatefulBuilder(builder:(d,setDialogState)=>AlertDialog(
+     title:const Text('Manage client account'),
+     content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+      TextField(controller:name,decoration:const InputDecoration(labelText:'Full name',border:OutlineInputBorder())),
+      const SizedBox(height:10),
+      TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone number',border:OutlineInputBorder())),
+      const SizedBox(height:10),
+      TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email (optional)',border:OutlineInputBorder())),
+      SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Active account'),value:active,onChanged:(v)=>setDialogState(()=>active=v)),
+      SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Allow buying'),value:canBuy,onChanged:(v)=>setDialogState(()=>canBuy=v)),
+      SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Allow selling'),value:canSell,onChanged:(v)=>setDialogState(()=>canSell=v)),
+     ])),
+     actions:[
+      TextButton(onPressed:()=>Navigator.pop(d),child:const Text('Cancel')),
+      FilledButton(onPressed:()=>Navigator.pop(d,{
+       'full_name':name.text.trim(),'phone':phone.text.trim(),
+       'email':email.text.trim().isEmpty?null:email.text.trim(),
+       'active':active,'marketplace_can_buy':canBuy,'marketplace_can_sell':canSell
+      }),child:const Text('Save changes'))
+     ],
+    ));
+   });
+   if(patch==null)return;
+   if((patch['full_name'] as String).isEmpty||(patch['phone'] as String).isEmpty){
+    throw const FormatException('Client name and phone number are required.');
+   }
+   setState(()=>busy=true);
+   await Supabase.instance.client.rpc('tajir_director_update_account_record',params:{
+    'p_table':'customers','p_record_id':c!['id'],'p_profile_id':widget.profileIdOverride,'p_patch':patch
+   });
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Client account updated and recorded in the audit log.')));
+   await load();
+  }catch(e){
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));
+  }finally{
+   name.dispose();phone.dispose();email.dispose();
+   if(mounted)setState(()=>busy=false);
+  }
+ }
+
  String sectionTitle(int section)=>const [
   'Buy Tajir Products','Sell Products','Purchase Requests',
   'Tractor & Machinery Services','My Bookings','My Branch','Buy from Farmers'
@@ -2305,7 +2355,10 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
   // Only show marketplace cards granted to this account. Shared services and
   // account tools remain available to both Buyer and Seller accounts.
   final dashboardCards=<Widget>[
-   if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director view'),subtitle:Text('You are viewing this customer dashboard as an authorised director. Customer actions that require the customer’s own sign-in remain unavailable.'))),
+   if(widget.adminPreview)Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const ListTile(contentPadding:EdgeInsets.zero,leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director view'),subtitle:Text('Review this client dashboard and manage the client account without using the client’s PIN.')),
+    SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:busy?null:directorEditCustomerAccount,icon:const Icon(Icons.manage_accounts_outlined),label:const Text('Manage client account')))
+   ]))),
    if(buy)Row(children:[
     Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse products available in the marketplace',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0)),
     const SizedBox(width:8),
@@ -2347,6 +2400,7 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    appBar:AppBar(
     title:Text(onSection?sectionTitle(selectedSection!):'TAJIR - '+c!['full_name'].toString()),
     actions:[
+     if(widget.adminPreview)IconButton(tooltip:'Manage client account',onPressed:busy?null:directorEditCustomerAccount,icon:const Icon(Icons.manage_accounts_outlined)),
      if(widget.adminPreview)IconButton(tooltip:'Edit linked records',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.profileIdOverride!,roleCode:'customer',roleName:'Client'))),icon:const Icon(Icons.edit_note)),
      IconButton(tooltip:'Check for TAJIR updates',onPressed:()=>checkCustomerUpdates(showStatus:true),icon:const Icon(Icons.system_update_alt)),
      if(!widget.adminPreview)IconButton(tooltip:'Account security',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const AccountSecurityPage())),icon:const Icon(Icons.lock_reset)),
