@@ -6025,8 +6025,8 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
         safeSection('Profile change history',()=>db.from('audit_logs').select('id,action,entity_table,reason,created_at')
           .eq('entity_table','profiles').eq('entity_id',id)
           .order('created_at',ascending:false).limit(30)),
-        safeSection('Branch assignments',()=>db.from('user_branch_assignments').select('branch_id,started_at,ended_at,branches(name)')
-          .eq('user_id',id).order('started_at',ascending:false)),
+        safeSection('Branch assignments',()=>db.from('user_branch_assignments').select('branch_id,assigned_at,ended_at,branches(name)')
+          .eq('user_id',id).order('assigned_at',ascending:false)),
       ]);
       final activity=List<Map<String,dynamic>>.from(results[0]);
       final events=List<Map<String,dynamic>>.from(results[1]);
@@ -6069,7 +6069,7 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
           const SizedBox(height:12),
           Text('Branch assignments (${branches.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
           if(branches.isEmpty)const Text('No branch assignments recorded.'),
-          ...branches.map((r)=>ListTile(leading:const Icon(Icons.business_outlined),title:Text(((r['branches'] as Map?)?['name']??'Branch').toString()),subtitle:Text('Started: ${r['started_at']??'—'} • Ended: ${r['ended_at']??'Active'}'))),
+          ...branches.map((r)=>ListTile(leading:const Icon(Icons.business_outlined),title:Text(((r['branches'] as Map?)?['name']??'Branch').toString()),subtitle:Text('Started: ${r['assigned_at']??'—'} • Ended: ${r['ended_at']??'Active'}'))),
           const SizedBox(height:12),
           const Text('Account activity and audit history',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
           if(events.isEmpty&&changes.isEmpty)const Text('No audit events have been recorded.'),
