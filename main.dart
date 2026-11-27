@@ -6211,6 +6211,51 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
       final events=List<Map<String,dynamic>>.from(results[1]);
       final changes=List<Map<String,dynamic>>.from(results[2]);
       final branches=List<Map<String,dynamic>>.from(results[3]);
+      Future<void> manageBranchAssignment(BuildContext pageContext) async {
+        try {
+          final available=await db.from('branches').select('id,code,name').eq('is_active',true).order('name');
+          final options=List<Map<String,dynamic>>.from(available);
+          final current=await db.from('user_branch_assignments').select('id,branch_id')
+            .eq('user_id',id).isFilter('ended_at',null).maybeSingle();
+          String? selected=current?['branch_id']?.toString();
+          final result=await showDialog<Map<String,dynamic>>(context:pageContext,builder:(dialogContext)=>
+            StatefulBuilder(builder:(dialogContext,setDialogState)=>AlertDialog(
+              title:const Text('Manage branch assignment'),
+              content:DropdownButtonFormField<String>(
+                value:selected,
+                isExpanded:true,
+                decoration:const InputDecoration(labelText:'Assigned branch',border:OutlineInputBorder()),
+                items:[
+                  const DropdownMenuItem<String>(value:null,child:Text('No branch assigned')),
+                  ...options.map((b)=>DropdownMenuItem<String>(value:b['id'].toString(),child:Text((b['name']??'Branch').toString()+' ('+(b['code']??'').toString()+')')))
+                ],
+                onChanged:(value)=>setDialogState(()=>selected=value),
+              ),
+              actions:[
+                TextButton(onPressed:()=>Navigator.pop(dialogContext),child:const Text('Cancel')),
+                FilledButton(onPressed:()=>Navigator.pop(dialogContext,{'branch_id':selected}),child:const Text('Save assignment'))
+              ],
+            )));
+          if(result==null)return;
+          final nextBranch=result['branch_id']?.toString();
+          final previousBranch=current?['branch_id']?.toString();
+          if(nextBranch==previousBranch)return;
+          if(current!=null){
+            await db.from('user_branch_assignments').update({'ended_at':DateTime.now().toUtc().toIso8601String()}).eq('id',current['id']);
+          }
+          if(nextBranch!=null){
+            await db.from('user_branch_assignments').insert({
+              'user_id':id,'branch_id':nextBranch,'assigned_by':db.auth.currentUser!.id
+            });
+          }
+          if(pageContext.mounted)ScaffoldMessenger.of(pageContext).showSnackBar(
+            const SnackBar(content:Text('Branch assignment saved.')));
+          if(mounted)await load();
+        }catch(e){
+          if(pageContext.mounted)ScaffoldMessenger.of(pageContext).showSnackBar(
+            SnackBar(content:Text('Could not save branch assignment: '+friendlyError(e))));
+        }
+      }
       if(!mounted)return;
       await Navigator.of(context).push(MaterialPageRoute<void>(builder:(pageContext)=>Scaffold(
         appBar:AppBar(title:Text((account['name']??'Account').toString()),actions:[
@@ -6246,7 +6291,10 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
             trailing:r['amount']==null?null:Text('KES '+(r['amount'] as num).toStringAsFixed(2)),
           ))),
           const SizedBox(height:12),
-          Text('Branch assignments (${branches.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+          Row(children:[
+            Expanded(child:Text('Branch assignments (${branches.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold))),
+            TextButton.icon(onPressed:()=>manageBranchAssignment(pageContext),icon:const Icon(Icons.edit_location_alt_outlined),label:const Text('Manage'))
+          ]),
           if(branches.isEmpty)const Text('No branch assignments recorded.'),
           ...branches.map((r)=>ListTile(leading:const Icon(Icons.business_outlined),title:Text(((r['branches'] as Map?)?['name']??'Branch').toString()),subtitle:Text('Started: ${r['assigned_at']??'—'} • Ended: ${r['ended_at']??'Active'}'))),
           const SizedBox(height:12),
