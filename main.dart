@@ -2317,9 +2317,9 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
    case 2:
     return CustomerMarketPage(customer:c!,mode:'requests');
    case 3:
-    return CustomerTractorPage();
+    return CustomerTractorPage(adminPreview:widget.adminPreview);
    case 4:
-    return CustomerTractorBookingsPage();
+    return CustomerTractorBookingsPage(customerProfileId:widget.profileIdOverride,adminPreview:widget.adminPreview);
    case 5:
     return const BranchRequestPanel();
    case 6:
@@ -3410,7 +3410,7 @@ class _DirectorTractorRatesPageState extends State<DirectorTractorRatesPage>{
  ]);
 }
 
-class CustomerTractorPage extends StatefulWidget{@override State<CustomerTractorPage> createState()=>_CustomerTractorPageState();}
+class CustomerTractorPage extends StatefulWidget{final bool adminPreview;const CustomerTractorPage({this.adminPreview=false});@override State<CustomerTractorPage> createState()=>_CustomerTractorPageState();}
 class _CustomerTractorPageState extends State<CustomerTractorPage>{
  List<Map<String,dynamic>> tractors=[];bool busy=true,saving=false,quoting=false;
  String? tractor;String service='ploughing',transportUnit='per_trip';
@@ -3424,11 +3424,13 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
  @override void initState(){super.initState();load();}
  @override void dispose(){location.dispose();county.dispose();region.dispose();village.dispose();quantity.dispose();super.dispose();}
  Future<void> load()async{
+  if(widget.adminPreview){tractors=[];tractor=null;if(mounted)setState(()=>busy=false);return;}
   try{final r=await Supabase.instance.client.rpc('customer_list_tractor_services');tractors=List<Map<String,dynamic>>.from(r);tractor=tractors.isEmpty?null:tractors.first['tractor_id'].toString();}
   catch(_){tractors=[];tractor=null;}
   if(mounted)setState(()=>busy=false);
  }
  Future<void> refreshQuote()async{
+  if(widget.adminPreview){if(mounted)setState(()=>{quote=null,quoting=false,quoteError='Pricing and booking actions are disabled in director preview.'});return;}
   final request=++quoteRequest;final q=double.tryParse(quantity.text.trim());
   if(q==null||q<=0||location.text.trim().length<3){if(mounted)setState((){quote=null;quoting=false;quoteError=null;});return;}
   setState(()=>quoting=true);
@@ -3444,6 +3446,7 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
   if(mounted&&request==quoteRequest)setState(()=>quoting=false);
  }
  Future<void> book()async{
+  if(widget.adminPreview)return;
   if(location.text.trim().length<3||county.text.trim().isEmpty||region.text.trim().isEmpty||village.text.trim().isEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter the farm location: County, Region and Village.')));return;}
   final q=double.tryParse(quantity.text.trim());
   if(q==null||q<=0){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Enter a valid quantity in $unitLabel.')));return;}
@@ -3462,6 +3465,7 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
   if(mounted)setState(()=>saving=false);
  }
  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(18),children:[
+  if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.visibility_outlined),title:Text('Director preview'),subtitle:Text('This is the customer booking screen. Submitting a booking is disabled while the director is viewing it.'))),
   const Text('Book tractor service',style:TextStyle(fontSize:21,fontWeight:FontWeight.bold)),
   if(busy)const LinearProgressIndicator(),
   if(tractors.isNotEmpty)DropdownButtonFormField<String>(value:tractor,items:tractors.map((t)=>DropdownMenuItem(value:t['tractor_id'].toString(),child:Text(t['selection_label'].toString()))).toList(),onChanged:(v)=>setState(()=>tractor=v),decoration:const InputDecoration(labelText:'Preferred available tractor (optional)')),
@@ -3486,28 +3490,39 @@ class _CustomerTractorPageState extends State<CustomerTractorPage>{
   ]))),
   if(quoteError!=null&&quantity.text.isNotEmpty)Text(quoteError!,style:const TextStyle(color:Colors.red)),
   ListTile(title:Text('Booking date: '+date.toLocal().toString().split(' ')[0]),trailing:TextButton(onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(d!=null)setState(()=>date=d);},child:const Text('Choose'))),
-  FilledButton(onPressed:busy||saving||quoting?null:book,child:Text(saving?'Sending request…':'Submit booking request'))
+  FilledButton(onPressed:widget.adminPreview||busy||saving||quoting?null:book,child:Text(widget.adminPreview?'Booking disabled in preview':saving?'Sending request…':'Submit booking request'))
  ]);
 }
-class CustomerTractorBookingsPage extends StatefulWidget{@override State<CustomerTractorBookingsPage> createState()=>_CustomerTractorBookingsPageState();}
+class CustomerTractorBookingsPage extends StatefulWidget{final String? customerProfileId;final bool adminPreview;const CustomerTractorBookingsPage({this.customerProfileId,this.adminPreview=false});@override State<CustomerTractorBookingsPage> createState()=>_CustomerTractorBookingsPageState();}
 class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPage>{
  List<Map<String,dynamic>> rows=[];bool busy=true;
  @override void initState(){super.initState();load();}
  Future<void> load()async{
   try{
-   final results=await Future.wait<dynamic>([
-    Supabase.instance.client.rpc('customer_list_tractor_bookings'),
-    Supabase.instance.client.rpc('customer_get_tractor_driver_contacts'),
-   ]);
-   final contacts=<String,Map<String,dynamic>>{};
-   for(final item in List<Map<String,dynamic>>.from(results[1])){contacts[item['job_id'].toString()]=Map<String,dynamic>.from(item);}
-   final bookingRows=List<Map<String,dynamic>>.from(results[0]);
-   for(final row in bookingRows){row['driver_contact']=contacts[row['id'].toString()];}
-   if(mounted)setState(()=>rows=bookingRows);
+   if(widget.adminPreview){
+    if(widget.customerProfileId==null)throw const FormatException('The selected client account is missing.');
+    final result=await Supabase.instance.client.rpc('tajir_director_list_customer_tractor_bookings',params:{'p_profile_id':widget.customerProfileId});
+    final bookingRows=List<Map<String,dynamic>>.from(result);
+    for(final row in bookingRows){
+     if(row['driver_profile_id']!=null)row['driver_contact']={'driver_profile_id':row['driver_profile_id'],'driver_name':row['driver_name'],'driver_phone':row['driver_phone']};
+    }
+    if(mounted)setState(()=>rows=bookingRows);
+   }else{
+    final results=await Future.wait<dynamic>([
+     Supabase.instance.client.rpc('customer_list_tractor_bookings'),
+     Supabase.instance.client.rpc('customer_get_tractor_driver_contacts'),
+    ]);
+    final contacts=<String,Map<String,dynamic>>{};
+    for(final item in List<Map<String,dynamic>>.from(results[1])){contacts[item['job_id'].toString()]=Map<String,dynamic>.from(item);}
+    final bookingRows=List<Map<String,dynamic>>.from(results[0]);
+    for(final row in bookingRows){row['driver_contact']=contacts[row['id'].toString()];}
+    if(mounted)setState(()=>rows=bookingRows);
+   }
   }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
   if(mounted)setState(()=>busy=false);
  }
  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
+  if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.visibility_outlined),title:Text('TAJIR director view'),subtitle:Text('These bookings belong to the selected client account. This view does not create or change bookings.'))),
   const Text('Tractor booking history',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
   const Text('Once a driver is assigned, their registered contact becomes available here.',style:TextStyle(fontSize:12,color:Colors.black54)),
   if(busy)const LinearProgressIndicator(),
