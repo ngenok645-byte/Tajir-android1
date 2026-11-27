@@ -4723,18 +4723,30 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
           ]))),
         const SizedBox(height:12),
         Wrap(spacing:8,runSpacing:8,children:[
-          if(assigned.contains('buyer')||assigned.contains('seller'))
+          if(assigned.contains('buyer')||assigned.contains('seller')) ...[
             OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'customer'),icon:const Icon(Icons.person),label:const Text('Open Client dashboard')),
-          if(assigned.contains('worker'))
+            FilledButton.tonalIcon(onPressed:()=>Navigator.of(pageContext).push(MaterialPageRoute<void>(builder:(_)=>DirectorAccountRecordsPage(profileId:id,roleCode:'customer',roleName:'Client'))),icon:const Icon(Icons.edit_note),label:const Text('Edit Client records')),
+          ],
+          if(assigned.contains('worker')) ...[
             OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'worker'),icon:const Icon(Icons.groups),label:const Text('Open Worker dashboard')),
-          if(assigned.contains('tractor_owner'))
+            FilledButton.tonalIcon(onPressed:()=>Navigator.of(pageContext).push(MaterialPageRoute<void>(builder:(_)=>DirectorAccountRecordsPage(profileId:id,roleCode:'worker',roleName:'Worker'))),icon:const Icon(Icons.edit_note),label:const Text('Edit Worker records')),
+          ],
+          if(assigned.contains('tractor_owner')) ...[
             OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'tractor_owner'),icon:const Icon(Icons.agriculture),label:const Text('Open Tractor Owner dashboard')),
-          if(assigned.contains('driver'))
+            FilledButton.tonalIcon(onPressed:()=>Navigator.of(pageContext).push(MaterialPageRoute<void>(builder:(_)=>DirectorAccountRecordsPage(profileId:id,roleCode:'tractor_owner',roleName:'Tractor Owner'))),icon:const Icon(Icons.edit_note),label:const Text('Edit Tractor Owner records')),
+          ],
+          if(assigned.contains('driver')) ...[
             OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'driver'),icon:const Icon(Icons.local_shipping),label:const Text('Open Driver dashboard')),
-          if(assigned.contains('mechanic'))
+            FilledButton.tonalIcon(onPressed:()=>Navigator.of(pageContext).push(MaterialPageRoute<void>(builder:(_)=>DirectorAccountRecordsPage(profileId:id,roleCode:'driver',roleName:'Driver'))),icon:const Icon(Icons.edit_note),label:const Text('Edit Driver records')),
+          ],
+          if(assigned.contains('mechanic')) ...[
             OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'mechanic'),icon:const Icon(Icons.handyman),label:const Text('Open Mechanic dashboard')),
-          if(assigned.contains('auto_spares_owner'))
+            FilledButton.tonalIcon(onPressed:()=>Navigator.of(pageContext).push(MaterialPageRoute<void>(builder:(_)=>DirectorAccountRecordsPage(profileId:id,roleCode:'mechanic',roleName:'Mechanic'))),icon:const Icon(Icons.edit_note),label:const Text('Edit Mechanic records')),
+          ],
+          if(assigned.contains('auto_spares_owner')) ...[
             OutlinedButton.icon(onPressed:()=>openAccountDashboard(id,'auto_spares_owner'),icon:const Icon(Icons.build),label:const Text('Open Auto-spares dashboard')),
+            FilledButton.tonalIcon(onPressed:()=>Navigator.of(pageContext).push(MaterialPageRoute<void>(builder:(_)=>DirectorAccountRecordsPage(profileId:id,roleCode:'auto_spares_owner',roleName:'Auto-spares Owner'))),icon:const Icon(Icons.edit_note),label:const Text('Edit Auto-spares records')),
+          ],
           if(!assigned.contains('director'))
             FilledButton.icon(onPressed:()=>editAccount(a),icon:const Icon(Icons.edit),label:const Text('Edit account')),
         ]),
