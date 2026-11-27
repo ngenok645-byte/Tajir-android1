@@ -3657,6 +3657,74 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           child: Align(alignment: Alignment.centerRight, child: actions)),
       ])));
 
+  // Director edits are performed from the selected account's actual dashboard.
+  // The database RPC re-checks director authority and account ownership for every save.
+  Future<void> directorEditRecord(String table, Map<String,dynamic> row) async {
+    if (!widget.adminPreview || widget.profileIdOverride == null || busy) return;
+    const editable = <String, List<String>>{
+      'tractor_owner_assets':['verification_status'],
+      'tractor_repair_jobs':['issue_description','location','status','estimated_cost_kes','final_cost_kes'],
+      'tractor_service_jobs':['farmer_name','farmer_phone','service_type','service_location','area_acres','booked_for','hours_worked','rate','total_charge','status','notes','county','region','village'],
+      'repair_part_requests':['quantity','agreed_unit_price_kes','status'],
+      'auto_spares_inventory':['part_name','part_reference','description','quantity','unit','price_kes','status'],
+    };
+    final keys = editable[table] ?? const <String>[];
+    if (keys.isEmpty || row['id'] == null) return;
+    final controllers = <String,TextEditingController>{};
+    final switches = <String,bool>{};
+    for (final key in keys) {
+      final value = row[key];
+      if (value is bool) switches[key] = value;
+      else controllers[key] = TextEditingController(text: value?.toString() ?? '');
+    }
+    try {
+      final patch = await showDialog<Map<String,dynamic>>(context:context,builder:(dialogContext)=>
+        StatefulBuilder(builder:(dialogContext,refresh)=>AlertDialog(
+          title:Text('Edit '+(row['job_number'] ?? row['part_name'] ?? row['tractor_id'] ?? 'dashboard record').toString()),
+          content:ConstrainedBox(constraints:const BoxConstraints(maxWidth:520,maxHeight:520),
+            child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+              ...keys.map((key)=>switches.containsKey(key)
+                ?SwitchListTile(contentPadding:EdgeInsets.zero,title:Text(key.replaceAll('_',' ')),value:switches[key]!,onChanged:(value)=>refresh(()=>switches[key]=value))
+                :Padding(padding:const EdgeInsets.only(bottom:8),child:TextField(controller:controllers[key],minLines:1,maxLines:3,decoration:InputDecoration(labelText:key.replaceAll('_',' '),border:const OutlineInputBorder())))),
+              const Text('Changes are saved to the TAJIR audit log.',style:TextStyle(fontSize:12))
+            ]))),
+          actions:[
+            TextButton(onPressed:()=>Navigator.pop(dialogContext),child:const Text('Cancel')),
+            FilledButton(onPressed:(){
+              final result=<String,dynamic>{};
+              for(final key in keys){
+                if(switches.containsKey(key)){result[key]=switches[key];continue;}
+                final raw=controllers[key]!.text.trim();
+                if(raw.isEmpty){result[key]=null;continue;}
+                if(key.contains('amount')||key.contains('price')||key.contains('quantity')||key.contains('cost')||key.contains('acres')||key.contains('hours')||key.contains('rate')||key=='total_charge'){
+                  final number=double.tryParse(raw);
+                  if(number==null){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Enter a valid number for '+key)));return;}
+                  result[key]=number;
+                }else{result[key]=raw;}
+              }
+              Navigator.pop(dialogContext,result);
+            },child:const Text('Save changes'))
+          ]
+        )));
+      if(patch==null||patch.isEmpty)return;
+      setState(()=>busy=true);
+      await db.rpc('tajir_director_update_account_record',params:{
+        'p_table':table,'p_record_id':row['id'],'p_profile_id':widget.profileIdOverride,'p_patch':patch
+      });
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Dashboard record updated and audit log saved.')));
+      await load();
+    }catch(error){
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(error))));
+    }finally{
+      for(final controller in controllers.values){controller.dispose();}
+      if(mounted)setState(()=>busy=false);
+    }
+  }
+
+  Widget directorRecordAction(String table, Map<String,dynamic> row) =>
+    widget.adminPreview ? IconButton(tooltip:'Edit this dashboard record',icon:const Icon(Icons.edit_outlined),
+      onPressed:busy?null:()=>directorEditRecord(table,row)) : const SizedBox.shrink();
+
   Future<void> updateDriverJob(Map<String,dynamic> row, String nextStatus) async {
     if(widget.adminPreview)return;
     double? hoursWorked;
@@ -3843,12 +3911,12 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         )));
         if (primary.isEmpty) out.add(const Text('No tractor ownership records are linked to this account yet.'));
         for (final r in primary) {
-          out.add(recordCard('Tractor asset • ${r['tractor_id']}', 'Verification: ${r['verification_status'] ?? 'pending'}'));
+          out.add(recordCard('Tractor asset • ${r['tractor_id']}', 'Verification: ${r['verification_status'] ?? 'pending'}', actions:directorRecordAction('tractor_owner_assets',r)));
         }
         out.add(sectionTitle('Repair requests and history', secondary.length));
         if (secondary.isEmpty) out.add(const Text('No repair jobs have been submitted.'));
         for (final r in secondary) {
-          out.add(recordCard('${r['job_number'] ?? 'Repair job'}', '${r['issue_description'] ?? ''} • ${r['status'] ?? ''}', trailing: money(r['final_cost_kes'] ?? r['estimated_cost_kes'])));
+          out.add(recordCard('${r['job_number'] ?? 'Repair job'}', '${r['issue_description'] ?? ''} • ${r['status'] ?? ''}', trailing: money(r['final_cost_kes'] ?? r['estimated_cost_kes']), actions:directorRecordAction('tractor_repair_jobs',r)));
         }
         break;
       case 'driver':
@@ -3876,7 +3944,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           out.add(recordCard('${r['job_number'] ?? 'Job'} • ${r['service_type'] ?? ''}',
             '${r['farmer_name'] ?? 'Client'} • ${r['service_location'] ?? ''} • ${r['booked_for'] ?? ''} • ' + jobStatus,
             trailing: money(r['total_charge']),
-            actions: jobActions.isEmpty ? null : Wrap(spacing: 8, children: jobActions)));
+            actions: widget.adminPreview ? directorRecordAction('tractor_service_jobs',r) : (jobActions.isEmpty ? null : Wrap(spacing: 8, children: jobActions))));
         }
         break;
       case 'mechanic':
@@ -3898,11 +3966,11 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
           out.add(recordCard('${r['job_number'] ?? 'Repair job'}',
             '${r['issue_description'] ?? ''} • ${r['location'] ?? ''} • ' + jobStatus,
             trailing: money(r['estimated_cost_kes'] ?? r['final_cost_kes']),
-            actions: jobActions.isEmpty ? null : Wrap(spacing: 8, children: jobActions)));
+            actions: widget.adminPreview ? directorRecordAction('tractor_repair_jobs',r) : (jobActions.isEmpty ? null : Wrap(spacing: 8, children: jobActions))));
         }
         out.add(sectionTitle('Parts requests', requests.length));
         if (requests.isEmpty) out.add(const Text('No parts requests yet.'));
-        out.addAll(requests.map(partRequestCard));
+        out.addAll(requests.map((r)=>widget.adminPreview ? recordCard('Parts request • ${r['quantity'] ?? ''} units','Status: ${r['status'] ?? 'requested'} • Unit price: ${money(r['agreed_unit_price_kes'])}',actions:directorRecordAction('repair_part_requests',r)) : partRequestCard(r)));
         break;
       case 'auto_spares_owner':
         out.add(sectionTitle('Spare-parts inventory', primary.length));
@@ -3915,7 +3983,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
         for (final r in primary) {
           out.add(recordCard('${r['part_name'] ?? 'Spare part'}',
             'Ref: ${r['part_reference'] ?? '-'} • Stock: ${r['quantity'] ?? 0} ${r['unit'] ?? ''} • ${r['status'] ?? ''}',
-            trailing: money(r['price_kes'])));
+            trailing: money(r['price_kes']), actions:directorRecordAction('auto_spares_inventory',r)));
         }
         out.add(sectionTitle('Incoming parts requests', requests.length));
         if (requests.isEmpty) out.add(const Text('No incoming repair-parts requests.'));
