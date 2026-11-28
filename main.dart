@@ -2404,8 +2404,10 @@ class _CustomerPortalPageState extends State<CustomerPortalPage>{
   // account tools remain available to both Buyer and Seller accounts.
   final dashboardCards=<Widget>[
    if(widget.adminPreview)Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    const ListTile(contentPadding:EdgeInsets.zero,leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director view'),subtitle:Text('Review this client dashboard and manage the client account without using the client’s PIN.')),
-    SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:busy?null:directorEditCustomerAccount,icon:const Icon(Icons.manage_accounts_outlined),label:const Text('Manage client account')))
+    const ListTile(contentPadding:EdgeInsets.zero,leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director controls'),subtitle:Text('Manage this client account and edit its linked dashboard records. No client PIN or impersonation is used.')),
+    SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:busy?null:directorEditCustomerAccount,icon:const Icon(Icons.manage_accounts_outlined),label:const Text('Manage client account'))),
+    const SizedBox(height:8),
+    SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.profileIdOverride!,roleCode:'customer',roleName:'Client'))),icon:const Icon(Icons.edit_note),label:const Text('Edit client dashboard records')))
    ]))),
    if(buy)Row(children:[
     Expanded(child:homeTile(title:'BUY TAJIR PRODUCTS',subtitle:'Browse products available in the marketplace',imageUrl:TajirPictures.buy,icon:Icons.shopping_basket_outlined,section:0)),
@@ -4212,7 +4214,10 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
       padding: const EdgeInsets.all(18),
       children: [
         const TajirDirectorContacts(),
-       if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director view'),subtitle:Text('Viewing the selected service-provider dashboard and linked records. The preview does not sign in as the account holder.'))),
+       if(widget.adminPreview)Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+         const ListTile(contentPadding:EdgeInsets.zero,leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director controls'),subtitle:Text('Edit this service-provider account’s linked records without signing in as the account holder.')),
+         SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.profileIdOverride!,roleCode:widget.roleCode,roleName:widget.roleName))),icon:const Icon(Icons.edit_note),label:const Text('Edit dashboard records'))),
+       ])))
        Text('${widget.roleName} workspace', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         Text(widget.adminPreview ? 'Records linked to the selected account.' : 'Your records are limited by your signed-in account permissions.'),
         if (loading) const LinearProgressIndicator(),
@@ -4619,7 +4624,10 @@ class _WorkerWorkspacePageState extends State<WorkerWorkspacePage> {
       padding: const EdgeInsets.all(18),
       children: [
         const TajirDirectorContacts(),
-        if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director view'),subtitle:Text('Viewing this worker’s dashboard records. Attendance actions are disabled in this preview.'))),
+        if(widget.adminPreview)Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          const ListTile(contentPadding:EdgeInsets.zero,leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director controls'),subtitle:Text('Edit this worker’s linked tasks, attendance and reports. Worker-only attendance actions remain protected.')),
+          SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.profileIdOverride!,roleCode:'worker',roleName:'Worker'))),icon:const Icon(Icons.edit_note),label:const Text('Edit worker dashboard records'))),
+        ])))
         const Text('Work and attendance', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         Text(widget.adminPreview ? 'Records linked to the selected worker account.' : 'Only tasks and attendance linked to your signed-in account are shown.'),
         if (loading) const LinearProgressIndicator(),
@@ -5100,8 +5108,8 @@ class _DirectorMasterOversightPageState extends State<DirectorMasterOversightPag
       await db.from('audit_logs').insert({
         'actor_user_id':uid,'action':'director_account_viewed',
         'entity_schema':'public','entity_table':'profiles','entity_id':id,
-        'reason':'TAJIR opened read-only account overview: '+name,
-        'after_data':{'view_mode':'read_only'}
+        'reason':'TAJIR opened the selected account dashboard with director-managed access: '+name,
+        'after_data':{'view_mode':'director_managed_view'}
       });
     }catch(_){}
     await load();
