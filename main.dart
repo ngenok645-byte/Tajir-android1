@@ -4061,7 +4061,7 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
               const Text('Manage your equipment, service bookings and repairs from one place.'),
               const SizedBox(height: 10),
               Wrap(spacing: 8, runSpacing: 8, children: [
-                ActionChip(avatar: const Icon(Icons.agriculture), label: const Text('My tractor services'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TractorOwnerServiceFleetPage()))),
+                ActionChip(avatar: const Icon(Icons.agriculture), label: const Text('My tractor services'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TractorOwnerServiceFleetPage(profileIdOverride:widget.profileIdOverride,adminPreview:widget.adminPreview)))),
                 ActionChip(avatar: const Icon(Icons.square_foot), label: const Text('Measure land'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('TAJIR Land Measure')), body: const TajirLandMeasurePage()))),
                 ActionChip(avatar: const Icon(Icons.build_circle_outlined), label: const Text('Repairs & parts'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('Repair and spare-parts marketplace')), body: const SafeArea(child: RepairMarketplacePage())))),
               ]),
@@ -4202,7 +4202,9 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
 }
 
 class TractorOwnerServiceFleetPage extends StatefulWidget {
-  const TractorOwnerServiceFleetPage({super.key});
+  final String? profileIdOverride;
+  final bool adminPreview;
+  const TractorOwnerServiceFleetPage({super.key,this.profileIdOverride,this.adminPreview=false});
   @override State<TractorOwnerServiceFleetPage> createState() => _TractorOwnerServiceFleetPageState();
 }
 
@@ -4212,7 +4214,7 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
   String error = '';
   Map<String,dynamic>? owner;
   List<Map<String,dynamic>> tractors = [], bookings = [];
-  String get uid => db.auth.currentUser!.id;
+  String get uid => widget.profileIdOverride ?? db.auth.currentUser!.id;
 
   @override void initState() { super.initState(); load(); }
 
@@ -4238,7 +4240,7 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
   }
 
   Future<void> openTradingAccount() async {
-    if (saving) return;
+    if (saving || widget.adminPreview) return;
     setState(() => saving = true);
     try {
       await db.rpc('ensure_tractor_owner_customer_account');
@@ -4254,6 +4256,7 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
   }
 
   Future<void> takeBookingAsDriver(Map<String,dynamic> booking) async {
+    if(widget.adminPreview)return;
     try {
       await db.rpc('tractor_owner_take_booking_as_driver', params: {
         'p_booking_id': booking['id'],
@@ -4271,6 +4274,7 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
   }
 
   Future<void> addTractor() async {
+    if(widget.adminPreview)return;
     final name = TextEditingController();
     final model = TextEditingController();
     final county = TextEditingController();
@@ -4329,6 +4333,7 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
   }
 
   Future<void> editOperatingArea(Map<String,dynamic> row) async {
+    if(widget.adminPreview)return;
     final county=TextEditingController(text:(row['operating_county']??'').toString());
     final region=TextEditingController(text:(row['operating_region']??'').toString());
     final village=TextEditingController(text:(row['operating_village']??'').toString());
@@ -4361,6 +4366,7 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
   }
 
   Future<void> updateAvailability(Map<String,dynamic> row, String status) async {
+    if(widget.adminPreview)return;
     try {
       await db.from('tractor_owner_service_fleet').update({'status':status,'updated_at':DateTime.now().toUtc().toIso8601String()})
         .eq('id',row['id']).eq('owner_profile_id',owner!['id']);
@@ -4371,7 +4377,8 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
   }
 
   @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('My Tractor Services'), actions: [
+    appBar: AppBar(title: Text(widget.adminPreview ? 'Tractor services • TAJIR view' : 'My Tractor Services'), actions: [
+      if(widget.adminPreview)IconButton(tooltip:'Edit linked owner records',onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.profileIdOverride!,roleCode:'tractor_owner',roleName:'Tractor Owner'))),icon:const Icon(Icons.edit_note)),
       IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh),tooltip:'Refresh'),
     ]),
     body: RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
@@ -4382,11 +4389,12 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
       if(error.isNotEmpty) Padding(padding:const EdgeInsets.symmetric(vertical:12),child:Text(error,style:const TextStyle(color:Colors.red))),
       if(!loading && error.isEmpty) ...[
         Card(child:ListTile(leading:const Icon(Icons.agriculture),title:Text((owner?['full_name']??'Tractor owner').toString()),subtitle:Text('Account: ${owner?['status']??'registered'}'))),
-        Wrap(spacing:8,runSpacing:8,children:[
+        if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director preview'),subtitle:Text('This is the selected owner’s actual service-fleet data. Use Edit linked owner records to make audited changes. Owner-only actions are disabled in this preview.'))),
+        if(!widget.adminPreview)Wrap(spacing:8,runSpacing:8,children:[
           FilledButton.icon(onPressed:saving?null:addTractor,icon:const Icon(Icons.add),label:const Text('Add tractor')),
           OutlinedButton.icon(onPressed:saving?null:openTradingAccount,icon:saving?const SizedBox(width:16,height:16,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.storefront_outlined),label:const Text('Open my TAJIR Trading account')),
         ]),
-        const Padding(padding:EdgeInsets.only(top:6),child:Text('Your trading account starts with Buyer access. TAJIR must separately authorize Seller access before you can list products for sale.',style:TextStyle(fontSize:12,color:Colors.black54))),
+        if(!widget.adminPreview)const Padding(padding:EdgeInsets.only(top:6),child:Text('Your trading account starts with Buyer access. TAJIR must separately authorize Seller access before you can list products for sale.',style:TextStyle(fontSize:12,color:Colors.black54))),
         const SizedBox(height:18),
         Text('Incoming service bookings (${bookings.length})',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
         if(bookings.isEmpty) const Text('No customer bookings have been assigned to your fleet yet.'),
@@ -4408,7 +4416,9 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
                 Text((b['status']??'booked').toString().replaceAll('_',' '),style:const TextStyle(fontSize:11)),
               ]),
             ),
-            if(ownerIsDriver)
+            if(widget.adminPreview)
+              const Text('Director view: driver assignment changes are managed through the account’s linked records.',style:TextStyle(fontSize:12,color:Colors.black54))
+            else if(ownerIsDriver)
               const Chip(avatar:Icon(Icons.person_pin_circle_outlined,size:18),label:Text('You are driving this job'))
             else if(noDriver)
               Align(alignment:Alignment.centerLeft,child:OutlinedButton.icon(
@@ -4431,7 +4441,7 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
             Text('${t['make_model']??'Model not specified'} • ${t['ownership_type']??'owned'}'),
             Text('Operating area: ${area.isEmpty?'Not set':area}'),
             Text('Services: ${services.isEmpty?'Not set':services}'),
-            Align(alignment:Alignment.centerLeft,child:TextButton.icon(onPressed:()=>editOperatingArea(t),icon:const Icon(Icons.location_on_outlined),label:const Text('Edit operating area'))),
+            if(!widget.adminPreview)Align(alignment:Alignment.centerLeft,child:TextButton.icon(onPressed:()=>editOperatingArea(t),icon:const Icon(Icons.location_on_outlined),label:const Text('Edit operating area'))),
             Row(children:[
               const Text('Availability: '),
               DropdownButton<String>(value:(t['status']??'available').toString(),items:const [
@@ -4439,7 +4449,7 @@ class _TractorOwnerServiceFleetPageState extends State<TractorOwnerServiceFleetP
                 DropdownMenuItem(value:'busy',child:Text('Busy')),
                 DropdownMenuItem(value:'maintenance',child:Text('Maintenance')),
                 DropdownMenuItem(value:'inactive',child:Text('Inactive')),
-              ],onChanged:(v)=>v==null?null:updateAvailability(t,v)),
+              ],onChanged:widget.adminPreview?null:(v)=>v==null?null:updateAvailability(t,v)),
             ]),
           ])));
         }),
