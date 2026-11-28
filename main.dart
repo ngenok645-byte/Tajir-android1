@@ -6205,7 +6205,7 @@ class _DashboardPageState extends State<DashboardPage> {
       Card(child: ListTile(
         leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.admin_panel_settings, color: brandGreen)),
         title: const Text('TAJIR Master Account Directory', style: TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: const Text('Open the registered-account directory and inspect account roles, status and recorded activity in read-only mode'),
+        subtitle: const Text('Open the account directory, inspect activity and launch each linked role dashboard for director management'),
         trailing: const Icon(Icons.chevron_right),
         onTap: widget.onOpenOversight,
       )),
@@ -6215,7 +6215,7 @@ class _DashboardPageState extends State<DashboardPage> {
       Card(child: ListTile(
         leading: const CircleAvatar(backgroundColor: Color(0xFFEAF4EC), child: Icon(Icons.manage_accounts, color: brandGreen)),
         title: const Text('Staff & Accounts', style: TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: const Text('Read-only directory of registered staff and assigned roles'),
+        subtitle: const Text('Open staff accounts and manage their linked role dashboards'),
         trailing: const Icon(Icons.chevron_right),
         onTap: widget.onOpenStaff,
       )),
@@ -6328,17 +6328,21 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
           p['id'].toString(): (p['display_name'] ?? 'Unnamed account').toString()
       };
       final grouped = <String, List<String>>{};
+      final groupedCodes = <String, List<String>>{};
       for (final row in List<Map<String, dynamic>>.from(roles)) {
         final id = row['user_id']?.toString() ?? '';
         if (id.isEmpty) continue;
         final role = row['app_roles'];
         final label = role is Map ? (role['name'] ?? role['code'] ?? 'Assigned role').toString() : 'Assigned role';
         grouped.putIfAbsent(id, () => <String>[]).add(label);
+        final code = role is Map ? (role['code'] ?? '').toString() : '';
+        if (code.isNotEmpty) groupedCodes.putIfAbsent(id, () => <String>[]).add(code);
       }
       final result = grouped.entries.map((entry) => <String, dynamic>{
         'user_id': entry.key,
         'name': names[entry.key] ?? 'Profile name unavailable',
         'roles': entry.value.toSet().toList()..sort(),
+        'role_codes': (groupedCodes[entry.key] ?? <String>[]).toSet().toList()..sort(),
         'phone': List<Map<String,dynamic>>.from(profiles).firstWhere((p)=>p['id'].toString()==entry.key,orElse:()=>{})['phone'],
         'status': List<Map<String,dynamic>>.from(profiles).firstWhere((p)=>p['id'].toString()==entry.key,orElse:()=>{})['status'],
         'created_at': List<Map<String,dynamic>>.from(profiles).firstWhere((p)=>p['id'].toString()==entry.key,orElse:()=>{})['created_at'],
@@ -6349,6 +6353,22 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
     } finally {
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  Future<void> openStaffRoleDashboard(BuildContext pageContext,String profileId,String roleCode) async {
+    final roleNames=<String,String>{'customer':'Client','worker':'Worker','tractor_owner':'Tractor Owner','driver':'Driver','mechanic':'Mechanic','auto_spares_owner':'Auto-spares Owner'};
+    final roleName=roleNames[roleCode];
+    if(roleName==null)return;
+    final Widget page;
+    if(roleCode=='customer'){
+      page=CustomerPortalPage(profileIdOverride:profileId,adminPreview:true);
+    }else if(roleCode=='worker'){
+      page=WorkerWorkspacePage(profileIdOverride:profileId,adminPreview:true);
+    }else{
+      page=RoleWorkspacePage(roleCode:roleCode,roleName:roleName,profileIdOverride:profileId,adminPreview:true);
+    }
+    await Navigator.of(pageContext).push(MaterialPageRoute<void>(builder:(_)=>page));
+    if(mounted)await load();
   }
 
   Future<void> inspectStaffAccount(Map<String,dynamic> account) async {
@@ -6448,6 +6468,14 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
               Align(alignment:Alignment.centerLeft,child:FilledButton.icon(
                 onPressed:()async{try{await callTajirPhone(account['phone'].toString());}catch(e){if(pageContext.mounted)ScaffoldMessenger.of(pageContext).showSnackBar(SnackBar(content:Text(friendlyError(e))));}},
                 icon:const Icon(Icons.call),label:const Text('Call account'))),
+            const SizedBox(height:12),
+            const Text('Open and manage a role dashboard',style:TextStyle(fontWeight:FontWeight.bold)),
+            const SizedBox(height:6),
+            Wrap(spacing:8,runSpacing:8,children:(account['role_codes'] as List<String>).where((code)=>const ['customer','worker','tractor_owner','driver','mechanic','auto_spares_owner'].contains(code)).map((code)=>OutlinedButton.icon(
+              onPressed:()=>openStaffRoleDashboard(pageContext,id,code),
+              icon:const Icon(Icons.dashboard_customize_outlined),
+              label:Text('Open '+({'customer':'Client','worker':'Worker','tractor_owner':'Tractor Owner','driver':'Driver','mechanic':'Mechanic','auto_spares_owner':'Auto-spares Owner'}[code]??code)+' dashboard'),
+            )).toList()),
           ]))),
           if(unavailableSections.isNotEmpty) Card(color:Colors.amber.shade50,child:Padding(padding:const EdgeInsets.all(12),child:Text('Some optional records could not be loaded: '+unavailableSections.join(', ')+'. The account overview is still available.'))),
           const SizedBox(height:12),
@@ -6484,7 +6512,7 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
     onRefresh: load,
     child: ListView(padding: const EdgeInsets.all(18), children: [
       const Text('Staff & Accounts', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-      const Text('TAJIR read-only view • PINs and passwords are never displayed'),
+      const Text('TAJIR account management • PINs and passwords are never displayed'),
       const SizedBox(height: 12),
       Row(children: [
         Expanded(child: Text('${accounts.length} accounts with active role assignments')),
@@ -6510,7 +6538,7 @@ class _StaffAccountsPageState extends State<StaffAccountsPage> {
         ]),
       ))),
       const Padding(padding: EdgeInsets.only(top: 12), child: Text(
-        'This directory is read-only. It does not expose PINs, passwords, authentication tokens, or private login credentials.',
+        'Use each account’s dashboard action to inspect and edit linked operational records. PINs, passwords, authentication tokens and private login credentials remain protected.',
         style: TextStyle(fontSize: 12, color: Colors.black54),
       )),
     ]),
