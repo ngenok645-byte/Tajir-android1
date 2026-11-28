@@ -3572,7 +3572,10 @@ class _CustomerTractorBookingsPageState extends State<CustomerTractorBookingsPag
   if(mounted)setState(()=>busy=false);
  }
  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[
-  if(widget.adminPreview)const Card(child:ListTile(leading:Icon(Icons.visibility_outlined),title:Text('TAJIR director view'),subtitle:Text('These bookings belong to the selected client account. This view does not create or change bookings.'))),
+  if(widget.adminPreview)Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+   const ListTile(contentPadding:EdgeInsets.zero,leading:Icon(Icons.admin_panel_settings,color:brandGreen),title:Text('TAJIR director controls'),subtitle:Text('Review these bookings and edit the client’s linked tractor-service booking records.')),
+   SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>DirectorAccountRecordsPage(profileId:widget.customerProfileId!,roleCode:'customer',roleName:'Client'))),icon:const Icon(Icons.edit_note),label:const Text('Edit client booking records'))),
+  ]))),
   const Text('Tractor booking history',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
   const Text('Once a driver is assigned, their registered contact becomes available here.',style:TextStyle(fontSize:12,color:Colors.black54)),
   if(busy)const LinearProgressIndicator(),
@@ -4788,7 +4791,7 @@ class _DirectorAccountRecordsPageState extends State<DirectorAccountRecordsPage>
           final c=await db.from('customers').select('id').eq('profile_id',widget.profileId).maybeSingle();
           final id=(c?['id']??'').toString();
           await add('customers','Customer account','profile_id',widget.profileId);
-          for(final t in ['customer_product_requests','customer_custom_product_requests','customer_payments','sales_orders','sales'])await add(t,t.replaceAll('_',' '),'customer_id',id);
+          for(final t in ['customer_product_requests','customer_custom_product_requests','customer_payments','sales_orders','sales','tractor_service_jobs','tractor_owner_service_bookings'])await add(t,t.replaceAll('_',' '),'customer_id',id);
           await add('marketplace_listings','Marketplace listings','seller_customer_id',id);break;
         case 'worker':
           await add('staff_tasks','Assigned tasks','assigned_to',widget.profileId);
