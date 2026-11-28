@@ -4062,8 +4062,32 @@ class _RoleWorkspacePageState extends State<RoleWorkspacePage> {
               const SizedBox(height: 10),
               Wrap(spacing: 8, runSpacing: 8, children: [
                 ActionChip(avatar: const Icon(Icons.agriculture), label: const Text('My tractor services'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TractorOwnerServiceFleetPage(profileIdOverride:widget.profileIdOverride,adminPreview:widget.adminPreview)))),
-                ActionChip(avatar: const Icon(Icons.square_foot), label: const Text('Measure land'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('TAJIR Land Measure')), body: const TajirLandMeasurePage()))),
-                ActionChip(avatar: const Icon(Icons.build_circle_outlined), label: const Text('Repairs & parts'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: const Text('Repair and spare-parts marketplace')), body: const SafeArea(child: RepairMarketplacePage())))),
+                ActionChip(
+                  avatar: const Icon(Icons.square_foot),
+                  label: const Text('Measure land'),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => Scaffold(
+                        appBar: AppBar(title: const Text('TAJIR Land Measure')),
+                        body: const TajirLandMeasurePage(),
+                      ),
+                    ),
+                  ),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.build_circle_outlined),
+                  label: const Text('Repairs & parts'),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => Scaffold(
+                        appBar: AppBar(title: const Text('Repair and spare-parts marketplace')),
+                        body: const SafeArea(child: RepairMarketplacePage()),
+                      ),
+                    ),
+                  ),
+                ),
               ]),
             ]),
           ),
